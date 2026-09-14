@@ -1,0 +1,23 @@
+[toolchain]
+anchor_version = "1.0.2"
+solana_version = "3.1.13"
+package_manager = "npm"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+stockroom_credit = "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH"
+demo_oracle = "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg"
+
+[programs.devnet]
+stockroom_credit = "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH"
+demo_oracle = "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg"
+
+[provider]
+cluster = "devnet"
+wallet = ".keys/deployer.json"
+
+[scripts]
+test = "npm test"

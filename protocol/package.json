@@ -1,0 +1,35 @@
+{
+  "name": "stockroom-protocol",
+  "version": "0.1.0",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:math": "cargo test -p credit-math",
+    "demo:devnet": "node scripts/rpc-demo.mjs",
+    "demo:local": "node scripts/rpc-demo.mjs --local",
+    "verify": "node scripts/verify.mjs",
+    "deploy:devnet": "node scripts/deploy-devnet.mjs",
+    "setup:keys": "node scripts/setup-keys.mjs",
+    "validator": "node scripts/local-validator.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "GPL-3.0-or-later",
+  "description": "Stockroom isolated credit protocol for Solana Devnet",
+  "dependencies": {
+    "@coral-xyz/anchor": "0.32.1",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.99.0"
+  },
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@solana/kit": "8.3.0",
+    "litesvm": "1.4.1",
+    "prettier": "3.9.6"
+  }
+}

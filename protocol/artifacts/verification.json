@@ -1,0 +1,52 @@
+{
+  "checkedAt": "2026-09-14T02:55:21.238Z",
+  "result": "PASS",
+  "checks": [
+    {
+      "name": "format",
+      "status": 0
+    },
+    {
+      "name": "client-format",
+      "status": 0
+    },
+    {
+      "name": "math",
+      "status": 0
+    },
+    {
+      "name": "sbf",
+      "status": 0
+    }
+  ],
+  "binaries": {
+    "stockroom_credit": "1113a650d65bab549e70de8dfe820466d53ca2538baa9fcf2afbdf549565481c",
+    "demo_oracle": "50d5e020a6c3a2517bc47d485279fcd6131bd7bbc696aca9fb5f96d7bcfe4199"
+  },
+  "sources": {
+    "Cargo.toml": "8aeff14fcd3e547c99819743e290094365bcd3b12895899fe0236bbfafd1aa55",
+    "Cargo.lock": "9dd4ac38d650eefd4cb960fb82e12de18a01ff45e7d2adf44bd6cc2daa5d75f5",
+    "Anchor.toml": "e596725270cb25f8656895a9beadb913e6a5bb45c21f846f0eda7fd4b68168bb",
+    "rust-toolchain.toml": "9af7a084f6c81634ad8ed71a2a095dc77bc1723406e0f95dccf19f4af5d984e6",
+    "crates/credit-math/Cargo.toml": "2628965301ea034480c79397b4ed5944a5250dc2fdb9856193b7665c59804a8d",
+    "crates/credit-math/src/lib.rs": "0b73ae83b27a2a5164019858b625ccb3b41ee389fbfc1d5d0fa313cfcb1259ff",
+    "programs/demo-oracle/Cargo.toml": "44826881b0cd99c498cd95b6e0d8ce8563e562679b8a76ff1ec21edcdf91dd7b",
+    "programs/demo-oracle/src/lib.rs": "52742a50856c5fe8cdb692d887255233c3c2b0360d9a6bf98e5f03a944ea4c7a",
+    "programs/stockroom-credit/Cargo.toml": "d5a6d6fbb19da6be3707320786a0c11c56a8963f834a0bb64930f28f068d54bf",
+    "programs/stockroom-credit/src/lib.rs": "e7e1de32fd0b440d1bdf13cf7cb6951a91fb4baea6fe7f6eefd131d6d4bcd9f5",
+    "sdk/client.mjs": "03c9904d71425972a00d1a4f375ea2120158115b6f76d7db8530c405b8347fbf",
+    "tests/credit.test.mjs": "108880035471b987ad8566dd3785efc2ab5c5f5c95ec4407b45ae53894caee45",
+    "tests/fixture.mjs": "c3e598984e2944ecf81dc8c8c621e6791bcc3632f099e879f6f33cc306bdaca8",
+    "package.json": "b69ebc26f53a2904bfc15f08721e65e60218b045b90f2effef690ea5a3b5019e",
+    "package-lock.json": "f5c90de00fc8014ad3d646142bad4abe6992dbe6af174a7ded1fc63080221af3",
+    "scripts/build.mjs": "ef2a47534aa472d3ddb763bccf8a59710da79d52887b0742241f7f629ab7d8c4",
+    "scripts/deploy-devnet.mjs": "50ec96c8623376c53bc2f1a5da0d5482b830650571ecd3f0e8fea64783b6e901",
+    "scripts/local-validator.mjs": "59328d7d5feb4bce903aaced408eab2211c2dcc965bcc1e9556d945445df35c6",
+    "scripts/program-proof.mjs": "59f1bbb818b98ca6462fb37277f30a00dd182468bb8fd3b4c21ce2aea733be8f",
+    "scripts/rpc-demo.mjs": "9a241e0b3503111973c5b9ea85154c9715e237731da0ab53555d4426bc0e0d2f",
+    "scripts/setup-keys.mjs": "a22905f86a149ccf54fb615b8c6ef3c6e4b5faf2b6d3df17cff97a9a26901bbd",
+    "scripts/verify.mjs": "1dec2fa87ee52dd56b171573543a84f88bf1ea29da89c35bec172c715cde121c",
+    "sdk/idl/demo_oracle.json": "8ba554b0c6c07b5ac2b28707e15ad84f2e54be0794b76f0a33ef5c0a66726173",
+    "sdk/idl/stockroom_credit.json": "f0a2a2ce140071078bfdcbfed4035bc6eda4b75ae901e381636d813d93319026"
+  }
+}

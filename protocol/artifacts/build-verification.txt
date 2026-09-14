@@ -1,0 +1,19 @@
+
+> stockroom-protocol@0.1.0 build
+> node scripts/build.mjs
+
+[2026-09-14T02:44:43.750232000Z WARN  cargo_build_sbf] Package 'stockroom-credit' has two crate types defined: cdylib and lib. This setting precludes link-time optimizations (LTO). Use cdylib for programs to be deployed and rlib for packages to be imported by other programs as libraries.
+   Compiling demo-oracle v0.1.0 (/Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/programs/demo-oracle)
+   Compiling stockroom-credit v0.1.0 (/Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/programs/stockroom-credit)
+    Finished `release` profile [optimized] target(s) in 4.53s
+[2026-09-14T02:44:48.534314000Z WARN  cargo_build_sbf::post_processing] The following functions are undefined and not known syscalls ["abort", "sol_log_", "sol_panic_", "sol_try_find_program_address", "sol_memcpy_", "sol_log_data", "sol_invoke_signed_rust", "sol_get_clock_sysvar", "sol_get_rent_sysvar", "sol_memset_", "sol_log_pubkey", "sol_memmove_", "sol_memcmp_"].
+[2026-09-14T02:44:48.534338000Z WARN  cargo_build_sbf::post_processing]          Calling them will trigger a run-time error.
+[2026-09-14T02:44:48.725916000Z WARN  cargo_build_sbf] Package 'demo-oracle' has two crate types defined: cdylib and lib. This setting precludes link-time optimizations (LTO). Use cdylib for programs to be deployed and rlib for packages to be imported by other programs as libraries.
+   Compiling demo-oracle v0.1.0 (/Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/programs/demo-oracle)
+    Finished `release` profile [optimized] target(s) in 0.85s
+[2026-09-14T02:44:49.687722000Z WARN  cargo_build_sbf::post_processing] The following functions are undefined and not known syscalls ["abort", "sol_log_", "sol_panic_", "sol_memcpy_", "sol_invoke_signed_rust", "sol_get_clock_sysvar", "sol_get_rent_sysvar", "sol_memset_", "sol_log_pubkey", "sol_memmove_"].
+[2026-09-14T02:44:49.687744000Z WARN  cargo_build_sbf::post_processing]          Calling them will trigger a run-time error.
+    Finished `test` profile [unoptimized] target(s) in 0.27s
+     Running unittests src/lib.rs (/Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/target/debug/deps/stockroom_credit-b6b53cf80afdb428)
+    Finished `test` profile [unoptimized] target(s) in 0.14s
+     Running unittests src/lib.rs (/Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/target/debug/deps/demo_oracle-7bdea1f9901ceff3)

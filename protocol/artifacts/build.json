@@ -1,0 +1,29 @@
+{
+  "sources": {
+    "Cargo.toml": "8aeff14fcd3e547c99819743e290094365bcd3b12895899fe0236bbfafd1aa55",
+    "Cargo.lock": "9dd4ac38d650eefd4cb960fb82e12de18a01ff45e7d2adf44bd6cc2daa5d75f5",
+    "Anchor.toml": "e596725270cb25f8656895a9beadb913e6a5bb45c21f846f0eda7fd4b68168bb",
+    "rust-toolchain.toml": "9af7a084f6c81634ad8ed71a2a095dc77bc1723406e0f95dccf19f4af5d984e6",
+    "crates/credit-math/Cargo.toml": "2628965301ea034480c79397b4ed5944a5250dc2fdb9856193b7665c59804a8d",
+    "crates/credit-math/src/lib.rs": "0b73ae83b27a2a5164019858b625ccb3b41ee389fbfc1d5d0fa313cfcb1259ff",
+    "programs/demo-oracle/Cargo.toml": "44826881b0cd99c498cd95b6e0d8ce8563e562679b8a76ff1ec21edcdf91dd7b",
+    "programs/demo-oracle/src/lib.rs": "52742a50856c5fe8cdb692d887255233c3c2b0360d9a6bf98e5f03a944ea4c7a",
+    "programs/stockroom-credit/Cargo.toml": "d5a6d6fbb19da6be3707320786a0c11c56a8963f834a0bb64930f28f068d54bf",
+    "programs/stockroom-credit/src/lib.rs": "e7e1de32fd0b440d1bdf13cf7cb6951a91fb4baea6fe7f6eefd131d6d4bcd9f5"
+  },
+  "builtAt": "2026-09-14T02:44:50.395Z",
+  "anchor": "1.0.2",
+  "agave": "3.1.13",
+  "hostRust": "1.90.0",
+  "platformTools": "v1.52",
+  "binaries": {
+    "stockroom_credit": {
+      "sha256": "1113a650d65bab549e70de8dfe820466d53ca2538baa9fcf2afbdf549565481c",
+      "bytes": 401360
+    },
+    "demo_oracle": {
+      "sha256": "50d5e020a6c3a2517bc47d485279fcd6131bd7bbc696aca9fb5f96d7bcfe4199",
+      "bytes": 147464
+    }
+  }
+}
