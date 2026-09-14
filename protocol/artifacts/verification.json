@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-09-14T02:55:21.238Z",
+  "checkedAt": "2026-09-14T03:33:37.594Z",
   "result": "PASS",
   "checks": [
     {
@@ -40,7 +40,7 @@
     "package.json": "b69ebc26f53a2904bfc15f08721e65e60218b045b90f2effef690ea5a3b5019e",
     "package-lock.json": "f5c90de00fc8014ad3d646142bad4abe6992dbe6af174a7ded1fc63080221af3",
     "scripts/build.mjs": "ef2a47534aa472d3ddb763bccf8a59710da79d52887b0742241f7f629ab7d8c4",
-    "scripts/deploy-devnet.mjs": "50ec96c8623376c53bc2f1a5da0d5482b830650571ecd3f0e8fea64783b6e901",
+    "scripts/deploy-devnet.mjs": "b38cab62f0332b2a6b9887c68efe51d0d04e424a8390ec6688961c0a74abefb1",
     "scripts/local-validator.mjs": "59328d7d5feb4bce903aaced408eab2211c2dcc965bcc1e9556d945445df35c6",
     "scripts/program-proof.mjs": "59f1bbb818b98ca6462fb37277f30a00dd182468bb8fd3b4c21ce2aea733be8f",
     "scripts/rpc-demo.mjs": "9a241e0b3503111973c5b9ea85154c9715e237731da0ab53555d4426bc0e0d2f",

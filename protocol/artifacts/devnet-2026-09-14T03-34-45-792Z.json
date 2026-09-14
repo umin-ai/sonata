@@ -1,0 +1,255 @@
+{
+  "run": "devnet-2026-09-14T03-34-45-792Z",
+  "network": "devnet",
+  "rpc": "https://api.devnet.solana.com",
+  "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "startedAt": "2026-09-14T03:34:45.802Z",
+  "testAssets": true,
+  "programProof": [
+    {
+      "name": "stockroom_credit",
+      "program": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
+      "loader": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "programData": "FTZUKzvbLETJf1ZQ6Pwfes5uqwQqVbmaf686y9iHz4dH",
+      "bytes": 401360,
+      "sha256": "1113a650d65bab549e70de8dfe820466d53ca2538baa9fcf2afbdf549565481c",
+      "exactBinaryMatch": true
+    },
+    {
+      "name": "demo_oracle",
+      "program": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
+      "loader": "BPFLoaderUpgradeab1e11111111111111111111111",
+      "programData": "2dPKzL6voWLKK1bm19mabNaRQUUNTAnNRwHN2etGFzqj",
+      "bytes": 147464,
+      "sha256": "50d5e020a6c3a2517bc47d485279fcd6131bd7bbc696aca9fb5f96d7bcfe4199",
+      "exactBinaryMatch": true
+    }
+  ],
+  "programs": {
+    "credit": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
+    "demoOracle": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg"
+  },
+  "binaries": {
+    "stockroom_credit": "1113a650d65bab549e70de8dfe820466d53ca2538baa9fcf2afbdf549565481c",
+    "demo_oracle": "50d5e020a6c3a2517bc47d485279fcd6131bd7bbc696aca9fb5f96d7bcfe4199"
+  },
+  "accounts": {
+    "admin": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+    "lender": "Dr5GrugfwDLJVkTjhsJyQeZfa12txQzHYyC5WvKE7YDm",
+    "borrower": "F9dH9nWxDSkeYNBxZ3Rjt7vM6yY6RmjzicjpVyy69t2H",
+    "liquidator": "H2SGLbuqKTVUSU8TCV5o4vPugyt4V8rfEh89cS6yJgWA",
+    "stockMint": "7iXwqi1TNYZEpQDe6AoT2yPpnr7rNyRNYCtipgTmSb7S",
+    "cashMint": "2GbGdocbeW9ggwrFKzXwxoVRko3sWednUi46MjiGpX4S",
+    "oracleAccount": "GE9SjeSpqcGCmd9UcL3566FYHhhYCcYa6uB78FMatHCw",
+    "market": "DDPudEgUyLGgvy2bDgrtoYfAXmNd2LaB842VveeWNvQF",
+    "cashVault": "EnRPBaNy67u14YiJCCtHbp3a2tnT8MjFStQprUtJVpbQ",
+    "collateralVault": "3DgEtHHzRQ3aEGFLne1bcVrco2NTtexA5LV8mkT7Ytfq"
+  },
+  "steps": [
+    {
+      "label": "Create demo quote mint",
+      "signature": "uDyKniGpxd32gKJ6WZ8ohpXFfL3uxVF8Usp2mCYpKZXQoCP9GwD7jxaSDt96PLXC91aDsftDVeSMe91e9ebii1T",
+      "slot": 498044788,
+      "computeUnits": 502,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Create demo stock mint",
+      "signature": "K97LWeMUwa27WCDkpShtNspvK1gjhAfD9eUEJF1diRKi7becEiW589bzGPY9TXzzuKAjCr7SB2EhQrZPsXcuZuv",
+      "slot": 498044792,
+      "computeUnits": 3089,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Fund lender test accounts",
+      "signature": "3qWeSLEdVWjYN87zE6cbhdo4sdA34fsaVVDHcnSMEsWUXaUdayUX8ythkXm3BXyUSvKYff3wUV9bgTM4bpuubAE6",
+      "slot": 498044796,
+      "computeUnits": 33973,
+      "feeLamports": 5000,
+      "error": null
+    },
+    {
+      "label": "Fund borrower test accounts",
+      "signature": "3M9Y9UGNkp2Lg7y6EXHKY8BAk1HgJK9wfpbLCmecP24jxLqxy3WnJHjU2jbcyoADZUYhP1xf9imLBA8FWZoxCHVC",
+      "slot": 498044800,
+      "computeUnits": 32473,
+      "feeLamports": 5000,
+      "error": null
+    },
+    {
+      "label": "Fund liquidator test accounts",
+      "signature": "52A4y94z7S3umwAK8PHC4Sy5EWuXs1cBjDtkxAXk9m8XnkQ7W6rokrmZ8VkDrmWDRvUiZQntbggkWDDJW1ZjjLS2",
+      "slot": 498044812,
+      "computeUnits": 33973,
+      "feeLamports": 5000,
+      "error": null
+    },
+    {
+      "label": "Initialize demo oracle",
+      "signature": "3GS5fNSMLQhgFMhsAfNmGuexiLL2Kr43wCUY5C4oYVKvKsK3i8TN1HmHnVBBZ5buRB3BsoXvkgj6Gd7uiCK76m1m",
+      "slot": 498044828,
+      "computeUnits": 5782,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Initialize Stockroom market",
+      "signature": "3Mz1KuhpUUDUiDVeFrfUZEkyWmTu8Ca9ycKNeEVURVG8b7bw9qRbLvLm7Dov2dufyxiTYWhA3eG5gGG6cENCA6iR",
+      "slot": 498044859,
+      "computeUnits": 36117,
+      "feeLamports": 5000,
+      "error": null
+    },
+    {
+      "label": "Initialize lender position",
+      "signature": "2HqCJtRt7CCB2ZTRxQzn8J6mq1wUy2di4wpJJje2cUrXddPfgzQ5kQsEdHBKb1suqJZZ12R6rhfdHbEEnK9GQLpt",
+      "slot": 498044870,
+      "computeUnits": 7786,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Initialize borrower position",
+      "signature": "w5Zwno5oZK6WX4pfcD1aQeG65UvHSmJkZRLqeMn7tj6TGnxg15jDXNwX1EWyww67SVNTQitTEeQMAX3hKbpn2dC",
+      "slot": 498044888,
+      "computeUnits": 7786,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Initialize liquidator position",
+      "signature": "3Y6yzsXfwJurR1r4LUr7v68fd4wKFpTP3q4qKA8XckoSoViYdpBdUTYhkcKTdpkSwYntpQwEQTQUhQ6d8gtuWCRh",
+      "slot": 498044901,
+      "computeUnits": 7786,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Lender supplies 5,000 demo USD",
+      "signature": "3WqgAnUp6FF5n3F9nE8McbxULT1tYFhUUzdJrnPyxzSANnni9XKNpxNTkfJnQjNP6DQmP78PkP218QGNF32iXTcR",
+      "slot": 498044911,
+      "computeUnits": 15888,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Borrower deposits 10 demo stocks",
+      "signature": "4wEy2yMzVDrrnCZNMbvBzc7zB6b9N8h7LMhFotaQD3YsJ11ZtAkdUt5vs3ac2xJdgxssKj3gAiFUTLDS5mHKLkkY",
+      "slot": 498044928,
+      "computeUnits": 16672,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Refresh demo price",
+      "signature": "m93yhNJSjLeroQh2n4SUz5zcSJmk8sVRghQaeLuXNanw9Ykvuvxh9HvZt399LTE8TuYCZWyCU1FewE6FteQawEC",
+      "slot": 498044942,
+      "computeUnits": 2718,
+      "feeLamports": 5000,
+      "error": null
+    },
+    {
+      "label": "Borrower receives 500 demo USD",
+      "signature": "4rdLBEMoaZocrgDCu3hmonhF9kgshxKKMEEWf9xnXuxf7inySHgirmBpP91TSWf6QXsMf5wtjkN917nWFeGH9VKj",
+      "slot": 498044952,
+      "computeUnits": 28322,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Borrower repays debt and elapsed interest",
+      "signature": "3qwBEyE7CTGGzqHBpNpRPxZeTMigpaZC1rezJNw557agGVkdWoMUWWsJuo9FtSMWEB8ze67jMNS2W9YhxkGY51XK",
+      "slot": 498044970,
+      "computeUnits": 25342,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Borrower releases all collateral",
+      "signature": "8NxbEmnfDsjPSyP8rnXz82ZVEoZbSwxcdFacaBLNUAweZBXX3BVSP4zHPZkYQtxR2sCN7MiqLX6vB8mcw8VwocC",
+      "slot": 498044979,
+      "computeUnits": 20747,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Lender redeems available capital and interest",
+      "signature": "GuSJWoXVYhX54aFsKSsJVahcNsozSWNqmdenCyxuqaxkrko2RB6G7v4J5B31u35xAu9t5DP2hHBLeu14nHjr6ZE",
+      "slot": 498044997,
+      "computeUnits": 16092,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Lender supplies liquidation test liquidity",
+      "signature": "8kp7giaKCJYPnTKEwKoiKBzwLdWjyuqQUbbdZthR2PMddnz8XmT9PWPCG3FPXFnVpfwuzpGCNJAoE5Dd9eZAmdf",
+      "slot": 498045004,
+      "computeUnits": 15888,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Borrower posts liquidation test collateral",
+      "signature": "KXgNbDshW9iKroiR5UTiyQfRcouWLucmQdJ6rvCgP3EZsySTLg35Cas9xNSsgv6uWHbBKp3CPQYD9DuRHNB8BbM",
+      "slot": 498045017,
+      "computeUnits": 16672,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Refresh opening quote",
+      "signature": "3RP6RANYuzPSQkuDjAcWGN6msxBubNfArNEiJ1W9uBRU4ehpmHKjeJyZjebsYqbf6anUc1BAYRmpjyTJhQjvJuMw",
+      "slot": 498045021,
+      "computeUnits": 2718,
+      "feeLamports": 5000,
+      "error": null
+    },
+    {
+      "label": "Borrower receives 900 demo USD",
+      "signature": "5fZAUYWtr8mh8r1bFC2AdyX3Qu13LKMNtLTF4vanR8wskTVV8U4ZGyZTqZFRm2N3ptmUv4DFob8uytCnzwyb2bJZ",
+      "slot": 498045037,
+      "computeUnits": 28322,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Demo price shock to 50 USD per raw stock",
+      "signature": "3yd7mbznhjRpjD5aiPDrhCwUJEa3y3yhvFe5qrceGxtseB3k9XDXxy3xU8Em31bmvKUwbnJ9Vd2dEzBcxuHEAPdP",
+      "slot": 498045055,
+      "computeUnits": 2718,
+      "feeLamports": 5000,
+      "error": null
+    },
+    {
+      "label": "Liquidator pays and seizes exhausted collateral",
+      "signature": "5FKPA9QzbpPGne19t1gjEDc3Tw5AcBeMv1Ptw8dNLG4wrS4Ue8Ab4FWWoRXExT5YzvUdZQENGUd1GKCgPiPMk1mJ",
+      "slot": 498045075,
+      "computeUnits": 52259,
+      "feeLamports": 10000,
+      "error": null
+    },
+    {
+      "label": "Lender redeems reduced NAV after bad debt",
+      "signature": "2MqL2SjodE388RykQveQhV4HCjMo2pFMeVLtuix23mh5pZiWvshEujj3o7LeTdG5x4YHRk1vC5VXGbHoNLeic8Rm",
+      "slot": 498045088,
+      "computeUnits": 16085,
+      "feeLamports": 10000,
+      "error": null
+    }
+  ],
+  "lossScenario": {
+    "remainingLenderNavAtoms": "4576190479",
+    "debtAssetsAtoms": "0"
+  },
+  "completedAt": "2026-09-14T03:35:37.541Z",
+  "result": "PASS",
+  "finalState": {
+    "cashAtoms": "1",
+    "debtAssetsAtoms": "0",
+    "supplyShares": "0",
+    "debtShares": "0",
+    "borrowerCollateralAtoms": "0"
+  }
+}

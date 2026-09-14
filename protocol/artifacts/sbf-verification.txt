@@ -2,62 +2,62 @@ TAP version 13
 # Subtest: lender → collateral → loan → accrued repayment → collateral release → lender redemption
 ok 1 - lender → collateral → loan → accrued repayment → collateral release → lender redemption
   ---
-  duration_ms: 328.966833
+  duration_ms: 145.316875
   ...
 # Subtest: opening LTV and cash availability reject unsafe actions atomically
 ok 2 - opening LTV and cash availability reject unsafe actions atomically
   ---
-  duration_ms: 234.594458
+  duration_ms: 120.886541
   ...
 # Subtest: position owner, vault, mint and oracle bindings reject substitution
 ok 3 - position owner, vault, mint and oracle bindings reject substitution
   ---
-  duration_ms: 237.386417
+  duration_ms: 119.707417
   ...
 # Subtest: stale, uncertain and closed-market prices stop new risk; repayment and top-up remain available
 ok 4 - stale, uncertain and closed-market prices stop new risk; repayment and top-up remain available
   ---
-  duration_ms: 246.556458
+  duration_ms: 122.35025
   ...
 # Subtest: pause authority is constrained; a pause cannot block repayment or debt-free collateral release
 ok 5 - pause authority is constrained; a pause cannot block repayment or debt-free collateral release
   ---
-  duration_ms: 150.507125
+  duration_ms: 69.967584
   ...
 # Subtest: slippage bounds and insufficient token funds roll back accounting
 ok 6 - slippage bounds and insufficient token funds roll back accounting
   ---
-  duration_ms: 223.078208
+  duration_ms: 110.465375
   ...
 # Subtest: partial liquidation transfers paid collateral with the bounded bonus
 ok 7 - partial liquidation transfers paid collateral with the bounded bonus
   ---
-  duration_ms: 204.807666
+  duration_ms: 83.0275
   ...
 # Subtest: exhausted collateral writes residual bad debt down against lender NAV
 ok 8 - exhausted collateral writes residual bad debt down against lender NAV
   ---
-  duration_ms: 172.76
+  duration_ms: 58.751584
   ...
 # Subtest: raw-unit valuation is unaffected by a Scaled UI Amount display change
 ok 9 - raw-unit valuation is unaffected by a Scaled UI Amount display change
   ---
-  duration_ms: 188.009333
+  duration_ms: 63.701459
   ...
 # Subtest: unsolicited vault donations cannot inflate accounted NAV or dilute depositors
 ok 10 - unsolicited vault donations cannot inflate accounted NAV or dilute depositors
   ---
-  duration_ms: 141.942792
+  duration_ms: 58.675125
   ...
 # Subtest: freeze authority and permanent delegate collateral mints are refused
 ok 11 - freeze authority and permanent delegate collateral mints are refused
   ---
-  duration_ms: 171.473167
+  duration_ms: 72.319167
   ...
 # Subtest: multiple debt holders and partial repayments close without phantom debt
 ok 12 - multiple debt holders and partial repayments close without phantom debt
   ---
-  duration_ms: 155.271917
+  duration_ms: 68.712041
   ...
 1..12
 # tests 12
@@ -67,4 +67,4 @@ ok 12 - multiple debt holders and partial repayments close without phantom debt
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 3381.855208
+# duration_ms 1545.415542

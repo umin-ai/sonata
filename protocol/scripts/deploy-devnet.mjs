@@ -7,6 +7,11 @@ import { Connection, Keypair } from "@solana/web3.js";
 import { DEVNET_GENESIS, CREDIT_ID, ORACLE_ID } from "../sdk/client.mjs";
 import { proveProgram } from "./program-proof.mjs";
 const rpc = "https://api.devnet.solana.com";
+// QUIC sends upload chunks directly to validators instead of opening hundreds
+// of connections to the public RPC. RPC remains an explicit fallback.
+const transport = process.env.STOCKROOM_DEPLOY_TRANSPORT || "quic";
+if (!["quic", "rpc"].includes(transport))
+  throw new Error("STOCKROOM_DEPLOY_TRANSPORT must be quic or rpc");
 const connection = new Connection(rpc, "confirmed");
 if ((await connection.getGenesisHash()) !== DEVNET_GENESIS)
   throw new Error("Refusing to deploy outside Solana Devnet");
@@ -33,26 +38,15 @@ const solana = existsSync(
 )
   ? resolve("../.tools/stockroom/solana-release/bin/solana")
   : "solana";
-const balance = await connection.getBalance(key.publicKey);
-const estimate =
-  (
-    await Promise.all(
-      ["stockroom_credit", "demo_oracle"].map((name) =>
-        connection.getMinimumBalanceForRentExemption(
-          readFileSync(`target/deploy/${name}.so`).length + 45,
-        ),
-      ),
-    )
-  ).reduce((a, b) => a + b, 0) + 100_000_000;
-if (balance < estimate)
-  throw new Error(
-    `Need approximately ${(estimate / 1e9).toFixed(2)} Devnet SOL; wallet ${key.publicKey} has ${(balance / 1e9).toFixed(3)}. Test tokens only.`,
-  );
+const previousPrograms = existsSync("artifacts/devnet-deployment.json")
+  ? JSON.parse(readFileSync("artifacts/devnet-deployment.json")).programs
+  : [];
 const evidence = {
   network: "devnet",
   genesis: DEVNET_GENESIS,
   startedAt: new Date().toISOString(),
   deployer: key.publicKey.toBase58(),
+  transport,
   programs: [],
 };
 for (const [name, id, keyFile] of [
@@ -64,6 +58,23 @@ for (const [name, id, keyFile] of [
   );
   if (!programKey.publicKey.equals(id))
     throw new Error(`${name} deployment key mismatch`);
+  if ((await connection.getAccountInfo(id))?.executable) {
+    // A resumed deployment must not upload or charge rent twice. A different
+    // deployed binary is an error, not permission to silently overwrite it.
+    const proof = await proveProgram(connection, id, name);
+    const previous = previousPrograms.find((p) => p.id === id.toBase58());
+    evidence.programs.push({
+      name,
+      id: id.toBase58(),
+      sha256: verification.binaries[name],
+      executable: true,
+      ...(previous?.response ? { response: previous.response } : {}),
+      reused: true,
+      proof,
+    });
+    console.log(`Verified existing ${name}: ${id}`);
+    continue;
+  }
   // A fixed private buffer avoids the CLI printing a recovery seed on a failed upload.
   const bufferFile = resolve(`.keys/${name}-deploy-buffer.json`);
   if (!existsSync(bufferFile))
@@ -72,12 +83,40 @@ for (const [name, id, keyFile] of [
       JSON.stringify([...Keypair.generate().secretKey]),
       { mode: 0o600, flag: "wx" },
     );
+  const binary = readFileSync(`target/deploy/${name}.so`);
+  const bufferKey = Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(readFileSync(bufferFile))),
+  ).publicKey;
+  const buffer = await connection.getAccountInfo(bufferKey);
+  // Upgradeable-loader Buffer metadata: enum u32 + Option<Pubkey> (33 bytes).
+  if (
+    buffer &&
+    (buffer.owner.toBase58() !==
+      "BPFLoaderUpgradeab1e11111111111111111111111" ||
+      buffer.data.length < 37 ||
+      buffer.data.readUInt32LE(0) !== 1 ||
+      buffer.data[4] !== 1 ||
+      !buffer.data.subarray(5, 37).equals(key.publicKey.toBuffer()))
+  )
+    throw new Error(`${name}: deployment buffer owner or authority mismatch`);
+  const completeBuffer = buffer?.data.subarray(37).equals(binary) ?? false;
+  const rent = await connection.getMinimumBalanceForRentExemption(
+    binary.length + 45,
+  );
+  const estimate = Math.max(0, rent - (buffer?.lamports ?? 0)) + 100_000_000;
+  const balance = await connection.getBalance(key.publicKey);
+  if (balance < estimate)
+    throw new Error(
+      `${name}: need approximately ${(estimate / 1e9).toFixed(2)} additional Devnet SOL; wallet has ${(balance / 1e9).toFixed(3)}. Existing buffer rent is credited.`,
+    );
   const result = spawnSync(
     solana,
     [
       "program",
       "deploy",
-      `target/deploy/${name}.so`,
+      // An interrupted upload can already contain the complete binary. Finalize
+      // that verified buffer rather than resending writes marked AlreadyProcessed.
+      ...(completeBuffer ? [] : [`target/deploy/${name}.so`]),
       "--program-id",
       resolve(keyFile),
       "--buffer",
@@ -90,7 +129,7 @@ for (const [name, id, keyFile] of [
       wallet,
       "--upgrade-authority",
       wallet,
-      "--use-rpc",
+      `--use-${completeBuffer ? "rpc" : transport}`,
       "--commitment",
       "confirmed",
       "--output",
@@ -99,7 +138,12 @@ for (const [name, id, keyFile] of [
     { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 },
   );
   if (result.status !== 0) {
-    process.stderr.write(result.stderr ?? "");
+    writeFileSync(`.keys/${name}-deploy-stderr.log`, result.stderr ?? "", {
+      mode: 0o600,
+    });
+    process.stderr.write(
+      (result.stderr ?? "").split("\n").slice(-8).join("\n"),
+    );
     throw new Error(
       `${name} deployment failed; the buffer key remains private for retry`,
     );

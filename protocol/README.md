@@ -2,7 +2,7 @@
 
 Stockroom's own Solana credit program for a tokenized-stock borrowing prototype. Lenders supply demo quote tokens; borrowers lock demo Token-2022 stock collateral and receive that liquidity through program-authorized transfers. Debt, interest, health checks, repayment, liquidation and losses are enforced by the Rust program.
 
-**Status: working local prototype.** Twelve compiled-program integration tests and six math tests pass. A complete RPC demonstration runs on Agave's local validator. Devnet deployment is prepared but awaits test SOL. This code has not received an independent audit. The currently published Stockroom website has not yet been wired to these program instructions.
+**Status: deployed and exercised on Solana Devnet.** Twelve compiled-program integration tests and six math tests pass. The Devnet demonstration completed 24 transactions, all independently checked as finalized and successful. Both deployed programs match the tested binaries byte for byte. [Deployment and transaction receipts](docs/devnet-deployment.md). This code has not received an independent audit. The currently published Stockroom website has not yet been wired to these program instructions.
 
 ## Run locally
 
@@ -36,16 +36,16 @@ For the original workspace, the existing **new, demo-only** deployment wallet is
 vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF
 ```
 
-At the recorded deployment attempt it held zero Devnet SOL. The rent/setup estimate was approximately **2.9 Devnet SOL**; 5 provides margin for deployment and demo transactions. These are free test tokens, not purchased SOL. The public RPC faucet returned HTTP/RPC 429. The [official web faucet](https://faucet.solana.com/) can be used by a human; its documented CLI proof-of-work alternative itself requires a small starting fee balance.
+The wallet received **5 Devnet SOL** and funded both deployments and the complete demo on 14 September 2026. **2.127332640 Devnet SOL** remained at the recorded post-demo check. The decrease includes rent and test-account funding, not just transaction fees. These are free test tokens, not purchased SOL. For a fresh deployment, the [official web faucet](https://faucet.solana.com/) provides test funding.
 
-After test funding:
+To verify the existing deployment or run a fresh demo with new test accounts:
 
 ```sh
 npm run deploy:devnet
 npm run demo:devnet
 ```
 
-Deployment checks the Devnet genesis hash, passing test evidence, source hashes and binary hashes. It uses explicit task-only signer paths and fixed private deployment buffers. It does not use the user's configured CLI wallet. Post-deployment code checks compare the deployed bytecode against the tested binary, including upgradeable-loader ProgramData. Failed uploads can reuse the private buffer; do not share its key.
+Deployment checks the Devnet genesis hash, passing test evidence, source hashes and binary hashes. It uses explicit task-only signer paths and fixed private deployment buffers. It does not use the user's configured CLI wallet. Post-deployment code checks compare the deployed bytecode against the tested binary, including upgradeable-loader ProgramData. Matching deployments are verified and skipped; a different deployed binary is refused instead of silently overwritten. Interrupted uploads reuse the same buffer and credit its existing rent. Complete buffers are checked before finalization. Uploads default to QUIC, with `STOCKROOM_DEPLOY_TRANSPORT=rpc` as an explicit fallback; complete buffers are finalized over RPC. Do not share buffer keys.
 
 An independent developer cannot deploy to the original program addresses without their private deployment keys. For a fresh clone and a separate Devnet deployment, run this **before building**, in a checkout without program keys:
 

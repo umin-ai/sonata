@@ -1,19 +1,19 @@
 
 running 6 tests
 test tests::debt_and_collateral_boundaries_remain_separate ... ok
+test tests::full_width_products_and_overflow_are_explicit ... ok
 test tests::virtual_shares_bound_first_depositor_manipulation ... ok
 test tests::seized_collateral_never_exceeds_the_paid_bonus ... ok
-test tests::full_width_products_and_overflow_are_explicit ... ok
 test tests::rounding_cannot_create_a_profitable_round_trip ... ok
 test tests::debt_compounds_at_apr_and_fractional_interest_is_retained ... ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-    Finished `test` profile [unoptimized] target(s) in 0.12s
+    Finished `test` profile [unoptimized] target(s) in 0.07s
      Running unittests src/lib.rs (target/debug/deps/credit_math-2789f3d0fb1e8a23)
    Doc-tests credit_math
