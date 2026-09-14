@@ -8,8 +8,11 @@ export function effectiveMultiplier(state:{multiplier:string;newMultiplier?:stri
 }
 export function rawFromDisplay(display:number,decimals:number,multiplier:number){return Math.floor(display/multiplier*10**decimals);}
 export function displayFromRaw(raw:number,decimals:number,multiplier:number){return raw/10**decimals*multiplier;}
-export function loanScenario(cash:number,collateralValue:number,apy:number,days:number,maxLtv:number,liquidationLtv:number,decline:number){
- const interest=cash*Math.expm1(Math.log1p(apy)*days/365);
- const debt=cash+interest;const stressedValue=collateralValue*(1-decline);
- return {interest,debt,ltv:cash/collateralValue,limit:collateralValue*maxLtv,allowed:cash<=collateralValue*maxLtv,stressedLtv:debt/stressedValue,liquidationValue:debt/liquidationLtv,atRisk:debt/stressedValue>=liquidationLtv};
+export function loanScenario(cash:number,collateralValue:number,apy:number,days:number,maxLtv:number,liquidationLtv:number,decline:number,options:{feeRate?:number;borrowFactor?:number;cashPrice?:number}={}){
+ const feeRate=options.feeRate??0,borrowFactor=options.borrowFactor??1,cashPrice=options.cashPrice??1;
+ const fee=feeRate>0?Math.max(.000001,Math.ceil(cash*feeRate*1e6)/1e6):0;
+ const principal=cash+fee,interest=principal*Math.expm1(Math.log1p(apy)*days/365);
+ const debt=principal+interest,stressedValue=collateralValue*(1-decline),weightedDebt=debt*cashPrice*borrowFactor;
+ const limit=collateralValue*maxLtv/(cashPrice*borrowFactor*(1+feeRate));
+ return {fee,principal,interest,debt,ltv:principal*cashPrice*borrowFactor/collateralValue,limit,allowed:principal*cashPrice*borrowFactor<=collateralValue*maxLtv,stressedLtv:weightedDebt/stressedValue,liquidationValue:weightedDebt/liquidationLtv,atRisk:weightedDebt/stressedValue>=liquidationLtv,buffer:1-weightedDebt/(collateralValue*liquidationLtv)};
 }
