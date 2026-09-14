@@ -1,6 +1,6 @@
 # Stockroom wallet integration contract
 
-The [published Stockroom Devnet app](https://stockroom-cash-access.morganlyk.chatgpt.site/devnet) now submits instructions to Stockroom's own deployed credit program. The root market-research screen remains separate. A temporary browser wallet completed faucet, deposit-and-borrow, full repayment, collateral release, supply and redemption on Devnet; all six receipts were independently checked as finalized. See `artifacts/devnet-browser-lifecycle.json` for evidence and `artifacts/app-demo.json` for the interactive market addresses.
+The [published Stockroom Devnet app](https://stockroom-cash-access.morganlyk.chatgpt.site/devnet) now submits instructions to Stockroom's own deployed credit program. The root market-research screen remains separate. A temporary browser wallet completed faucet, deposit-and-borrow, full repayment, collateral release, supply and redemption on Devnet; all six receipts were independently checked as finalized. See `artifacts/devnet-browser-lifecycle.json` for evidence and `artifacts/app-demo.json` for the original interactive market addresses. Four named mock markets are now registered in `artifacts/mock-markets.json`; see `docs/mock-stock-issuance.md` for their issuance and isolated lifecycle verification.
 
 ## Keep the network and assets explicit
 

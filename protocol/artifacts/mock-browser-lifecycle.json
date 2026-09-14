@@ -1,0 +1,58 @@
+{
+  "date": "2026-09-14T09:29:15.985Z",
+  "market": "3dScQLWezDRhyvjnUqyiCCPCmSATh479psPveFNgNYzg",
+  "marketId": "MockSPYx",
+  "network": "solana:devnet",
+  "wallet": "7tZWSrijkawrDA5njB3bvdv4qLKpEoLc8mebCfg5pzm1",
+  "validation": "Browser completed all six flows. Switched to MockNVDAx during a MockSPYx loan and observed a separate zero-debt position. Receipt expansion displayed exact vault and wallet token movements.",
+  "final": {
+    "collateral": "0",
+    "debtShares": "0",
+    "supplyShares": "0",
+    "walletStocks": "25"
+  },
+  "steps": [
+    {
+      "action": "redeem",
+      "signature": "5iu86kYX2zoKQYmqiDmtCYBcynrgFo3KrjC7surhPbhFPQqm7545kGxcQLzFtAFuhj1DbgK3AuHFpdvSp3P9XMnR",
+      "status": "finalized",
+      "slot": 498174170,
+      "error": null
+    },
+    {
+      "action": "supply",
+      "signature": "4w1eZ6C6YPTy3QkPQ7KxKfnNK6bo56WznMAD7wnWKibwqf8noLCmRokcpNdm9tfXn2aF3oBkCHqZEs48j1asdrpW",
+      "status": "finalized",
+      "slot": 498173934,
+      "error": null
+    },
+    {
+      "action": "release",
+      "signature": "vptwM7FaeqQ4QLPjEffkuK2k23w4cQQ3on8MiJ27BKAwFQUQMLHB4Ymudqdn4Tu2dSFAQggddKSdYMjVj1Wwkhj",
+      "status": "finalized",
+      "slot": 498173604,
+      "error": null
+    },
+    {
+      "action": "repay",
+      "signature": "2SUxtCtngJ3DsTCmRQsMaNaWsBusMsNAHJdJRiVNkMVQHeBHaDuFcyEpF8dut4qPAVMXUidjoPdrXA9XipmYT7eN",
+      "status": "finalized",
+      "slot": 498173396,
+      "error": null
+    },
+    {
+      "action": "borrow",
+      "signature": "4CLLpc7Ksja4jdbS2J2mwpiArdo2HcamX4r8JSf46Ed2HuuWybexfyRBxwXyEK9ARtLQeS56ib4hpNv6Qf1Y2D2A",
+      "status": "finalized",
+      "slot": 498172866,
+      "error": null
+    },
+    {
+      "action": "faucet",
+      "signature": "3jEsFQkfbJrzBQHEeNQzRDQz4BXVqcYb7nK1DBdni2EM4mzAW22sQTiYgtdJ48BxZso8NkasMkedMucCUtuGg3uo",
+      "status": "finalized",
+      "slot": 498172552,
+      "error": null
+    }
+  ]
+}

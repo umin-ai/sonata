@@ -1,0 +1,263 @@
+{
+  "network": "solana:devnet",
+  "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "createdAt": "2026-09-14T09:14:14.319Z",
+  "markets": [
+    {
+      "network": "solana:devnet",
+      "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+      "admin": "DqG5ax2sadkXvczLy4yVgtBobFDETTHg2WEL4eykzimz",
+      "collateralMint": "FCkiE9HvvHqPpPzzNfq8j4kAuLjRCKLUoNwfwaVrr69c",
+      "debtMint": "DUwCnmMutGvCy96A8SNkWQFCXv4TnNpdwyUSY8qULZZW",
+      "oracleAccount": "J93Ne8TRU6DfvuBHnNgUXBpwRqE4MBk75QpQ1Xgx2WHL",
+      "market": "3dScQLWezDRhyvjnUqyiCCPCmSATh479psPveFNgNYzg",
+      "cashVault": "46kQU7VdVSRVUeJQmsqQADvykPRBL8ZBYx8L6AvBiNEH",
+      "collateralVault": "6eFUaHdpRQRTpBxCwiSwe4PzHLp8vY5jShVFSWkC368o",
+      "creditProgram": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
+      "oracleProgram": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
+      "stockDecimals": 8,
+      "cashDecimals": 6,
+      "demoPrice": 600,
+      "createdAt": "2026-09-14T09:14:14.333Z",
+      "steps": [
+        {
+          "label": "Create mint and onchain metadata",
+          "signature": "jtSiV37vJVqSgpaKD23uWkZYzXinCHXat7EbgGgjMNTMPsAk53PmBTcWVFAFzsCwrQxRZrKTyrroCsCBDzFHm9E",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674631,
+          "slot": 498168920
+        },
+        {
+          "label": "Initialize fixed test price feed",
+          "signature": "31RJ8hBHb2Qfvc9nWbPEXPpKLJsmbhCpX9VbmEZCMwUdsBzPcFUpDjV9a4ZC1WoLPZcMKgMKgX9o9S5GR9R9ZLDe",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674675,
+          "slot": 498168996
+        },
+        {
+          "label": "Create isolated credit market",
+          "signature": "4yWNEPJ3TTBPWQhrC2zdkNxjL3f1nEGen3xKw6DAnw7hkegmzD6eVFsUkKFcgZmWN2nURyTRFoeAgUuGhphQgcbW",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674719,
+          "slot": 498169083
+        },
+        {
+          "label": "Issue 10000 mock stocks to issuer inventory",
+          "signature": "5d3KaQiuMApM4RB1ypLDDV1KjQUzhPXPvqopmj1i5Gsohkpw2Jj5rVi18nWRkFE9cXx2fzPPfC1wydQC331KeohR",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674759,
+          "slot": 498169126
+        },
+        {
+          "label": "Seed 25000 demo USD lending liquidity",
+          "signature": "4w7GgLip4ujPFzdRuLib5BxgctMsQmyQTwrhbJCroK46vv4nNiwtnHTiHyKELQJR8NiNYz6QQyjdhzBExVYAuW2m",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674804,
+          "slot": 498169183
+        }
+      ],
+      "id": "MockSPYx",
+      "symbol": "MockSPYx",
+      "name": "S&P 500 ETF",
+      "aprBps": 500,
+      "openingLtvBps": 5000,
+      "liquidationLtvBps": 6500,
+      "bonusBps": 500,
+      "multiplier": 1,
+      "priceType": "fixed-test-fixture",
+      "verifiedAt": "2026-09-14T09:15:05.625Z"
+    },
+    {
+      "network": "solana:devnet",
+      "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+      "admin": "DqG5ax2sadkXvczLy4yVgtBobFDETTHg2WEL4eykzimz",
+      "collateralMint": "4M1bauJ6ydSDxVPEzLQ65ckuW3qDbhxUaQrHikZCc86s",
+      "debtMint": "DUwCnmMutGvCy96A8SNkWQFCXv4TnNpdwyUSY8qULZZW",
+      "oracleAccount": "5Rh1T3fToYp6ZSTraRNNoQcCf9aAKXLbP4kqjTWthNHM",
+      "market": "7uSUjAWxUpNoXqffPNPqqJBHkHmoZJe99BSSSFRqwSUZ",
+      "cashVault": "BgBTifJw6ooT2eRPddSghTRWHMxYRwjMEt2MsjG7QoRc",
+      "collateralVault": "D6ZuytkpBHNVfzmLVNV5jnGxdqDpccVTrs3mC1JVEbSH",
+      "creditProgram": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
+      "oracleProgram": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
+      "stockDecimals": 8,
+      "cashDecimals": 6,
+      "demoPrice": 180,
+      "createdAt": "2026-09-14T09:15:05.637Z",
+      "steps": [
+        {
+          "label": "Create mint and onchain metadata",
+          "signature": "XYaLkfgTA8kJATUG1mSU2ery1pSjsJXmqT2Jvo4HFsegSB76UuyeJPAfWifbX5G9NDPhatNDN4RzkN6QBS5X6pT",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674846,
+          "slot": 498169234
+        },
+        {
+          "label": "Initialize fixed test price feed",
+          "signature": "43TxU2h1k7pFB1o8A52jrToeHAQPUAB1CAbopZokPQJmx449jniKDyjr7jEaMvGSoL5pYJ8FA8MTABet9g7qA1cr",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674890,
+          "slot": 498169285
+        },
+        {
+          "label": "Create isolated credit market",
+          "signature": "2dGXU35EkYjvsCxTsboErAHwStUQ6ig9KyhauK3mz3WuvmykdvPw8k24N7brUF9m22TLygutWeKhgmHfLyMyC2xo",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674933,
+          "slot": 498169336
+        },
+        {
+          "label": "Issue 10000 mock stocks to issuer inventory",
+          "signature": "5oM6rMjuovvtgxA6aGTUBTpAh1hfaXASvK4Lo5P9QPZi1pPizAgs3nwfRJAxFYV1bE34a3tGLRc8EVKBsWNPZhah",
+          "status": "finalized",
+          "lastValidBlockHeight": 485674978,
+          "slot": 498169399
+        },
+        {
+          "label": "Seed 25000 demo USD lending liquidity",
+          "signature": "43y5R4gZchKCu8DG8r6dQPCHbPSzFexXbgTin4VtUTLBnZtRSnNRNvadcr5KTuzzaEh2m4XBjVPeUacqCrK7BZxW",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675025,
+          "slot": 498169461
+        }
+      ],
+      "id": "MockNVDAx",
+      "symbol": "MockNVDAx",
+      "name": "NVIDIA",
+      "aprBps": 500,
+      "openingLtvBps": 5000,
+      "liquidationLtvBps": 6500,
+      "bonusBps": 500,
+      "multiplier": 1,
+      "priceType": "fixed-test-fixture",
+      "verifiedAt": "2026-09-14T09:15:53.993Z"
+    },
+    {
+      "network": "solana:devnet",
+      "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+      "admin": "DqG5ax2sadkXvczLy4yVgtBobFDETTHg2WEL4eykzimz",
+      "collateralMint": "HgZzQkRngmawyP2ALxA3X26P4mkWzRfp6JPpeBq9wFCj",
+      "debtMint": "DUwCnmMutGvCy96A8SNkWQFCXv4TnNpdwyUSY8qULZZW",
+      "oracleAccount": "EWP4v7bDRqG3JTqvcGgyoXyUVk1WPmWweKeEdBzjSq2y",
+      "market": "66iFDH2jP5xX4vop9udyRMXtXc86rrwjMeFM8Jj3TREg",
+      "cashVault": "v6bCK8iWBpJPBN2j58QnUirhwywcd67k8ohNQCW29ga",
+      "collateralVault": "8UncspTDd8sQwFpyb1kUNhk78HXKtyNjKbgat2sxBVoG",
+      "creditProgram": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
+      "oracleProgram": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
+      "stockDecimals": 8,
+      "cashDecimals": 6,
+      "demoPrice": 500,
+      "createdAt": "2026-09-14T09:15:53.998Z",
+      "steps": [
+        {
+          "label": "Create mint and onchain metadata",
+          "signature": "4GZfRMtqU2AicQWrv1UwNVXEZvq7kDpWCAVRqs4KDoNU67AeYrgFcRvxpFEKpKTh1z7VAJxXe4ixPzxrVqULt6dV",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675070,
+          "slot": 498169526
+        },
+        {
+          "label": "Initialize fixed test price feed",
+          "signature": "3NooeXnsxRiHywuyPzthntdN4Q82X8kc6akaoHqfV8xz2i1yr2KmzxpJzjBA8zrewhyR9X6ZpYNmpJDoYwEESV6V",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675108,
+          "slot": 498169564
+        },
+        {
+          "label": "Create isolated credit market",
+          "signature": "RN2bVY7NCMJShEFjoenCwa3DRakiU2Ptg21UkaMnqHngneipVnLDXJ5Q8bdp4ekyECtdZgSwzr7QxUrKkJcTAmp",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675151,
+          "slot": 498169614
+        },
+        {
+          "label": "Issue 10000 mock stocks to issuer inventory",
+          "signature": "46WEe6BeH1LvRyrNUTrHp92eS9F6PWBM32Fxmd4UWNL9V5CD9jv5kaZKLUdvUxtYtbPavLwN7K428QeGhMXEwLs5",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675199,
+          "slot": 498169688
+        },
+        {
+          "label": "Seed 25000 demo USD lending liquidity",
+          "signature": "5xj2hdH71oHKZfEugijvHo5U7VCg2ktWHFSCe3q6JMCaBnymyomygb7DDSRRztpNyPfEVusFtQtCotZV5wQDafqG",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675243,
+          "slot": 498169756
+        }
+      ],
+      "id": "MockQQQx",
+      "symbol": "MockQQQx",
+      "name": "Nasdaq-100 ETF",
+      "aprBps": 500,
+      "openingLtvBps": 5000,
+      "liquidationLtvBps": 6500,
+      "bonusBps": 500,
+      "multiplier": 1,
+      "priceType": "fixed-test-fixture",
+      "verifiedAt": "2026-09-14T09:16:43.086Z"
+    },
+    {
+      "network": "solana:devnet",
+      "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+      "admin": "DqG5ax2sadkXvczLy4yVgtBobFDETTHg2WEL4eykzimz",
+      "collateralMint": "5NF9XQh171nWhYzRK6AULCw797gUVUkxd52JQSZiMAiW",
+      "debtMint": "DUwCnmMutGvCy96A8SNkWQFCXv4TnNpdwyUSY8qULZZW",
+      "oracleAccount": "5Xpo3mhsKYPVqA4JgCZXk3Fn4kQ3SbYYnHeZUjMtXjVR",
+      "market": "3tyjfnVwqqHcaPhkJtyzjpqLp5MGYVSCcBea5C1gcb2f",
+      "cashVault": "BRCBdAx1fV5qfBD8nbKgHVbgSvYqJRdTgqokVgNL3D2Q",
+      "collateralVault": "3nFWomhy7MTC2GGXEj75syAfprsYyMgknSzFSPZfqd3F",
+      "creditProgram": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
+      "oracleProgram": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
+      "stockDecimals": 8,
+      "cashDecimals": 6,
+      "demoPrice": 350,
+      "createdAt": "2026-09-14T09:16:43.090Z",
+      "steps": [
+        {
+          "label": "Create mint and onchain metadata",
+          "signature": "5Qun9FJ8CXoh8opAUePef674wSAyA5MtbBV4wYSgEhra2BptCDcao1qkFqMsgHT4HVAv84NTNJKmmrQaXgWshwdD",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675290,
+          "slot": 498169823
+        },
+        {
+          "label": "Initialize fixed test price feed",
+          "signature": "3MazkUfCythNFVTxCByDtydEhsLaC7ypd984eJjvsMSadYQ6GNnPvr5RAy1JnUo7LXbk44WwdWvuWaN8hdZjRqSz",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675335,
+          "slot": 498169881
+        },
+        {
+          "label": "Create isolated credit market",
+          "signature": "e9mH8NSAjRsi48ApMaPkVPPjxDDZqMbxhZzACSUVwrFTha36NuD5GiYaF2k8u6CncJKLrEFc6e78LezaAknSXx7",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675378,
+          "slot": 498169945
+        },
+        {
+          "label": "Issue 10000 mock stocks to issuer inventory",
+          "signature": "2hMHb8ZPR13Pc4nsKxkcXgphv8WFetTP8Y3YWbhQcEbRX1fQ9T2KT8F3Ah1uj6adYuZQ7VWbBWowpUHs6en8f7TH",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675416,
+          "slot": 498169992
+        },
+        {
+          "label": "Seed 25000 demo USD lending liquidity",
+          "signature": "4evw714s84XCrxXPLVxyqjdB7XAbVoU35Lvif4wBmfaeziABGcKunLca3275TMmzufQYN5EdLKuqGp6G566UQPi1",
+          "status": "finalized",
+          "lastValidBlockHeight": 485675483,
+          "slot": 498170065
+        }
+      ],
+      "id": "MockTSLAx",
+      "symbol": "MockTSLAx",
+      "name": "Tesla",
+      "aprBps": 500,
+      "openingLtvBps": 5000,
+      "liquidationLtvBps": 6500,
+      "bonusBps": 500,
+      "multiplier": 1,
+      "priceType": "fixed-test-fixture",
+      "verifiedAt": "2026-09-14T09:17:30.865Z"
+    }
+  ]
+}
