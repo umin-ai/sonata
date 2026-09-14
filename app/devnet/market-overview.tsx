@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { TokenLogo } from "./token-logo";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -71,15 +72,18 @@ export function MarketOverview({
                 <TableCell>
                   <Button
                     variant="ghost"
-                    className="market-symbol-button"
+                    className="market-symbol-button market-asset-button"
                     disabled={disabled}
                     onClick={() => onSelect(config.id)}
                     aria-label={`Select ${config.symbol}`}
                     aria-pressed={selected === config.id}
                   >
-                    {config.symbol} ↗
+                    <TokenLogo symbol={config.symbol} />
+                    <span>
+                      <strong>{config.symbol}</strong>
+                      <small>{config.name}</small>
+                    </span>
                   </Button>
-                  <small>{config.name}</small>
                 </TableCell>
                 <TableCell>{num(m?.supplied)}</TableCell>
                 <TableCell>{num(m?.borrowed)}</TableCell>

@@ -34,6 +34,7 @@ import type {
   DemoActionInput,
 } from "@/lib/stockroom/runtime";
 import { getMarket, marketCatalog } from "@/lib/stockroom/markets";
+import { TokenLogo } from "./token-logo";
 import { MarketOverview, MarketLedger } from "./market-overview";
 import type { demoMarkets } from "@/lib/stockroom/runtime";
 
@@ -517,7 +518,10 @@ export default function DevnetPage() {
         <div className="market-selection-title">
           <div>
             <p className="eyebrow">SELECTED MARKET / DEMO USD</p>
-            <h2>{deployment.symbol}</h2>
+            <h2 className="mock-asset-heading">
+              <TokenLogo symbol={deployment.symbol} />
+              {deployment.symbol}
+            </h2>
           </div>
           <span>
             {deployment.name} · fixed test price {num(deployment.demoPrice)}{" "}
@@ -820,7 +824,10 @@ export default function DevnetPage() {
                       onChange={(e) => setCollateral(e.target.value)}
                       disabled={!!busy}
                     />
-                    <span>{deployment.symbol}</span>
+                    <span className="mock-token-label">
+                      <TokenLogo symbol={deployment.symbol} size={24} />
+                      {deployment.symbol}
+                    </span>
                   </div>
                   <label className="field-label" htmlFor="demo-cash">
                     Borrow demo USD<span>50% maximum LTV</span>
