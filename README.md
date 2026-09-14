@@ -1,20 +1,21 @@
 # Stockroom
 
-A stock-backed credit workspace for NVDAx holders on Solana. Start with a cash request, understand the debt and downside, and follow the position through repayment and collateral release.
+A stock-backed credit workspace for tokenized-stock holders on Solana. Start with a cash request, understand the debt and downside, and follow the position through repayment and collateral release.
 
-This release is a product validation prototype. It has a complete interactive example and read-only mainnet integrations. Real transactions take place in Kamino. It does not establish product-market fit or a verified funded lending integration.
+This release is a product validation prototype. It has a complete interactive example and read-only mainnet integrations. Real transactions take place in the selected protocol, Jupiter or Kamino. It does not establish product-market fit or a verified funded lending integration.
 
 ## Try it
 
-1. Start in **Markets**, open the NVDAx / USDC pair, and review a loan using the supplied **Example** balances.
-2. In **Portfolio**, advance time, repay part of the debt, or add collateral.
-3. Repay the full balance and release the stock. Inspect or export the local activity receipt.
-4. In **Live wallet**, refresh current reserve terms or connect a Wallet Standard wallet to read supported balances and a position. Continue in Kamino to transact; form inputs are not transferred automatically.
+1. Start in **Markets** with live Jupiter data. Filter NVDAx, SPYx or QQQx against USDC or JupUSD and inspect the vault terms.
+2. Connect a Wallet Standard wallet to discover Jupiter xStock position identities. Open Jupiter for current financial balances and transactions.
+3. Choose **Try the example** to review a loan with supplied illustrative balances, then advance time, repay, top up collateral and release the stock in **Portfolio**.
+4. Select **Kamino** in live mode for the existing NVDAx/USDC reserve and supported-position integration. Form inputs are not transferred automatically between applications.
 
 Example mode starts with 10 NVDAx and 100 USDC. It uses a fixed illustrative $218.31 stock price, 5.08% APY, 55% opening LTV and 65% liquidation threshold. No real funds are involved. Example data stays in localStorage on this device. Resetting affects only this example.
 
 ## Features and boundaries
 
+- Live Jupiter vault directory with collateral/debt filters, base APR, lending limits, informational DEX prices and position discovery. See [Solana integration evidence](docs/solana-data-integrations.md).
 - Market directory, selected-market terms and a compact borrow panel, with portfolio and activity navigation.
 - Borrow request with collateral, USDC amount, repayment horizon and price-decline scenario.
 - Explicit variable interest, opening limit, liquidation threshold and estimated repayment.
@@ -41,21 +42,21 @@ Optional server environment variables:
 
 - `SOLANA_RPC_URL`: a production Solana mainnet RPC for reserve, oracle, position and wallet reads.
 - `SOLANA_WALLET_RPC_URL`: a separate mainnet RPC supporting `getTokenAccountsByOwner`; otherwise the configured RPC above is used. Without either variable, the app reads associated token accounts through PublicNode.
-- `JUPITER_API_KEY`: server-only Jupiter quote API key.
+- `JUPITER_API_KEY`: server-only Jupiter key for Lend, Price and quote API access. Public reads worked during testing; production access is not guaranteed.
 
 Never put wallet private keys or signing seeds in this application. Hosted credentials belong in server environment configuration, not source files. Public provider access is best effort and can be rate limited.
 
-Read APIs: `/api/market`, `/api/wallet?address=…`, `/api/position?address=…`, and `/api/compare?cash=500&holding=10`. The retained `/api/receipt` route is read-only and is not used by the rebuilt interface.
+Read APIs: `/api/jupiter/markets`, `/api/jupiter/positions?address=…`, `/api/market`, `/api/wallet?address=…`, `/api/position?address=…`, and `/api/compare?cash=500&holding=10`. The retained `/api/receipt` route is read-only and is not used by the rebuilt interface.
 
 ## Validation
 
 ```sh
-node --experimental-strip-types --test lib/finance.test.ts lib/credit.test.ts
+node --experimental-strip-types --test lib/finance.test.ts lib/credit.test.ts lib/jupiter-data.test.ts
 npx tsc --noEmit
 git diff --check
 ```
 
-The 12 calculation/ledger tests cover scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
+The 16 calculation, ledger and adapter tests cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
 
 ## Unreleased execution work
 
