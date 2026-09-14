@@ -64,3 +64,7 @@ See `docs/mock-stock-issuance.md` for official issuer research, token design and
 ## Navigation verification, 14 September 2026
 
 The directory opens each market on its own URL. Browser checks covered Markets → MockSPYx → Portfolio → Activity, retaining the temporary wallet and its saved receipts. A deposit-and-borrow review simulated successfully for the existing wallet and was closed without sending a transaction. Activity switching to MockNVDAx loaded that market's ledger. Direct route reads passed for the directory, Portfolio, Activity, market and market-activity URLs; legacy links redirected correctly and an unknown market returned 404.
+
+The pinned Vinext production bundle's `next/link` lazy navigation export failed during live QA. Internal anchors use the public `useRouter().push()` path already used by market buttons, while preserving modifier keys, native hrefs and the shared wallet layout. Library source is not patched.
+
+The packaged production build was then served locally with Wrangler and checked through Portfolio → Activity → Markets → MockNVDAx. All navigation completed successfully with no new browser errors.

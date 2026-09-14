@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Buffer } from "buffer/";
 import bs58 from "bs58";
@@ -1177,6 +1176,46 @@ function WalletDialogs() {
   );
 }
 
+// The pinned framework's production Link chunk omits its lazy navigation export.
+// Use the same public router API as the market buttons, retaining native anchor behavior.
+function AppLink({
+  href,
+  onClick,
+  children,
+  ...props
+}: Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
+  href: string;
+}) {
+  const router = useRouter();
+  return (
+    <a
+      {...props}
+      href={href}
+      onClick={(event) => {
+        onClick?.(event);
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey ||
+          event.currentTarget.hasAttribute("download") ||
+          (event.currentTarget.target &&
+            event.currentTarget.target !== "_self") ||
+          !href.startsWith("/") ||
+          href.startsWith("//")
+        )
+          return;
+        event.preventDefault();
+        router.push(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 function StockroomShell({ children }: { children: React.ReactNode }) {
   const { pathname, address, disabled, busy, review, setPicker, data } =
     useStockroom();
@@ -1188,27 +1227,27 @@ function StockroomShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <header className="topbar">
-        <Link
+        <AppLink
           className="wordmark"
           href="/"
-          prefetch={false}
+
           onClick={(e) => {
             if (busy || review) e.preventDefault();
           }}
         >
           <Layers3 size={25} />
           stockroom<span>/</span>
-        </Link>
+        </AppLink>
         <nav className="primary-nav" aria-label="Main navigation">
           {[
             ["/", "Markets"],
             ["/portfolio", "Portfolio"],
             ["/activity", "Activity"],
           ].map(([href, label]) => (
-            <Link
+            <AppLink
               key={href}
               href={href}
-              prefetch={false}
+
               className={active === href ? "devnet-nav-active" : undefined}
               aria-current={active === href ? "page" : undefined}
               aria-disabled={!!busy || !!review}
@@ -1217,7 +1256,7 @@ function StockroomShell({ children }: { children: React.ReactNode }) {
               }}
             >
               {label}
-            </Link>
+            </AppLink>
           ))}
         </nav>
         <div className="header-actions">
@@ -1318,9 +1357,7 @@ export function MarketPage() {
   return (
     <>
       <div className="market-route-nav">
-        <Link href="/" prefetch={false}>
-          ← All markets
-        </Link>
+        <AppLink href="/">← All markets</AppLink>
         <label>
           Market
           <select
@@ -1351,17 +1388,17 @@ export function MarketPage() {
         <div className="devnet-main">
           <WalletPanel />
           <PositionPanel />
-          <Link
+          <AppLink
             className="market-activity-link"
             href={`/activity/${marketId}`}
-            prefetch={false}
+
             aria-disabled={!!busy || !!review}
             onClick={(e) => {
               if (busy || review) e.preventDefault();
             }}
           >
             View receipts and market activity <ArrowRight size={15} />
-          </Link>
+          </AppLink>
         </div>
         <aside className="devnet-sidebar">
           <LendingPanel />
