@@ -1,197 +1,1116 @@
 "use client";
-import {useEffect,useRef,useState} from 'react';
-import {ArrowRight,ArrowUpRight,ArrowDownLeft,Check,ChevronDown,ChevronRight,Download,ExternalLink,Layers3,RefreshCw,ShieldCheck,Wallet,Clock3,Plus,Undo2,Info,AlertTriangle,LockKeyhole} from 'lucide-react';
-import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Slider} from '@/components/ui/slider';
-import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
-import {Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle} from '@/components/ui/dialog';
-import {ResponsiveContainer,AreaChart,Area,XAxis,YAxis,Tooltip,ReferenceLine} from 'recharts';
-import {z} from 'zod';
-import {useWallet} from '@/hooks/use-wallet';
-import {JupiterMarkets} from '@/components/jupiter-markets';
-import {creditPlan,EXAMPLE_TERMS,TermsSchema,ExampleSchema,newExample,exampleDebt,openExample,repayExample,depositExample,withdrawExample,advanceExample,sellExample} from '@/lib/credit';
-import type {Terms,Example} from '@/lib/credit';
-import type {WalletBalances} from '@/lib/server/chain';
-import {NVDA,USDC,MARKET} from '@/lib/finance';
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { Buffer } from "buffer/";
+import bs58 from "bs58";
+import { Keypair, Transaction } from "@solana/web3.js";
+import type { SolanaSignTransactionFeature } from "@solana/wallet-standard-features";
+import {
+  ArrowRight,
+  Check,
+  ExternalLink,
+  FlaskConical,
+  Layers3,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useWallet } from "@/hooks/use-wallet";
+import type {
+  demoSnapshot,
+  prepareDemo,
+  DemoActionInput,
+} from "@/lib/stockroom/runtime";
+import { getMarket, marketCatalog } from "@/lib/stockroom/markets";
+import { TokenLogo } from "./devnet/token-logo";
+import { MarketOverview, MarketLedger } from "./devnet/market-overview";
+import type { demoMarkets } from "@/lib/stockroom/runtime";
 
-const money=(v:number)=>Number.isFinite(v)?new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:v>0&&v<.01?6:2}).format(v):'—';
-const pct=(v:number)=>Number.isFinite(v)?(v*100).toFixed(1)+'%':'—';
-const qty=(v:number)=>Number.isFinite(v)?v.toLocaleString('en-US',{maximumFractionDigits:4}):'—';
-const short=(v:string)=>v.slice(0,4)+'…'+v.slice(-4);
-const KAMINO='https://kamino.com/borrow';
-const STORAGE='stockroom.example.v3';
-const MarketSchema=z.object({terms:TermsSchema,multiplier:z.number().positive(),slot:z.number(),fetchedAt:z.string(),expiresAt:z.number(),enabled:z.boolean(),liquidity:z.number(),oracleTimestamp:z.number()});
-type MarketData=z.infer<typeof MarketSchema>;
-type Position={address:string;exists:boolean;supported:boolean;stock:number;debt:number;hasDebt:boolean;multiplier:number;fetchedAt:string};
-type Sale={cash:number;holding:number;expiresAt:number;sale:{displayAmount:number;received:number;withinHolding:boolean;feeBps:number;router:string}};
-type Review={kind:'borrow'|'repay'|'deposit'|'withdraw'|'sale';amount:number;stock:number;days:number;decline:number;terms:Terms};
-async function get<T>(url:string,signal?:AbortSignal):Promise<T>{const r=await fetch(url,{signal});const d=await r.json() as T&{error?:string};if(!r.ok)throw new Error(d.error||'Unable to complete this read.');return d;}
-function saveFile(name:string,data:unknown){const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url);}
-function Row({label,value,accent=false}:{label:string;value:React.ReactNode;accent?:boolean}){return <div className="detail-row"><dt>{label}</dt><dd className={accent?'accent-text':''}>{value}</dd></div>}
-function Metric({label,value,sub}:{label:string;value:string;sub?:string}){return <div className="metric"><span>{label}</span><strong>{value}</strong>{sub&&<small>{sub}</small>}</div>}
+type Snapshot = Awaited<ReturnType<typeof demoSnapshot>>;
+type Review = Awaited<ReturnType<typeof prepareDemo>>;
+type Receipt = {
+  marketId?: string;
+  signature: string;
+  kind: DemoActionInput["kind"];
+  status: string;
+  at: string;
+  wallet: string;
+  lastValidBlockHeight: number;
+};
+const labels = {
+  faucet: "Get demo assets",
+  open: "Deposit & borrow",
+  deposit: "Add collateral",
+  borrow: "Borrow demo USD",
+  repay: "Repay entire loan",
+  withdraw: "Release all collateral",
+  supply: "Supply demo USD",
+  redeem: "Redeem all supply",
+};
+const short = (s: string) => s.slice(0, 5) + "…" + s.slice(-5);
+const num = (n: number | undefined, d = 2) =>
+  n === undefined
+    ? "—"
+    : n.toLocaleString("en-US", {
+        minimumFractionDigits: d,
+        maximumFractionDigits: d,
+      });
+const explorer = (kind: "tx" | "address", s: string) =>
+  `https://explorer.solana.com/${kind}/${s}?cluster=devnet`;
+const runtime = () => import("@/lib/stockroom/runtime");
+function Detail({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="detail-row">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+function Stat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+}) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{sub}</small>
+    </div>
+  );
+}
 
-export default function Home(){
- const wallet=useWallet(),address=wallet.account?.address;
- const [mode,setMode]=useState<'example'|'live'>('live'),[view,setView]=useState('markets');
- const [liveProvider,setLiveProvider]=useState<'jupiter'|'kamino'>('jupiter');
- const [example,setExample]=useState<Example>(newExample),[ready,setReady]=useState(false),[storageError,setStorageError]=useState('');
- const [cash,setCash]=useState('500'),[collateral,setCollateral]=useState('8'),[days,setDays]=useState(30),[decline,setDecline]=useState(30);
- const [market,setMarket]=useState<MarketData|null>(null),[marketLoading,setMarketLoading]=useState(false),[marketError,setMarketError]=useState(''),[refresh,setRefresh]=useState(0),[now,setNow]=useState(0);
- const [balances,setBalances]=useState<WalletBalances|null>(null),[position,setPosition]=useState<Position|null>(null),[walletLoading,setWalletLoading]=useState(false),[walletError,setWalletError]=useState('');
- const [walletPicker,setWalletPicker]=useState(false),[sources,setSources]=useState(false),[resetOpen,setResetOpen]=useState(false),[review,setReview]=useState<Review|null>(null),[actionError,setActionError]=useState(''),[notice,setNotice]=useState('');
- const [repayment,setRepayment]=useState('100'),[topup,setTopup]=useState('1');
- const [saleOpen,setSaleOpen]=useState(false),[sale,setSale]=useState<Sale|null>(null),[saleLoading,setSaleLoading]=useState(false),[saleError,setSaleError]=useState('');
- const confirming=useRef(false),modeRef=useRef(mode);modeRef.current=mode;
- function navigate(next:string){setView(next);if(location.hash!=='#'+next)history.pushState(null,'','#'+next);}
- useEffect(()=>{const sync=()=>{const next=location.hash.slice(1);setView(['markets','borrow','position','activity'].includes(next)?next:'markets')};sync();window.addEventListener('popstate',sync);window.addEventListener('hashchange',sync);return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}},[]);
- useEffect(()=>{window.scrollTo(0,0)},[view]);
- useEffect(()=>{try{const saved=localStorage.getItem(STORAGE);if(saved){const parsed=ExampleSchema.safeParse(JSON.parse(saved));if(parsed.success)setExample(parsed.data);else setStorageError('An incompatible example was reset.')}}catch{setStorageError('Local saving is unavailable. This example will last for this visit.')}setReady(true)},[]);
- useEffect(()=>{if(!ready)return;try{localStorage.setItem(STORAGE,JSON.stringify(example))}catch{setStorageError('Changes could not be saved on this device.')}},[example,ready]);
- useEffect(()=>{setNow(Date.now());const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t)},[]);
- useEffect(()=>{setReview(null);setActionError('');setNotice('');setSale(null);},[mode,address]);
- useEffect(()=>{
-   if(mode!=='live'||liveProvider!=='kamino')return;const c=new AbortController();setMarketLoading(true);setMarketError('');setMarket(null);
-   get<unknown>('/api/market',c.signal).then(d=>{if(!c.signal.aborted)setMarket(MarketSchema.parse(d))}).catch(e=>{if(!c.signal.aborted)setMarketError(e.message)}).finally(()=>{if(!c.signal.aborted)setMarketLoading(false)});
-   return()=>c.abort();
- },[mode,refresh,liveProvider]);
- useEffect(()=>{
-   setBalances(null);setPosition(null);setWalletError('');setWalletLoading(false);
-   if(mode!=='live'||liveProvider!=='kamino'||!address)return;const c=new AbortController();setWalletLoading(true);setCollateral('0');
-   Promise.allSettled([get<WalletBalances>('/api/wallet?address='+address,c.signal),get<Position>('/api/position?address='+address,c.signal)])
-     .then(([b,p])=>{if(c.signal.aborted)return;if(p.status==='fulfilled')setPosition(p.value);if(b.status==='fulfilled')setBalances(b.value);if(b.status==='fulfilled'&&p.status==='fulfilled')setCollateral(String(Math.floor(Number(b.value.stockRaw)/1e8*p.value.multiplier*1e4)/1e4));const failures=[b,p].filter(r=>r.status==='rejected');if(failures.length)setWalletError(failures.map(r=>(r as PromiseRejectedResult).reason.message).join(' '))})
-     .catch(e=>{if(!c.signal.aborted)setWalletError(e.message)}).finally(()=>{if(!c.signal.aborted)setWalletLoading(false)});
-   return()=>c.abort();
- },[mode,address,refresh,liveProvider]);
- const terms=mode==='example'?EXAMPLE_TERMS:market?.terms;
- const cashN=Number(cash),stockN=Number(collateral),available=mode==='example'?example.stock:balances&&market?Number(balances.stockRaw)/1e8*market.multiplier:0;
- const debt=mode==='example'?exampleDebt(example):position?.supported?position.debt:0;
- const locked=mode==='example'?example.loan?.collateral??0:position?.supported?position.stock:0;
- const walletCash=mode==='example'?example.cash:balances?Number(balances.cashRaw)/1e6:0;
- const existing=mode==='example'?!!example.loan:liveProvider==='kamino'&&!!position?.exists;
- const fresh=mode==='example'||!!market&&now<market.expiresAt;
- let plan:ReturnType<typeof creditPlan>|null=null;
- try{if(terms&&cashN>=.01&&cashN<=100000&&stockN<=10000)plan=creditPlan(cashN,stockN,days,decline/100,terms)}catch{}
- const enough=mode==='example'||address?stockN<=available&&stockN>0:true;
- const canReview=mode==='example'&&ready&&!!plan&&plan.allowed&&enough&&!existing;
- const chart=terms&&plan?Array.from({length:13},(_,i)=>({decline:i*5,ltv:plan!.debt*terms.cashPrice*terms.borrowFactor/(plan!.collateralValue*(1-i*.05))*100})):[];
+export default function Home() {
+  const external = useWallet("solana:devnet");
+  const [marketId, setMarketId] = useState("MockSPYx");
+  const deployment = getMarket(marketId);
+  const [markets, setMarkets] = useState<
+    Awaited<ReturnType<typeof demoMarkets>>
+  >([]);
+  const [marketError, setMarketError] = useState("");
+  const currentMarket = useRef(marketId);
+  const demo = useRef<Keypair | null>(null),
+    lock = useRef(false);
+  const [demoAddress, setDemoAddress] = useState(""),
+    [picker, setPicker] = useState(false);
+  const address = demoAddress || external.account?.address || "";
+  const [data, setData] = useState<Snapshot | null>(null),
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(""),
+    [review, setReview] = useState<Review | null>(null),
+    [records, setRecords] = useState<Receipt[]>([]),
+    [ready, setReady] = useState(false);
+  const [collateral, setCollateral] = useState("8"),
+    [cash, setCash] = useState("500"),
+    [supply, setSupply] = useState("100");
+  const currentAddress = useRef(address);
+  const activeRecords = records.filter(
+      (r) => r.wallet === address && (r.marketId ?? "legacy") === marketId,
+    ),
+    pending = activeRecords.some((r) => r.status === "pending");
+  const disabled = !!busy || loading || pending;
+  const refresh = useCallback(async () => {
+    const target = address,
+      selected = marketId;
+    setLoading(true);
+    try {
+      const next = await (
+        await runtime()
+      ).demoSnapshot(target || undefined, selected);
+      if (
+        currentAddress.current === target &&
+        currentMarket.current === selected
+      ) {
+        setData(next);
+        setError("");
+      }
+      try {
+        const overview = await (await runtime()).demoMarkets();
+        setMarkets(overview);
+        setMarketError("");
+      } catch (e) {
+        setMarketError(
+          e instanceof Error ? e.message : "Market list unavailable.",
+        );
+      }
+    } catch (e) {
+      console.error("Devnet read failed", e);
+      if (
+        currentAddress.current === target &&
+        currentMarket.current === selected
+      )
+        setError(e instanceof Error ? e.message : "Unable to read Devnet.");
+    } finally {
+      if (
+        currentAddress.current === target &&
+        currentMarket.current === selected
+      )
+        setLoading(false);
+    }
+  }, [address, marketId]);
+  // Synchronize the selected wallet with its external RPC state after hydration.
+  /* eslint-disable react-hooks/set-state-in-effect -- Hydrate browser-only wallet storage and synchronize external RPC state. */
+  useEffect(() => {
+    currentAddress.current = address;
+    currentMarket.current = marketId;
+    setData(null);
+    setReview(null);
+    void refresh();
+  }, [address, marketId, refresh]);
+  // Browser storage is unavailable during server rendering.
+  useEffect(() => {
+    try {
+      const requested = new URLSearchParams(window.location.search).get(
+        "market",
+      );
+      if (
+        requested &&
+        (requested === "legacy" ||
+          marketCatalog.some((m) => m.id === requested))
+      ) {
+        currentMarket.current = requested;
+        setMarketId(requested);
+      }
+      const saved = sessionStorage.getItem("stockroom.devnet.wallet.v1");
+      if (saved) {
+        const k = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(saved)));
+        demo.current = k;
+        setDemoAddress(k.publicKey.toBase58());
+      }
+      const receipts = JSON.parse(
+        localStorage.getItem("stockroom.devnet.receipts.v1") || "[]",
+      );
+      if (Array.isArray(receipts))
+        setRecords(
+          receipts
+            .filter(
+              (r) =>
+                r &&
+                typeof r.signature === "string" &&
+                typeof r.wallet === "string",
+            )
+            .slice(0, 40),
+        );
+    } catch {
+      setNotice(
+        "Browser storage is unavailable. Keep this tab open to retain your demo wallet.",
+      );
+    }
+    setReady(true);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      localStorage.setItem(
+        "stockroom.devnet.receipts.v1",
+        JSON.stringify(records),
+      );
+    } catch {}
+  }, [records, ready]);
+  function selectMarket(id: string) {
+    if (disabled || lock.current) return;
+    currentMarket.current = id;
+    setMarketId(id);
+    setData(null);
+    setReview(null);
+    setNotice("");
+    setError("");
+    window.history.replaceState(
+      null,
+      "",
+      `/?market=${encodeURIComponent(id)}`,
+    );
+  }
+  async function startDemo() {
+    if (disabled) return;
+    setError("");
+    await external.disconnect();
+    if (!demo.current) demo.current = Keypair.generate();
+    try {
+      sessionStorage.setItem(
+        "stockroom.devnet.wallet.v1",
+        JSON.stringify([...demo.current.secretKey]),
+      );
+    } catch {
+      setNotice(
+        "Keep this tab open; your temporary wallet cannot be saved in this browser.",
+      );
+    }
+    setDemoAddress(demo.current.publicKey.toBase58());
+    setPicker(false);
+  }
+  function connectExternal() {
+    setDemoAddress("");
+    try {
+      sessionStorage.removeItem("stockroom.devnet.wallet.v1");
+    } catch {}
+    setPicker(true);
+  }
+  async function prepare(kind: DemoActionInput["kind"]) {
+    if (lock.current || pending) return;
+    if (!address) {
+      setPicker(true);
+      return;
+    }
+    lock.current = true;
+    setBusy("Checking the transaction…");
+    setError("");
+    setNotice("");
+    try {
+      const r = await (
+        await runtime()
+      ).prepareDemo({
+        wallet: address,
+        marketId,
+        kind,
+        amount: kind === "supply" ? supply : cash,
+        collateral,
+      });
+      if (
+        r.network !== "solana:devnet" ||
+        r.wallet !== currentAddress.current ||
+        r.marketId !== currentMarket.current
+      )
+        throw Error("Wallet or network changed. Review again.");
+      setReview(r);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not prepare the action.",
+      );
+    } finally {
+      setBusy("");
+      lock.current = false;
+    }
+  }
+  async function checkReceipt(record: Receipt) {
+    const receipt = await (
+      await runtime()
+    ).demoReceipt(record.signature, record.lastValidBlockHeight);
+    if (
+      ["confirmed", "finalized", "failed", "expired"].includes(receipt.status)
+    ) {
+      setRecords((old) =>
+        old.map((r) =>
+          r.signature === record.signature
+            ? { ...r, status: receipt.status }
+            : r,
+        ),
+      );
+      if (receipt.status === "failed" || receipt.status === "expired") {
+        setError(
+          receipt.status === "expired"
+            ? "The transaction expired before confirmation. Refresh and review again."
+            : "The transaction failed on Devnet. Refresh your balances before trying again.",
+        );
+      } else setNotice(labels[record.kind] + " confirmed on Solana Devnet.");
+      await refresh();
+      return true;
+    }
+    return false;
+  }
+  async function confirm() {
+    if (!review || lock.current) return;
+    lock.current = true;
+    setBusy("Waiting for your signature…");
+    setError("");
+    let submitted: Receipt | null = null;
+    try {
+      if (
+        review.wallet !== address ||
+        review.marketId !== currentMarket.current ||
+        Date.now() > review.expiresAt
+      )
+        throw Error(
+          "This preview expired or the wallet changed. Close it and review again.",
+        );
+      const tx = Transaction.from(Buffer.from(review.transaction, "base64")),
+        message = tx.serializeMessage();
+      let signed: Transaction;
+      if (demoAddress && demo.current) {
+        tx.partialSign(demo.current);
+        signed = tx;
+      } else {
+        const f = external.wallet?.features as
+          Partial<SolanaSignTransactionFeature> | undefined;
+        if (!f?.["solana:signTransaction"] || !external.account)
+          throw Error(
+            "This wallet must support signing Solana Devnet transactions.",
+          );
+        const [result] = await f["solana:signTransaction"].signTransaction({
+          account: external.account,
+          chain: "solana:devnet",
+          transaction: Uint8Array.from(
+            Buffer.from(review.transaction, "base64"),
+          ),
+        });
+        signed = Transaction.from(result.signedTransaction);
+      }
+      if (
+        !signed.serializeMessage().equals(message) ||
+        !signed.verifySignatures()
+      )
+        throw Error(
+          "Signed transaction differs from the reviewed action. Nothing was sent.",
+        );
+      const signature = bs58.encode(signed.signature!);
+      submitted = {
+        signature,
+        kind: review.kind,
+        marketId: review.marketId,
+        status: "pending",
+        at: new Date().toISOString(),
+        wallet: address,
+        lastValidBlockHeight: review.lastValidBlockHeight,
+      };
+      setRecords((old) =>
+        [submitted!, ...old.filter((r) => r.signature !== signature)].slice(
+          0,
+          40,
+        ),
+      );
+      // Preserve the receipt before the network call, including an ambiguous response.
+      try {
+        localStorage.setItem(
+          "stockroom.devnet.receipts.v1",
+          JSON.stringify([submitted, ...records].slice(0, 40)),
+        );
+      } catch {}
+      setBusy("Sending to Solana Devnet…");
+      await (await runtime()).submitDemo(signed.serialize().toString("base64"));
+      setReview(null);
+      setBusy("Waiting for network confirmation…");
+      for (let i = 0; i < 25; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (await checkReceipt(submitted)) return;
+      }
+      setNotice(
+        "Still waiting for confirmation. Use Check receipt below before trying another action.",
+      );
+    } catch (e) {
+      setReview(null);
+      setError(
+        (e instanceof Error ? e.message : "The action was interrupted.") +
+          (submitted
+            ? " Your receipt is saved below; check its status before retrying."
+            : ""),
+      );
+    } finally {
+      setBusy("");
+      lock.current = false;
+    }
+  }
+  const p = data?.position,
+    w = data?.wallet,
+    hasLoan = !!p?.hasDebt;
+  const projectedCollateral = (p?.collateral || 0) + Number(collateral || 0),
+    projectedDebt = (p?.debt || 0) + Number(cash || 0);
+  const projectedLtv =
+    projectedCollateral > 0
+      ? projectedDebt / (projectedCollateral * deployment.demoPrice)
+      : 0;
+  const badBorrow =
+    !Number.isFinite(projectedLtv) ||
+    Number(collateral) <= 0 ||
+    Number(cash) <= 0 ||
+    projectedLtv > 0.5 ||
+    (w !== null && w !== undefined && Number(collateral) > w.stock);
+  const ltv =
+    p && p.collateral > 0 ? p.debt / (p.collateral * deployment.demoPrice) : 0;
 
- useEffect(()=>{
-   setSale(null);setSaleError('');if(!saleOpen||mode!=='live'||liveProvider!=='kamino'||!Number.isFinite(cashN)||cashN<.01||cashN>100000)return;
-   const c=new AbortController();setSaleLoading(true);
-   const timer=setTimeout(()=>{get<Sale>('/api/compare?cash='+cashN+'&holding='+Math.min(10000,available),c.signal)
-     .then(d=>{if(!c.signal.aborted)setSale(d)}).catch(e=>{if(!c.signal.aborted)setSaleError(e.message)}).finally(()=>{if(!c.signal.aborted)setSaleLoading(false)})},600);
-   return()=>{clearTimeout(timer);c.abort();setSaleLoading(false)};
- },[saleOpen,mode,cashN,available,refresh,liveProvider]);
- useEffect(()=>{
-   type Context={registerTool:(t:{name:string;title:string;description:string;inputSchema:object;annotations:object;execute:(v:unknown)=>unknown},o:{signal:AbortSignal})=>unknown};
-   const context=(document as Document&{modelContext?:Context}).modelContext;if(!context)return;const c=new AbortController();
-   try{void Promise.resolve(context.registerTool({name:'configure_credit_scenario',title:'Configure credit scenario',description:'Change only the visible example credit inputs. Never connects a wallet or creates a loan.',inputSchema:{type:'object',properties:{cash:{type:'number',minimum:.01,maximum:100000},collateral:{type:'number',exclusiveMinimum:0,maximum:10000},days:{type:'integer',minimum:1,maximum:180},decline:{type:'integer',minimum:0,maximum:60}},required:['cash'],additionalProperties:false},annotations:{readOnlyHint:false},execute(v){if(modeRef.current!=='example')throw new Error('Scenario tools are only available in example mode.');const p=z.object({cash:z.number().min(.01).max(100000),collateral:z.number().positive().max(10000).optional(),days:z.number().int().min(1).max(180).optional(),decline:z.number().int().min(0).max(60).optional()}).strict().parse(v);navigate('borrow');setCash(String(p.cash));if(p.collateral!==undefined)setCollateral(String(p.collateral));if(p.days!==undefined)setDays(p.days);if(p.decline!==undefined)setDecline(p.decline);return {status:'scenario configured',transaction:false};}},{signal:c.signal})).catch(()=>{})}catch{}return()=>c.abort();
- },[]);
-
- function openReview(kind:Review['kind'],amount=cashN,stock=stockN){if(mode!=='example'||!terms)return;confirming.current=false;setActionError('');setReview({kind,amount,stock,days,decline,terms:{...terms}});}
- function confirm(){
-   if(!review||mode!=='example'||confirming.current)return;confirming.current=true;
-   try{
-     let next:Example;
-     if(review.kind==='borrow')next=openExample(example,review.stock,review.amount,review.days,review.terms);
-     else if(review.kind==='repay')next=repayExample(example,review.amount);
-     else if(review.kind==='deposit')next=depositExample(example,review.stock);
-     else if(review.kind==='withdraw')next=withdrawExample(example);
-     else next=sellExample(example,review.amount,review.terms.price);
-     setExample(next);setReview(null);navigate(review.kind==='sale'?'activity':'position');
-     setNotice(review.kind==='borrow'?'Example loan opened. Collateral is locked and USDC is available.':review.kind==='withdraw'?'Example collateral released. Your loan is closed.':review.kind==='repay'?'Example repayment recorded. Your remaining debt is updated.':review.kind==='deposit'?'Example collateral added.':'Example sale recorded. No transaction was sent.');
-   }catch(e){setActionError(e instanceof Error?e.message:'Example action failed.');confirming.current=false;}
- }
- function advance(n:number){try{setExample(advanceExample(example,n));setNotice('Example time advanced by '+n+' days. Interest has been recalculated.')}catch(e){setNotice(e instanceof Error?e.message:'Cannot advance time.')}}
- const positionTerms=mode==='example'?example.loan?.terms:terms;
- const positionValue=positionTerms?locked*positionTerms.price:0;
- const positionLtv=positionTerms&&positionValue>0?debt*positionTerms.cashPrice*positionTerms.borrowFactor/positionValue:0;
- const loanLiquidation=positionTerms&&locked>0?debt*positionTerms.cashPrice*positionTerms.borrowFactor/(locked*positionTerms.liquidationLtv):0;
- const elapsed=example.loan?example.day-example.loan.openedDay:0;
- const exampleSale=terms&&cashN>0?cashN/(terms.price*(1-.003)):0;
- const reviewPlan=review?.kind==='borrow'?creditPlan(review.amount,review.stock,review.days,review.decline/100,review.terms):null;
- const reviewTitles={borrow:'Review your example loan',repay:'Review example repayment',deposit:'Add example collateral',withdraw:'Release example collateral',sale:'Review your example sale'};
-
- return <main className="app">
-  <header className="topbar"><a href="#markets" className="wordmark" onClick={()=>navigate('markets')}><Layers3 size={26}/>stockroom<span>/</span></a><nav className="primary-nav" aria-label="Main navigation"><a className="devnet-entry" href="/devnet">Try Devnet app <ArrowUpRight size={13}/></a><button className={view==='markets'||view==='borrow'?'active':''} onClick={()=>navigate('markets')}>Markets</button><button className={view==='position'?'active':''} onClick={()=>navigate('position')}>Portfolio {existing&&<span className="count">1</span>}</button><button className={view==='activity'?'active':''} onClick={()=>navigate('activity')}>Activity</button></nav><div className="header-actions"><span className="chain-label">Solana</span><Button variant="outline" onClick={()=>{setMode('live');setWalletPicker(true)}}><Wallet size={16}/>{address?short(address):'Connect wallet'}</Button></div></header>
-  <div className="shell">
-   <div className="workspace-heading"><div><p className="eyebrow">SOLANA / TOKENIZED EQUITIES</p><h1>{view==='markets'?'Stock-backed markets':view==='borrow'?mode==='live'&&liveProvider==='jupiter'?'Jupiter xStock vaults':'USDC / NVDAx':view==='position'?'Portfolio':'Activity'}</h1><p>{view==='markets'?'Borrow stablecoins against tokenized stocks. Explore the terms, then manage your position.':view==='borrow'?mode==='live'&&liveProvider==='jupiter'?'Explore Jupiter’s stock-backed borrowing vaults on Solana.':'USDC borrowing with NVIDIA xStock collateral on Kamino.':view==='position'?'Your collateral, debt and available balances in one place.':'Review changes to your balances and positions.'}</p></div><Tabs value={mode} onValueChange={v=>setMode(v as 'example'|'live')}><TabsList className="mode-tabs" aria-label="Data mode"><TabsTrigger value="example">Example</TabsTrigger><TabsTrigger value="live">Live markets <LockKeyhole size={13}/></TabsTrigger></TabsList></Tabs></div>
-   <div className={'mode-notice '+(mode==='live'?'live-notice':'')}><div><Info size={16}/><span>{mode==='example'?'Interactive example · illustrative prices and balances · saved only on this device.':liveProvider==='jupiter'?'Live Jupiter market data on Solana. Connect to discover positions; transactions take place in Jupiter.':'Read-only on Solana mainnet. Wallet connection reveals balances; transactions take place in Kamino.'}</span></div>{mode==='example'?<Button variant="ghost" onClick={()=>setResetOpen(true)}><Undo2 size={14}/>Reset example</Button>:liveProvider==='kamino'?<Button variant="ghost" disabled={marketLoading||walletLoading} onClick={()=>setRefresh(n=>n+1)}><RefreshCw size={14} className={marketLoading?'spin':''}/>Refresh</Button>:null}</div>
-   {storageError&&mode==='example'&&<p className="inline-warning" role="status">{storageError}</p>}
-   {notice&&<div className="notice" role="status"><Check size={17}/>{notice}<Button variant="ghost" aria-label="Dismiss update" onClick={()=>setNotice('')}>Dismiss</Button></div>}
-   {mode==='live'&&<div className="provider-switch"><span>Lending protocol</span><Button variant="outline" aria-pressed={liveProvider==='jupiter'} onClick={()=>setLiveProvider('jupiter')}>Jupiter Lend</Button><Button variant="outline" aria-pressed={liveProvider==='kamino'} onClick={()=>setLiveProvider('kamino')}>Kamino</Button></div>}
-   {mode==='live'&&liveProvider==='kamino'&&<div className="live-status" role="status">{marketLoading?'Reading reserves, rates and oracle prices…':marketError?<><AlertTriangle size={15}/>{marketError}</>:market?<>Snapshot {new Date(market.fetchedAt).toLocaleTimeString()} · {fresh?'Current':'Refresh required'} · {market.enabled?'Reserve checks available':'Borrowing checks unavailable'} · slot {market.slot.toLocaleString()}</>:'Live market data unavailable.'}</div>}
-   {mode==='live'&&liveProvider==='kamino'&&balances?.balanceScope==='associated-token-accounts'&&<p className="fine-print">Balances cover your primary NVDAx and USDC token accounts. Additional token accounts are not included.</p>}
-   {walletError&&mode==='live'&&liveProvider==='kamino'&&<p className="inline-warning" role="alert">{walletError}</p>}
-   {mode==='live'&&liveProvider==='jupiter'?<JupiterMarkets address={address} view={view} refresh={refresh} onConnect={()=>setWalletPicker(true)} onExample={()=>{setMode('example');navigate('borrow')}}/>:<Tabs value={view} onValueChange={navigate} className="workspace-tabs">
-    <div className="workspace-nav"><div className="breadcrumbs"><button onClick={()=>navigate('markets')}>Markets</button>{view!=='markets'&&<><ChevronRight size={14}/><span>{view==='borrow'?'NVDAx / USDC':view==='position'?'Portfolio':'Activity'}</span></>}</div><span>{mode==='example'?'Example day '+example.day:address?short(address):'Wallet not connected'}</span></div>
-    <TabsContent value="markets">
-     <section className="market-directory card" aria-label="Supported stock-backed market">
-      <div className="directory-toolbar"><div><span className="network-chip"><i/>Solana</span><span>Tokenized stocks</span></div><span>1 supported pair</span></div>
-      <div className="market-table-scroll"><table className="market-table"><thead><tr><th>Collateral</th><th>Loan asset</th><th>Protocol</th><th>Borrow APY</th><th>Max LTV</th><th>Liquidation LTV</th><th>Reserve liquidity</th><th><span className="sr-only">Action</span></th></tr></thead><tbody><tr><td><button className="market-asset" onClick={()=>navigate('borrow')}><span className="stock-icon">N</span><span><strong>NVDAx</strong><small>NVIDIA xStock</small></span></button></td><td><span className="token-pair"><i className="cash-token">$</i>USDC</span></td><td><span className="protocol-label">Kamino</span><small>xStocks market</small></td><td><strong className="rate-value">{terms?pct(terms.apy):'—'}</strong><small>{mode==='example'?'Illustrative':'Variable'}</small></td><td>{terms?pct(terms.maxLtv):'—'}</td><td>{terms?pct(terms.liquidationLtv):'—'}</td><td>{mode==='example'?<><span>—</span><small>Not simulated</small></>:market?<><span>{money(market.liquidity)}</span><small>USDC reserve · {fresh?'current':'expired'}</small></>:<span>Unavailable</span>}</td><td><Button variant="outline" onClick={()=>navigate('borrow')} aria-label="Open NVDAx USDC market">Open market <ArrowRight size={15}/></Button></td></tr></tbody></table></div>
-      <div className="directory-footnote"><Info size={14}/><p>{mode==='example'?'Illustrative terms for the interactive example. Switch to Live wallet for current onchain reads.':'Reserve liquidity is shared across the xStocks market and is not a wallet-specific borrowing offer. Refresh expired terms before planning.'}</p></div>
-     </section>
-     <div className="market-support-grid"><section className="portfolio-preview card"><div className="section-title"><h2>Your position</h2><span className="scenario-badge">{mode==='example'?'Example':'Read-only'}</span></div>{existing&&mode==='live'&&!position?.supported?<><p>This position uses assets or settings that Stockroom does not model.</p><a className="text-link" href={KAMINO} target="_blank" rel="noreferrer">Manage in Kamino <ExternalLink size={14}/></a></>:existing?<><div className="preview-metrics"><Metric label="Collateral" value={qty(locked)+' NVDAx'}/><Metric label="Debt" value={money(debt)}/><Metric label="LTV" value={positionTerms?pct(positionLtv):'—'}/></div><Button variant="outline" onClick={()=>navigate('position')}>Manage position <ArrowRight size={15}/></Button></>:<><p>{mode==='example'?'No example loan yet. Open the NVDAx market to supply collateral and borrow USDC.':!address?'Connect a wallet to see your supported Kamino position.':position?'No supported position found. Check other positions in Kamino.':'Position data unavailable. Refresh to try again.'}</p><Button variant="outline" onClick={()=>mode==='live'&&!address?setWalletPicker(true):navigate('borrow')}>{mode==='live'&&!address?'Connect wallet':'Open NVDAx market'}<ArrowRight size={15}/></Button></>}</section><section className="market-guide card"><p className="eyebrow">BORROW WITH A REPAYMENT PLAN</p><h2>See the position before you open it.</h2><p>Test a stock-price decline, estimate your repayment and follow the loan through to collateral release.</p><Button variant="link" onClick={()=>navigate('borrow')}>Explore the loan <ArrowUpRight size={16}/></Button><a className="text-link supply-link" href={KAMINO} target="_blank" rel="noreferrer">Supply USDC through Kamino <ExternalLink size={13}/></a></section></div>
-    </TabsContent>
-    <TabsContent value="borrow">
-     <section className="market-metrics-bar card" aria-label="Market terms"><Metric label="Collateral price" value={terms?money(terms.price):'—'} sub="Per adjusted NVDAx"/><Metric label="Borrow APY" value={terms?pct(terms.apy):'—'} sub={mode==='example'?'Illustrative variable rate':'Current variable rate'}/><Metric label="Max opening LTV" value={terms?pct(terms.maxLtv):'—'}/><Metric label="Liquidation LTV" value={terms?pct(terms.liquidationLtv):'—'}/><span className="network-chip"><i/>Solana · Kamino</span></section>
-     <div className="borrow-grid">
-      <section className="request-card card">
-       <div className="section-title"><div><p className="eyebrow">NVDAx / USDC</p><h2>Borrow USDC</h2></div><span className="provider">Kamino model</span></div>
-       <div className="asset-choice"><div className="stock-icon">N</div><div><strong>NVIDIA xStock</strong><span>NVDAx · xStocks</span></div><span className="asset-chain">Solana</span></div>
-       <label className="field-label" htmlFor="collateral">Supply collateral <span>{mode==='live'&&!address?'Connect to read balance':mode==='live'&&!balances?walletLoading?'Reading balance…':'Balance unavailable':qty(available)+' available'}</span></label>
-       <div className="amount-input"><Input id="collateral" aria-label="NVDAx collateral" type="number" min="0" max="10000" step=".0001" value={collateral} onChange={e=>setCollateral(e.target.value)}/><span>NVDAx</span></div>
-       <div className="input-meta"><span>{terms&&stockN>=0?money(stockN*terms.price):'—'} collateral value</span><Button variant="ghost" disabled={available<=0} onClick={()=>setCollateral(String(Math.floor(available*1e4)/1e4))}>Use max</Button></div>
-       <label className="field-label" htmlFor="cash">USDC to borrow</label>
-       <div className="amount-input cash-input"><span>$</span><Input id="cash" aria-label="USDC to borrow" type="number" min=".01" max="100000" step=".01" value={cash} onChange={e=>setCash(e.target.value)}/><span>USDC</span></div>
-       <div className="cash-presets">{[250,500,1000].map(n=><Button variant="outline" key={n} aria-pressed={cashN===n} onClick={()=>setCash(String(n))}>{money(n).replace('.00','')}</Button>)}<span>{plan?money(plan.limit)+' opening limit':'Opening limit —'}</span></div>
-       <div className="horizon"><div className="field-label"><label htmlFor="horizon">Planned repayment</label><strong>{days} days</strong></div><Slider id="horizon" aria-label="Planned repayment days" min={1} max={180} step={1} value={[days]} onValueChange={v=>setDays(v[0])}/><div className="range-labels"><span>1 day</span><span>180 days</span></div><p>A planning horizon. Kamino's variable-rate loan has no fixed maturity.</p></div>
-       {existing&&<div className="inline-warning">An existing position is present. <button onClick={()=>navigate('position')}>Manage your position <ArrowRight size={13}/></button></div>}
-       {!plan?<p className="input-error">{terms?'Enter a positive collateral amount and $0.01–$100,000 USDC.':'A current market snapshot is needed to calculate this loan.'}</p>:!enough?<p className="input-error">This needs more available NVDAx than you hold.</p>:!plan.allowed?<p className="input-error">Above the opening limit. Add collateral or reduce the loan.</p>:null}
-       <dl className="execution-summary"><Row label="Initial LTV" value={plan?pct(plan.ltv):'—'}/><Row label="Liquidation LTV" value={terms?pct(terms.liquidationLtv):'—'}/><Row label="Origination fee" value={plan?money(plan.fee):'—'}/></dl>
-       <Button className="primary-action" disabled={mode==='example'?!canReview:!plan||!plan.allowed||!fresh||!market?.enabled||existing||!!address&&(!balances||!enough)} onClick={()=>mode==='example'?openReview('borrow'):!address?setWalletPicker(true):window.open(KAMINO,'_blank','noopener,noreferrer')}>{mode==='example'?'Review example loan':!address?'Connect wallet to continue':'Continue in Kamino'}<ArrowRight size={17}/></Button>
-       <p className="action-caption">{mode==='example'?'The example locks collateral and adds USDC. No wallet or real funds.':'Re-enter your amounts in Kamino and review its current terms before signing.'}</p>
-      </section>
-      <div className="outlook-column">
-       <section className="outlook-card">
-        <div className="section-title"><div><p className="eyebrow">LOAN OVERVIEW</p><h2>Your borrowing position</h2></div><ShieldCheck size={23}/></div>
-        <div className="loan-total"><span>Estimated repayment in {days} days</span><strong>{plan?money(plan.debt):'—'}</strong><p>{plan?money(plan.interest)+' estimated interest':'Interest estimate unavailable'} · rate may change</p></div>
-        <div className="outlook-metrics"><Metric label="Borrow APY" value={terms?pct(terms.apy):'—'} sub="Variable"/><Metric label="Initial LTV" value={plan?pct(plan.ltv):'—'} sub={terms?pct(terms.maxLtv)+' opening ceiling':''}/><Metric label="Origination fee" value={plan?money(plan.fee):'—'} sub="Excludes network costs"/></div>
-        <div className="exposure-row"><span>Stock exposure retained</span><strong>{plan?qty(stockN)+' NVDAx':'—'} <span>locked as collateral</span></strong></div>
-       </section>
-       <section className="risk-card card">
-        <div className="section-title"><div><p className="eyebrow">RISK / PRICE SCENARIO</p><h2>Liquidation risk</h2></div><span className="scenario-badge">Scenario</span></div>
-        <div className="stress-input"><label htmlFor="decline">Price decline</label><strong>−{decline}%</strong></div><Slider id="decline" aria-label="Stock price decline" value={[decline]} min={0} max={60} step={1} onValueChange={v=>setDecline(v[0])}/>
-        <div className="chart" role="img" aria-label={plan?'Estimated LTV is '+pct(plan.stressedLtv)+' after a '+decline+' percent decline. Liquidation threshold is '+pct(terms!.liquidationLtv):'Enter a loan to show downside scenarios.'}>{chart.length?<ResponsiveContainer width="100%" height="100%" initialDimension={{width:300,height:220}}><AreaChart data={chart} margin={{top:18,right:12,bottom:0,left:-22}}><defs><linearGradient id="creditFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2f5bea" stopOpacity={.18}/><stop offset="100%" stopColor="#2f5bea" stopOpacity={0}/></linearGradient></defs><XAxis type="number" domain={[0,60]} dataKey="decline" tickFormatter={n=>'−'+n+'%'} axisLine={false} tickLine={false} tick={{fontSize:12,fill:'#607187'}} ticks={[0,20,40,60]}/><YAxis domain={[0,Math.max(80,Math.ceil((chart[12]?.ltv??80)/20)*20)]} tickFormatter={n=>n+'%'} axisLine={false} tickLine={false} tick={{fontSize:12,fill:'#607187'}}/><Tooltip labelFormatter={v=>'Stock decline: '+v+'%'} formatter={v=>[Number(v).toFixed(1)+'%','Projected LTV']} contentStyle={{borderRadius:10,fontSize:14}}/><ReferenceLine y={terms!.liquidationLtv*100} stroke="#bb5140" strokeDasharray="5 4"/><ReferenceLine x={decline} stroke="#607187" strokeDasharray="3 4"/><Area type="monotone" dataKey="ltv" stroke="#2f5bea" strokeWidth={2.5} fill="url(#creditFill)" isAnimationActive={false}/></AreaChart></ResponsiveContainer>:<div className="chart-empty">Your loan scenario will appear here.</div>}</div>
-        <div className="chart-legend"><span><i/>Projected LTV in {days} days</span><span><i className="red-line"/>{terms?pct(terms.liquidationLtv):'—'} liquidation threshold</span></div>
-        <div className={'stress-result '+(plan?.atRisk?'danger':'')}><div><span>After a {decline}% decline</span><strong>{plan?pct(plan.stressedLtv):'—'} <small>LTV</small></strong></div><div><span>{!plan?'Scenario unavailable':plan.atRisk?'Crosses the liquidation threshold':'Below the liquidation threshold'}</span><strong>{plan?money(plan.stressedPrice):'—'} <small>/ NVDAx</small></strong></div></div>
-        <p className="risk-explanation">{plan&&terms?<>At this rate, liquidation becomes possible around <strong>{money(plan.liquidationPrice)}</strong> per NVDAx in {days} days. {plan.atRisk?'This scenario crosses the threshold. Consider reducing the loan or adding collateral.':'This is a scenario, not protection against liquidation.'}</>:'Choose your collateral and borrowing amount to calculate exposure.'}</p>
-       </section>
-      </div>
-     </div>
-     <section className="alternative card"><button className="alternative-toggle" aria-expanded={saleOpen} onClick={()=>setSaleOpen(v=>!v)}><div><ArrowUpRight size={19}/><span>Consider selling instead</span></div><span>Compare the stock you would give up {saleOpen?<ChevronDown size={17}/>:<ChevronRight size={17}/>}</span></button>{saleOpen&&<div className="alternative-body"><div><p className="eyebrow">{mode==='example'?'ILLUSTRATIVE SALE · 0.3% COST ASSUMPTION':'JUPITER SALE QUOTE'}</p><strong>{mode==='example'?qty(exampleSale):sale?qty(sale.sale.displayAmount):'—'} NVDAx</strong><p>{mode==='example'?'sold to receive '+money(cashN)+' USDC':saleLoading?'Fetching a fresh sale route…':saleError||sale?(saleError||money(sale!.sale.received)+' USDC quoted · '+(now<sale!.expiresAt?'current':'expired')):'Set a cash amount to compare.'}</p></div><div><p>Selling reduces your stock exposure. It creates no loan or liquidation obligation.</p>{mode==='example'?<Button variant="outline" disabled={!Number.isFinite(exampleSale)||exampleSale<=0||exampleSale>example.stock||cashN>100000} onClick={()=>openReview('sale')}>Review example sale <ArrowRight size={15}/></Button>:<a className="text-link" href="https://jup.ag/spot" target="_blank" rel="noreferrer">Review a sale on Jupiter <ExternalLink size={14}/></a>}</div></div>}</section>
-    </TabsContent>
-    <TabsContent value="position">
-     {!existing?<section className="empty-state card"><div className="empty-icon"><Layers3 size={28}/></div><p className="eyebrow">{mode==='example'?'YOUR EXAMPLE POSITION':'SUPPORTED KAMINO POSITION'}</p><h2>{walletLoading?'Reading your position…':mode==='live'&&address&&!position?'Position unavailable':mode==='live'&&!address?'Bring your position into view.':'Room for your first loan.'}</h2><p>{mode==='example'?'Open an example loan to see collateral, interest, repayment and release work together.':!address?'Connect a wallet to read its balances and supported xStocks position.':!position?'The position could not be read. Refresh or check it directly in Kamino.':'No supported position was found. Other markets or position types may exist in Kamino.'}</p><Button onClick={()=>mode==='live'&&!address?setWalletPicker(true):navigate('borrow')}>{mode==='live'&&!address?'Connect wallet':'Set up a loan'}<ArrowRight size={16}/></Button>{mode==='live'&&<a href={KAMINO} target="_blank" rel="noreferrer" className="text-link">View all positions in Kamino <ExternalLink size={14}/></a>}</section>:mode==='live'&&!position?.supported?<section className="empty-state card"><h2>Manage this position in Kamino.</h2><p>This position contains additional assets or settings that Stockroom does not value. A partial view could misrepresent its risk.</p><a className="button-link" href={KAMINO} target="_blank" rel="noreferrer">Open Kamino <ExternalLink size={16}/></a></section>:<div className="position-grid">
-       <section className="position-main card"><div className="section-title"><div><p className="eyebrow">{mode==='example'?'EXAMPLE LOAN / NVDAx → USDC':'KAMINO / NVDAx → USDC'}</p><h2>{debt>0?'Position overview':'Repaid. Ready to release.'}</h2></div><span className="position-pill">{debt>0?'Loan open':'No debt'}</span></div><div className="position-metrics"><Metric label="Collateral locked" value={qty(locked)+' NVDAx'} sub={positionTerms?money(positionValue):undefined}/><Metric label="Outstanding debt" value={money(debt)} sub={mode==='example'?'Accrued through example day '+example.day:'At last reserve refresh'}/><Metric label="Current LTV" value={positionTerms?pct(positionLtv):'—'} sub={positionTerms?pct(positionTerms.liquidationLtv)+' liquidation threshold':undefined}/></div>
-        <div className="position-health"><div><span>Debt relative to collateral</span><strong>{positionTerms?pct(positionLtv):'—'}</strong></div><div className="health-track"><span style={{width:Math.min(100,positionLtv*100)+'%'}}/><i style={{left:(positionTerms?.liquidationLtv??.65)*100+'%'}}/></div><div className="range-labels"><span>0%</span><span>Liquidation {positionTerms?pct(positionTerms.liquidationLtv):'—'}</span><span>100%</span></div></div>
-        <dl className="position-details"><Row label="Liquidation reference price" value={debt>0?positionTerms?money(loanLiquidation)+' / NVDAx':'Unavailable':'No debt to liquidate'}/><Row label="Borrow APY" value={positionTerms?pct(positionTerms.apy)+' variable':'—'}/><Row label="Available outside this position" value={mode==='live'&&!balances?'Unavailable':qty(available)+' NVDAx'}/><Row label="Available USDC" value={mode==='live'&&!balances?'Unavailable':money(walletCash)}/></dl>
-        {mode==='example'&&example.loan&&<div className="example-clock"><div><Clock3 size={18}/><div><strong>Try the passage of time</strong><p>Day {elapsed} of your {example.loan.horizon}-day plan. {elapsed>example.loan.horizon?'Past your planned horizon; no contractual maturity.':'The example holds the interest rate constant.'}</p></div></div><div><Button variant="outline" disabled={example.day+7>365} onClick={()=>advance(7)}>+7 days</Button><Button variant="outline" disabled={example.day+30>365} onClick={()=>advance(30)}>+30 days</Button></div></div>}
-        {mode==='live'&&<p className="fine-print">This view supports one NVDAx/USDC position in the xStocks market. Debt changes with reserve refreshes. Confirm current repayment and health in Kamino.</p>}
-       </section>
-       <section className="manage-card card"><p className="eyebrow">MANAGE YOUR LOAN</p><h2>{debt>0?'Repay & manage':'Withdraw collateral'}</h2>{mode==='live'?<><p className="manage-copy">Repay, add collateral or withdraw through Kamino. Stockroom does not request transaction signatures.</p><a className="button-link" href={KAMINO} target="_blank" rel="noreferrer">Manage in Kamino <ExternalLink size={15}/></a><Button variant="outline" onClick={()=>setRefresh(n=>n+1)} disabled={walletLoading||marketLoading}><RefreshCw size={14}/>Refresh after transacting</Button></>:debt>0?<><label className="field-label" htmlFor="repay">Repay USDC <span>{money(example.cash)} available</span></label><Input id="repay" aria-label="USDC repayment amount" type="number" min=".000001" step=".01" value={repayment} onChange={e=>setRepayment(e.target.value)}/><Button className="primary-action" disabled={!Number.isFinite(Number(repayment))||Number(repayment)<=0||Math.min(debt,Number(repayment))>example.cash} onClick={()=>openReview('repay',Number(repayment))}>Review repayment <ArrowRight size={15}/></Button><Button variant="outline" disabled={debt>example.cash} onClick={()=>openReview('repay',debt)}>Repay full balance · {money(debt)}</Button><div className="manage-divider"/><label className="field-label" htmlFor="topup">Add NVDAx collateral <span>{qty(example.stock)} available</span></label><Input id="topup" aria-label="Additional NVDAx collateral" type="number" min=".0001" step=".0001" value={topup} onChange={e=>setTopup(e.target.value)}/><Button variant="outline" disabled={!Number.isFinite(Number(topup))||Number(topup)<=0||Number(topup)>example.stock} onClick={()=>openReview('deposit',0,Number(topup))}><Plus size={15}/>Review collateral deposit</Button></>:<><p className="manage-copy">Your example debt is fully repaid. Release {qty(locked)} NVDAx back to your available balance.</p><Button className="primary-action" onClick={()=>openReview('withdraw',0,locked)}>Release collateral <ArrowRight size={15}/></Button></>}</section>
-      </div>}
-    </TabsContent>
-    <TabsContent value="activity"><section className="activity-card card"><div className="section-title"><div><p className="eyebrow">{mode==='example'?'LOCAL EXAMPLE HISTORY':'ONCHAIN HISTORY'}</p><h2>Every change, accounted for.</h2></div>{mode==='example'&&example.events.length>0&&<Button variant="outline" onClick={()=>saveFile('stockroom-example-receipt.json',{simulation:true,network:null,exportedAt:new Date().toISOString(),...example})}><Download size={15}/>Export receipt</Button>}</div>{mode==='live'?<div className="activity-empty"><p>Check confirmed transactions in the explorer. Example actions are never mixed with wallet activity.</p>{address?<a className="text-link" href={'https://explorer.solana.com/address/'+address} target="_blank" rel="noreferrer">View this wallet <ExternalLink size={15}/></a>:<Button variant="outline" onClick={()=>setWalletPicker(true)}>Connect wallet</Button>}</div>:example.events.length===0?<div className="activity-empty"><p>Your example activity will appear after you open a loan or make a sale.</p><Button variant="outline" onClick={()=>navigate('borrow')}>Set up a loan <ArrowRight size={15}/></Button></div>:<div className="activity-list">{example.events.map(e=><div key={e.id} className="activity-row"><div className={'activity-icon '+(e.kind==='repay'?'paid':'')}>{e.kind==='borrow'||e.kind==='withdraw'?<ArrowDownLeft size={19}/>:<ArrowUpRight size={19}/>}</div><div className="event-name"><strong>{{borrow:'Loan opened',repay:'Loan repayment',deposit:'Collateral added',withdraw:'Collateral released',sale:'Stock sold'}[e.kind]}</strong><span>Example day {e.day} · Simulation #{e.id}</span></div><div className="event-change"><strong>{e.cash!==0?(e.cash>0?'+':'−')+money(Math.abs(e.cash))+' USDC':(e.stock>0?'+':'−')+qty(Math.abs(e.stock))+' NVDAx'}</strong><span>{e.stock!==0&&e.cash!==0?qty(Math.abs(e.stock))+' NVDAx '+(e.kind==='sale'?'sold':'locked'):'Remaining debt '+money(e.debt)}</span></div></div>)}</div>}<p className="fine-print">{mode==='example'?'This is a local simulation ledger. It contains no transaction signatures or real funds.':'Stockroom does not index your full transaction history.'}</p></section></TabsContent>
-   </Tabs>}
-   <footer><span>Stock-backed credit · Powered by Solana</span><Button variant="link" onClick={()=>setSources(true)}>Sources & calculations <ArrowUpRight size={14}/></Button><span>Stockroom / Solana</span></footer>
-  </div>
-
-  <Dialog open={walletPicker} onOpenChange={setWalletPicker}><DialogContent className="review-dialog"><DialogHeader><DialogTitle>{address?'Connected wallet':'Connect a wallet'}</DialogTitle><DialogDescription>Read supported Solana positions. Stockroom will not request a transaction signature.</DialogDescription></DialogHeader>{address?<><p className="wallet-address">{address}</p><Button variant="outline" onClick={()=>{void wallet.disconnect();setWalletPicker(false)}}>Disconnect wallet</Button></>:wallet.wallets.length?wallet.wallets.map(w=><Button key={w.name} variant="outline" disabled={wallet.busy} onClick={async()=>{await wallet.connect(w);setWalletPicker(false)}}>{w.name}<ArrowRight size={15}/></Button>):<div className="dialog-callout"><Wallet size={22}/><p>No compatible wallet was detected in this browser. Open Stockroom in your wallet's browser, or continue with the example.</p><Button variant="outline" onClick={()=>{setMode('example');setWalletPicker(false)}}>Continue with example</Button></div>}</DialogContent></Dialog>
-  {wallet.error&&mode==='live'&&<div className="wallet-error-toast" role="alert">{wallet.error}</div>}
-  <Dialog open={!!review} onOpenChange={v=>{if(!v)setReview(null)}}><DialogContent className="review-dialog"><DialogHeader><p className="eyebrow">SIMULATION / NO REAL FUNDS</p><DialogTitle>{review?reviewTitles[review.kind]:''}</DialogTitle><DialogDescription>{review?.kind==='borrow'?'Review both sides of the position before opening it.':'This updates only your example balances and history on this device.'}</DialogDescription></DialogHeader>{review&&<><div className="review-hero"><span>{review.kind==='borrow'?'USDC added to your example':review.kind==='repay'?'USDC used for repayment':review.kind==='sale'?'USDC received':'NVDAx '+(review.kind==='withdraw'?'released':'locked')}</span><strong>{review.kind==='deposit'||review.kind==='withdraw'?qty(review.stock):money(review.kind==='repay'?Math.min(review.amount,debt):review.amount)}</strong></div><dl>{reviewPlan?<><Row label="Collateral locked" value={qty(review.stock)+' NVDAx'}/><Row label="Opening debt, including fee" value={money(reviewPlan.principal)}/><Row label="Borrow APY" value={pct(review.terms.apy)+' variable'}/><Row label={'Estimated repayment in '+review.days+' days'} value={money(reviewPlan.debt)}/><Row label="Initial LTV / liquidation threshold" value={pct(reviewPlan.ltv)+' / '+pct(review.terms.liquidationLtv)}/></>:review.kind==='repay'?<><Row label="Current debt" value={money(debt)}/><Row label="Remaining debt" value={money(Math.max(0,debt-review.amount))}/><Row label="Collateral remains locked" value={qty(locked)+' NVDAx'}/></>:review.kind==='sale'?<><Row label="NVDAx sold" value={qty(review.amount/(review.terms.price*.997))}/><Row label="Illustrative sale cost" value="0.3%"/><Row label="New debt" value="$0.00"/></>:<><Row label="Outstanding debt" value={money(debt)}/><Row label="NVDAx in collateral after" value={qty(review.kind==='withdraw'?0:locked+review.stock)}/></>}</dl>{reviewPlan&&<p className={'review-disclosure '+(reviewPlan.atRisk?'danger':'')}>{reviewPlan.atRisk?'Your selected price-decline scenario crosses the liquidation threshold. ':''}Stock price and interest rates can change. Collateral can be liquidated. This example has no network costs.</p>}{actionError&&<p className="input-error" role="alert">{actionError}</p>}<Button className="primary-action" onClick={confirm}>{review.kind==='borrow'?'Open example loan':review.kind==='repay'?'Confirm example repayment':review.kind==='deposit'?'Add example collateral':review.kind==='withdraw'?'Release example collateral':'Confirm example sale'}<ArrowRight size={16}/></Button><p className="action-caption">No wallet signature. No onchain transaction.</p></>}</DialogContent></Dialog>
-  <Dialog open={resetOpen} onOpenChange={setResetOpen}><DialogContent className="review-dialog"><DialogHeader><DialogTitle>Reset this example?</DialogTitle><DialogDescription>Replace the local example and its activity with 10 NVDAx and 100 USDC. Your real wallet is unaffected.</DialogDescription></DialogHeader><Button onClick={()=>{setExample(newExample());setCash('500');setCollateral('8');setDays(30);setDecline(30);setNotice('');setResetOpen(false);navigate('borrow')}}>Reset example</Button><Button variant="outline" onClick={()=>setResetOpen(false)}>Keep example</Button></DialogContent></Dialog>
-  <Dialog open={sources} onOpenChange={setSources}><DialogContent className="review-dialog source-dialog"><DialogHeader><DialogTitle>Sources & calculations</DialogTitle><DialogDescription>Know which numbers are examples, estimates and onchain reads.</DialogDescription></DialogHeader><div className="source-copy"><p><strong>Example mode.</strong> Starts with 10 NVDAx and 100 USDC. Its fixed illustrative inputs are $218.31 per adjusted NVDAx, 5.08% APY, 55% opening LTV and 65% liquidation LTV. These are not a live offer. The example keeps rates, prices and token units constant and does not execute liquidations.</p><p><strong>Jupiter live data.</strong> Reads the official Borrow API for main-market xStock vaults and position identities. Rates are base APR (rate / 10,000), while collateral and liquidation thresholds use / 1,000. Incentives are excluded. DEX prices come from Jupiter Price V3 and are never substituted for lending oracle valuations. Vault-wide borrowable is not wallet-specific capacity. Position balances and signed execution must be reviewed in Jupiter.</p><p><strong>Kamino live mode.</strong> Reads Kamino reserves, Scope oracle accounts and the token's current display multiplier. Raw token balances are converted once to adjusted NVDAx units. Price is adjusted inversely. Reserve liquidity does not include every execution constraint. Current terms and issuer eligibility must be confirmed in Kamino.</p><p><strong>Interest and downside.</strong> Estimated debt = opening debt × (1 + APY)^(days / 365). Opening debt includes the modeled origination fee. Risk-adjusted LTV = debt × USDC oracle price × debt borrow factor / collateral value. The downside scenario changes collateral price and includes projected interest. It assumes a constant rate and stable oracle relationship, and gives no guarantee against liquidation.</p><p><strong>Position scope.</strong> One standard NVDAx-collateral / USDC-debt position in Kamino's xStocks market. Additional assets, elevation groups and other position types are not modeled. Debt is valued at the last reserve refresh.</p><p><strong>Execution.</strong> Example actions are a local simulation. Mainnet signing is not enabled in Stockroom. Continue in the selected protocol to perform real transactions; there is no automatic transfer of your form inputs.</p><div className="source-links"><a href="https://developers.jup.ag/docs/lend/borrow/api" target="_blank" rel="noreferrer">Jupiter Borrow API <ExternalLink size={14}/></a><a href="https://developers.jup.ag/docs/price" target="_blank" rel="noreferrer">Jupiter Price V3 <ExternalLink size={14}/></a><a href={KAMINO} target="_blank" rel="noreferrer">Kamino market <ExternalLink size={14}/></a><a href="https://kamino.com/docs/products/borrow/borrowing" target="_blank" rel="noreferrer">Borrowing mechanics <ExternalLink size={14}/></a><a href="https://docs.xstocks.fi/docs/dividends-and-stock-splits" target="_blank" rel="noreferrer">xStocks corporate actions <ExternalLink size={14}/></a><a href={'https://explorer.solana.com/address/'+NVDA} target="_blank" rel="noreferrer">NVDAx mint · {short(NVDA)} <ExternalLink size={14}/></a><a href={'https://explorer.solana.com/address/'+MARKET} target="_blank" rel="noreferrer">Lending market · {short(MARKET)} <ExternalLink size={14}/></a><a href={'https://explorer.solana.com/address/'+USDC} target="_blank" rel="noreferrer">USDC mint · {short(USDC)} <ExternalLink size={14}/></a></div></div></DialogContent></Dialog>
- </main>;
+  return (
+    <>
+      <header className="topbar">
+        <Link className="wordmark" href="/">
+          <Layers3 size={25} />
+          stockroom<span>/</span>
+        </Link>
+        <nav className="primary-nav" aria-label="Main navigation">
+          <a href="#markets" className="devnet-nav-active" aria-current="page">
+            Markets
+          </a>
+        </nav>
+        <div className="header-actions">
+          <span className="devnet-chip">
+            <i />
+            Solana Devnet
+          </span>
+          <Button
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setPicker(true)}
+          >
+            <Wallet size={14} />
+            {address ? short(address) : "Connect wallet"}
+          </Button>
+        </div>
+      </header>
+      <main className="shell devnet-shell">
+        <div className="mode-notice devnet-banner">
+          <div>
+            <FlaskConical size={16} />
+            <span>
+              <strong>Working Devnet demo.</strong> Demo stocks and demo USD
+              have no monetary value. Stockroom’s own credit contract executes
+              every action.
+            </span>
+          </div>
+          <a
+            href={explorer("address", deployment.creditProgram)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View program <ExternalLink size={13} />
+          </a>
+        </div>
+        <div className="workspace-heading">
+          <div>
+            <p className="eyebrow">STOCKROOM CREDIT / INTERACTIVE DEMO</p>
+            <h1>Devnet stock markets</h1>
+            <p>
+              Choose a mock stock market. Supply cash, borrow against
+              collateral, and follow every transaction on Solana.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            disabled={!!busy || loading}
+            onClick={() => void refresh()}
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            Refresh balances
+          </Button>
+        </div>
+        <MarketOverview
+          markets={markets}
+          selected={marketId}
+          onSelect={selectMarket}
+          disabled={disabled}
+          error={marketError}
+        />
+        <div className="market-selection-title">
+          <div>
+            <p className="eyebrow">SELECTED MARKET / DEMO USD</p>
+            <h2 className="mock-asset-heading">
+              <TokenLogo symbol={deployment.symbol} />
+              {deployment.symbol}
+            </h2>
+          </div>
+          <span>
+            {deployment.name} · fixed test price {num(deployment.demoPrice)}{" "}
+            demo USD
+          </span>
+        </div>
+        <section className="card market-metrics-bar" aria-label="Market terms">
+          <Stat
+            label="Available to borrow"
+            value={num(data?.liquidity)}
+            sub="demo USD · funded on Devnet"
+          />
+          <Stat
+            label="Borrow APR"
+            value={data ? "5.00%" : "—"}
+            sub="Fixed annual rate · interest accrues"
+          />
+          <Stat
+            label="Maximum opening LTV"
+            value={data ? "50%" : "—"}
+            sub="Borrow up to half your collateral value"
+          />
+          <Stat
+            label="Liquidation LTV"
+            value={data ? "65%" : "—"}
+            sub="5% liquidator bonus"
+          />
+        </section>
+        {error && (
+          <div className="input-error" role="alert">
+            {error}
+            {error.includes("Sign in") && (
+              <>
+                {" "}
+                <a
+                  className="text-link"
+                  href={`/signin-with-chatgpt?return_to=${encodeURIComponent(`/?market=${encodeURIComponent(marketId)}`)}`}
+                >
+                  Sign in to use the demo
+                </a>
+              </>
+            )}
+          </div>
+        )}
+        {external.error && (
+          <div className="input-error" role="alert">
+            {external.error}
+          </div>
+        )}
+        {notice && (
+          <div className="notice" role="status">
+            <Check size={16} />
+            {notice}
+          </div>
+        )}
+        {busy && (
+          <div className="devnet-progress" role="status">
+            <Loader2 size={16} className="animate-spin" />
+            {busy}
+          </div>
+        )}
+        <div className="devnet-grid">
+          <div className="devnet-main">
+            <section className="card devnet-start">
+              <div className="section-title">
+                <div>
+                  <p className="eyebrow">START HERE</p>
+                  <h2>
+                    {address
+                      ? "Your Devnet wallet"
+                      : "Try a complete lending cycle"}
+                  </h2>
+                </div>
+                <span className="provider">
+                  {demoAddress
+                    ? "Temporary demo wallet"
+                    : address
+                      ? "Connected wallet"
+                      : "No extension needed"}
+                </span>
+              </div>
+              {!address ? (
+                <>
+                  <p className="devnet-copy">
+                    Create a temporary wallet in this tab. Claim test assets and
+                    make your first loan in a few clicks.
+                  </p>
+                  <div className="devnet-buttons">
+                    <Button
+                      onClick={() => void startDemo()}
+                      disabled={disabled}
+                    >
+                      Try with demo wallet <ArrowRight size={15} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setPicker(true)}
+                      disabled={disabled}
+                    >
+                      Use my own wallet
+                    </Button>
+                  </div>
+                  <p className="fine-print">
+                    This wallet is saved only for this browser session. Use it
+                    exclusively for this Devnet demo.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="devnet-wallet-grid">
+                    <Stat
+                      label={deployment.symbol}
+                      value={num(w?.stock, 4)}
+                      sub="Wallet balance · Token-2022"
+                    />
+                    <Stat
+                      label="Demo USD"
+                      value={num(w?.cash)}
+                      sub="Wallet balance · SPL token"
+                    />
+                    <Stat
+                      label="Devnet SOL"
+                      value={num(w?.sol, 5)}
+                      sub="For account rent and network fees"
+                    />
+                  </div>
+                  <div className="devnet-wallet-footer">
+                    <a
+                      href={explorer("address", address)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {short(address)} <ExternalLink size={12} />
+                    </a>
+                    {p?.exists ? (
+                      <span>
+                        <Check size={13} />
+                        Starter assets claimed
+                      </span>
+                    ) : (
+                      <Button
+                        disabled={disabled || !data}
+                        onClick={() => void prepare("faucet")}
+                      >
+                        Get demo assets <ArrowRight size={14} />
+                      </Button>
+                    )}
+                  </div>
+                  {!p?.exists && (
+                    <p className="fine-print">
+                      One pack per wallet per market: 25 {deployment.symbol},
+                      1,000 demo USD and 0.005 Devnet SOL. Account setup uses
+                      part of that SOL.
+                    </p>
+                  )}
+                </>
+              )}
+            </section>
+            <section className="outlook-card devnet-position">
+              <div className="section-title">
+                <div>
+                  <p className="eyebrow">YOUR POSITION</p>
+                  <h2>
+                    {hasLoan ? "A loan you can manage" : "Ready when you are"}
+                  </h2>
+                </div>
+                <ShieldCheck size={22} />
+              </div>
+              <div className="devnet-position-metrics">
+                <Stat
+                  label="Collateral deposited"
+                  value={num(p?.collateral, 4)}
+                  sub={deployment.symbol}
+                />
+                <Stat
+                  label="Outstanding debt"
+                  value={num(p?.debt, 6)}
+                  sub="demo USD · includes accrued interest"
+                />
+                <Stat
+                  label="Supplied liquidity"
+                  value={num(p?.supplied, 6)}
+                  sub="demo USD · estimated redemption value"
+                />
+              </div>
+              <div className="devnet-health">
+                <div>
+                  <span>Current loan-to-value</span>
+                  <strong>{num(ltv * 100, 1)}%</strong>
+                </div>
+                <div className="health-track">
+                  <span style={{ width: Math.min(ltv * 100, 100) + "%" }} />
+                  <i style={{ left: "65%" }} />
+                </div>
+                <div className="devnet-health-labels">
+                  <span>0%</span>
+                  <span>Liquidation starts at 65%</span>
+                </div>
+              </div>
+              <div className="devnet-buttons">
+                <Button
+                  variant="outline"
+                  disabled={disabled || !hasLoan}
+                  onClick={() => void prepare("repay")}
+                >
+                  Repay entire loan
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={disabled || hasLoan || !p?.collateral}
+                  onClick={() => void prepare("withdraw")}
+                >
+                  Release collateral
+                </Button>
+                {p?.hasSupply && (
+                  <Button
+                    variant="outline"
+                    disabled={disabled}
+                    onClick={() => void prepare("redeem")}
+                  >
+                    Redeem supply
+                  </Button>
+                )}
+              </div>
+              <p className="fine-print">
+                Repayment closes your debt, including interest. You can then
+                release all collateral in a separate transaction.
+              </p>
+            </section>
+            <section className="card devnet-activity">
+              <div className="section-title">
+                <h2>Your transaction receipts</h2>
+                <span className="provider">Solana Devnet</span>
+              </div>
+              {!activeRecords.length ? (
+                <p className="devnet-copy">
+                  Transactions signed in this browser for this wallet and market
+                  appear here. The market activity below includes other wallets.
+                </p>
+              ) : (
+                <div>
+                  {activeRecords.map((r) => (
+                    <div className="devnet-receipt" key={r.signature}>
+                      <div>
+                        <strong>{labels[r.kind]}</strong>
+                        <a
+                          href={explorer("tx", r.signature)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {short(r.signature)} <ExternalLink size={12} />
+                        </a>
+                      </div>
+                      <div>
+                        <span className={"devnet-status " + r.status}>
+                          {r.status}
+                        </span>
+                        {r.status === "pending" && (
+                          <Button
+                            variant="ghost"
+                            disabled={!!busy}
+                            onClick={() => {
+                              setBusy("Checking receipt…");
+                              void checkReceipt(r)
+                                .catch((e) => setError(e.message))
+                                .finally(() => setBusy(""));
+                            }}
+                          >
+                            Check receipt
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+          <aside className="devnet-sidebar">
+            <section className="card devnet-action">
+              <Tabs defaultValue="borrow">
+                <TabsList className="mode-tabs devnet-action-tabs">
+                  <TabsTrigger value="borrow">Borrow</TabsTrigger>
+                  <TabsTrigger value="supply">Supply</TabsTrigger>
+                </TabsList>
+                <TabsContent value="borrow">
+                  <h2>Stocks in. Cash out.</h2>
+                  <p className="devnet-copy">
+                    Deposit collateral and receive your loan in one transaction.
+                  </p>
+                  <label className="field-label" htmlFor="demo-collateral">
+                    Deposit {deployment.symbol}
+                    <span>Available: {num(w?.stock, 4)}</span>
+                  </label>
+                  <div className="amount-input">
+                    <Input
+                      id="demo-collateral"
+                      inputMode="decimal"
+                      value={collateral}
+                      onChange={(e) => setCollateral(e.target.value)}
+                      disabled={!!busy}
+                    />
+                    <span className="mock-token-label">
+                      <TokenLogo symbol={deployment.symbol} size={24} />
+                      {deployment.symbol}
+                    </span>
+                  </div>
+                  <label className="field-label" htmlFor="demo-cash">
+                    Borrow demo USD<span>50% maximum LTV</span>
+                  </label>
+                  <div className="amount-input">
+                    <Input
+                      id="demo-cash"
+                      inputMode="decimal"
+                      value={cash}
+                      onChange={(e) => setCash(e.target.value)}
+                      disabled={!!busy}
+                    />
+                    <span>USD</span>
+                  </div>
+                  <div className="cash-presets">
+                    {["100", "500", "750"].map((n) => (
+                      <Button
+                        key={n}
+                        variant="outline"
+                        aria-pressed={cash === n}
+                        disabled={!!busy}
+                        onClick={() => setCash(n)}
+                      >
+                        {n}
+                      </Button>
+                    ))}
+                  </div>
+                  <dl className="devnet-terms">
+                    <Detail label="Illustrative stock price">
+                      {num(deployment.demoPrice)} demo USD
+                    </Detail>
+                    <Detail label="Loan-to-value after borrowing">
+                      {num(projectedLtv * 100, 1)}%
+                    </Detail>
+                    <Detail label="Borrow APR">5.00%</Detail>
+                    <Detail label="Origination fee">0 demo USD</Detail>
+                  </dl>
+                  {badBorrow && (
+                    <p className="input-error">
+                      Choose available collateral and a loan within 50% of its
+                      value.
+                    </p>
+                  )}
+                  <Button
+                    className="primary-action"
+                    disabled={
+                      disabled || badBorrow || !p?.exists || !!data?.paused
+                    }
+                    onClick={() => void prepare("open")}
+                  >
+                    Review deposit & borrow <ArrowRight size={15} />
+                  </Button>
+                  <p className="action-caption">
+                    {!address
+                      ? "Create or connect a wallet to begin."
+                      : !p?.exists
+                        ? "Get demo assets first."
+                        : "Preview the exact transaction before signing."}
+                  </p>
+                </TabsContent>
+                <TabsContent value="supply">
+                  <h2>Put demo cash to work.</h2>
+                  <p className="devnet-copy">
+                    Supply demo USD to the lending pool. Your shares track your
+                    claim on its assets.
+                  </p>
+                  <label className="field-label" htmlFor="demo-supply">
+                    Supply demo USD<span>Available: {num(w?.cash)}</span>
+                  </label>
+                  <div className="amount-input">
+                    <Input
+                      id="demo-supply"
+                      inputMode="decimal"
+                      value={supply}
+                      onChange={(e) => setSupply(e.target.value)}
+                      disabled={!!busy}
+                    />
+                    <span>USD</span>
+                  </div>
+                  <dl className="devnet-terms">
+                    <Detail label="Your supplied balance">
+                      {num(p?.supplied, 6)}
+                    </Detail>
+                    <Detail label="Borrower interest rate">5.00% APR</Detail>
+                    <Detail label="Supplier yield">
+                      Varies with utilization
+                    </Detail>
+                    <Detail label="Withdrawal">
+                      Subject to available cash
+                    </Detail>
+                  </dl>
+                  <Button
+                    className="primary-action"
+                    disabled={disabled || !p?.exists || !!data?.paused}
+                    onClick={() => void prepare("supply")}
+                  >
+                    Review supply <ArrowRight size={15} />
+                  </Button>
+                  <Button
+                    className="devnet-full"
+                    variant="outline"
+                    disabled={disabled || !p?.hasSupply}
+                    onClick={() => void prepare("redeem")}
+                  >
+                    Redeem all supply
+                  </Button>
+                  <p className="action-caption">
+                    LP shares earn borrower interest and can absorb losses.
+                  </p>
+                </TabsContent>
+              </Tabs>
+            </section>
+            <section className="devnet-notes">
+              <p className="eyebrow">WHAT IS REAL IN THIS DEMO?</p>
+              <p>
+                Wallet signatures, SPL token transfers, collateral custody,
+                lending shares and debt accounting execute on Solana Devnet.
+              </p>
+              <p>
+                The stock price is a fixed, administrator-controlled test feed
+                at {num(deployment.demoPrice)} demo USD. It refreshes with
+                borrowing transactions. These tokens do not represent real
+                equities or redeemable dollars.
+              </p>
+              <p>
+                The programs are upgradeable and have not been independently
+                audited.
+              </p>
+              <div className="devnet-proof-links">
+                <a
+                  href={explorer("address", deployment.market)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Market account <ExternalLink size={12} />
+                </a>
+                <a
+                  href={explorer("address", deployment.oracleProgram)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Demo oracle <ExternalLink size={12} />
+                </a>
+              </div>
+            </section>
+          </aside>
+        </div>
+        <MarketLedger
+          key={marketId}
+          marketId={marketId}
+          refreshKey={data?.slot ?? 0}
+        />
+        <footer>
+          <span>Stockroom credit · Test assets only</span>
+          <span>
+            {data
+              ? "Read at slot " + data.slot.toLocaleString()
+              : "Connecting to Solana Devnet…"}
+          </span>
+        </footer>
+      </main>
+      <Dialog open={picker} onOpenChange={setPicker}>
+        <DialogContent className="review-dialog">
+          <DialogHeader>
+            <DialogTitle>Choose your Devnet wallet</DialogTitle>
+            <DialogDescription>
+              Use the temporary wallet to try this app immediately, or connect a
+              wallet with Devnet enabled.
+            </DialogDescription>
+          </DialogHeader>
+          <Button onClick={() => void startDemo()} disabled={disabled}>
+            Try with demo wallet <ArrowRight size={15} />
+          </Button>
+          <p className="review-disclosure">
+            The demo key stays in this browser session. Never send real assets
+            to it. Closing this session can remove access.
+          </p>
+          {external.wallets
+            .filter((w) => "solana:signTransaction" in w.features)
+            .map((wallet) => (
+              <Button
+                variant="outline"
+                key={wallet.name}
+                disabled={external.busy || disabled}
+                onClick={() => {
+                  connectExternal();
+                  void external.connect(wallet).then(() => setPicker(false));
+                }}
+              >
+                {wallet.name}
+              </Button>
+            ))}
+          {external.wallets.length === 0 && (
+            <p className="fine-print">
+              No compatible wallet extension detected. The demo wallet works in
+              this browser.
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!review}
+        onOpenChange={(open) => {
+          if (!open && !busy) setReview(null);
+        }}
+      >
+        <DialogContent className="review-dialog">
+          <DialogHeader>
+            <p className="eyebrow">REVIEW / SOLANA DEVNET</p>
+            <DialogTitle>{review ? labels[review.kind] : ""}</DialogTitle>
+            <DialogDescription>
+              Simulation passed. Signing sends this action to Stockroom’s Devnet
+              contract.
+            </DialogDescription>
+          </DialogHeader>
+          {review && (
+            <>
+              <dl>
+                <Detail label="Market">{deployment.symbol} / demo USD</Detail>
+                {Object.entries(review.limits)
+                  .filter(([k]) => !k.includes("Shares"))
+                  .map(([k, v]) => (
+                    <Detail
+                      key={k}
+                      label={
+                        (
+                          {
+                            stock: `Receive ${deployment.symbol}`,
+                            cash:
+                              review.kind === "faucet"
+                                ? "Receive demo USD"
+                                : "Demo USD amount",
+                            collateral:
+                              review.kind === "withdraw"
+                                ? `Release ${deployment.symbol}`
+                                : `Deposit ${deployment.symbol}`,
+                            testSolGrant: "Devnet SOL starter grant",
+                            estimatedCash: "Estimated demo USD",
+                            maximumCash: "Maximum demo USD payment",
+                            minimumCash: "Minimum demo USD received",
+                          } as Record<string, string>
+                        )[k] || k
+                      }
+                    >
+                      {typeof v === "number" ? num(v, 6) : v}
+                    </Detail>
+                  ))}
+                <Detail label="Network fee">
+                  {num(review.networkFee, 6)} Devnet SOL
+                </Detail>
+                <Detail label="Network fee payer">
+                  {review.kind === "faucet" ? "Demo faucet" : "Your wallet"}
+                </Detail>
+                <Detail label="Signing wallet">{short(review.wallet)}</Detail>
+                <Detail label="Program">
+                  {short(deployment.creditProgram)}
+                </Detail>
+              </dl>
+              <p className="review-disclosure">
+                {review.kind === "faucet"
+                  ? "Starter assets are test tokens. Your grant covers position rent; the faucet covers token account setup and this network fee."
+                  : review.kind === "open" || review.kind === "borrow"
+                    ? "Your collateral is held by the contract until repaid. Interest accrues at 5% APR. Positions above 65% LTV can be liquidated."
+                    : review.kind === "supply"
+                      ? "Supplied cash is available to borrowers. Redemption depends on liquidity, and losses can reduce your claim."
+                      : "This changes your onchain Devnet position. The tokens have no monetary value."}
+              </p>
+              <Button
+                className="primary-action"
+                disabled={!!busy}
+                onClick={() => void confirm()}
+              >
+                {busy ||
+                  (demoAddress
+                    ? "Sign with demo wallet"
+                    : "Sign in wallet")}{" "}
+                {!busy && <ArrowRight size={15} />}
+              </Button>
+              <p className="action-caption">
+                {demoAddress
+                  ? "This click authorizes your temporary browser wallet to sign."
+                  : "Your wallet will ask you to approve the transaction."}
+              </p>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }

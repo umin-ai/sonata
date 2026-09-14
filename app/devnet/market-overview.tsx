@@ -44,7 +44,7 @@ export function MarketOverview({
   const active = markets.find((m) => m.id === selected),
     config = getMarket(selected);
   return (
-    <section className="card mock-markets" aria-label="Devnet markets">
+    <section id="markets" className="card mock-markets" aria-label="Devnet markets">
       <div className="section-title">
         <h2>Markets</h2>
         <span className="provider">4 isolated pools · demo USD</span>

@@ -1,7 +1,8 @@
 # Stockroom interactive Devnet app
 
-The `/devnet` route uses Stockroom's deployed credit and demo-oracle programs.
-The original `/` market research and example experiences are retained.
+The homepage `/` opens directly to Stockroom's four Devnet markets and deployed credit and demo-oracle programs. Market selection uses `/?market=MockSPYx` (or another market ID). The former `/devnet` route redirects to `/`, preserving valid market selections, including the original demo market.
+
+The app presents only Stockroom's own markets and lending flow. Browser wallet and receipt storage keys remain unchanged so existing Devnet sessions continue to work.
 
 ## Try it
 
