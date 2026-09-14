@@ -1,0 +1,43 @@
+{
+  "network": "solana:devnet",
+  "genesis": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "admin": "DqG5ax2sadkXvczLy4yVgtBobFDETTHg2WEL4eykzimz",
+  "collateralMint": "GxKQicjfeLJA6f2r21CWi99cS6ENbazVwNEPHZ8R99xV",
+  "debtMint": "DUwCnmMutGvCy96A8SNkWQFCXv4TnNpdwyUSY8qULZZW",
+  "oracleAccount": "57Zd52bPd711wo5eYFWwRnCRK1u1kJfPvuZQa6TKCoop",
+  "market": "7TM7JMaAeQeXzxoL6he4D7WFuHcsr3Rv2xmkVNtPzTaR",
+  "cashVault": "434C8Y9fdjTfvn5fVirarCoPHDrQa3Eom8idBXbaaRVX",
+  "collateralVault": "Ey6Tur8ASLp1uUxqkLkEGudG1BxYJa4BX92NF5kW9aTE",
+  "creditProgram": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
+  "oracleProgram": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
+  "stockDecimals": 8,
+  "cashDecimals": 6,
+  "demoPrice": 200,
+  "createdAt": "2026-09-14T08:07:45.944Z",
+  "steps": [
+    {
+      "label": "Fund disposable app authority with 0.25 Devnet SOL",
+      "signature": "5ZzdTgXwRMei7ZDvu6gJvjFvuiPbx9Ar5C9fQeT6ipjiDc3wxJ7giYAPNZwgUFPZwewCQjjZ5zGf1CS5scVTYDMJ"
+    },
+    {
+      "label": "Create demo USD mint",
+      "signature": "8KVemxsGz8QHcNdkTRRH27qYF73haP8vvm1rmKe1UmubLz18fWnqdArJrco2QrPNwZmtgKNEmFZuE8qGCiNz8Dw"
+    },
+    {
+      "label": "Create demo stock mint",
+      "signature": "4rsEFxJPs1r6sQJUnABijDHftgeh9uBLS3FaYfMjj6eTAwcSSfPNJCswnf7sDWNUH7LT5wGZbRyEpUvssinFYApE"
+    },
+    {
+      "label": "Initialize fixed demo oracle",
+      "signature": "2CcA5C8feFiAt58Dz4GBg6cvDnqCHtaiZ1DLCm4wxj5QRdc34duDZhjAADPUuouzfJGZqsM29QoR4LGWy21Tf4pe"
+    },
+    {
+      "label": "Initialize interactive credit market",
+      "signature": "q8gp21viHQxSakauRGLVYTxQvJvDJRofrDn4vWqGeqpDjUptzZyLTDdMdU6T6F5YiXEmW8XST4ukehzPdFj8qSm"
+    },
+    {
+      "label": "Seed 50000 demo USD of lending liquidity",
+      "signature": "2cKXPsHkyw8XcbAha4AmgYELC9QoZaG1cQmVfJAbwH648wmoTWsDYQfAe531dvqYHnpVJmtgzLGQ8MPunhvZMuqN"
+    }
+  ]
+}

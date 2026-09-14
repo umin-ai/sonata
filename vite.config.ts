@@ -51,6 +51,14 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    // Workers cannot load native addons. The package's pure JS build also
+    // avoids bindings' Node-only global Error.prepareStackTrace hook.
+    resolve: {
+      alias: [
+        { find: /^bigint-buffer$/, replacement: 'bigint-buffer/dist/browser.js' },
+        { find: /^buffer$/, replacement: 'buffer/' },
+      ],
+    },
     server: {
       ...(managedLinux ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
