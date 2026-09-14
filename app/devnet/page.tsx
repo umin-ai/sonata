@@ -138,7 +138,7 @@ export default function DevnetPage() {
     }
   }, [address]);
   // Synchronize the selected wallet with its external RPC state after hydration.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  /* eslint-disable react-hooks/set-state-in-effect -- Hydrate browser-only wallet storage and synchronize external RPC state. */
   useEffect(() => {
     currentAddress.current = address;
     setData(null);
@@ -146,7 +146,6 @@ export default function DevnetPage() {
     void refresh();
   }, [address, refresh]);
   // Browser storage is unavailable during server rendering.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem("stockroom.devnet.wallet.v1");
@@ -176,6 +175,7 @@ export default function DevnetPage() {
     }
     setReady(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!ready) return;
     try {
