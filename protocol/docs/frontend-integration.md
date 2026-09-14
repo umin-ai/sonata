@@ -1,12 +1,12 @@
 # Stockroom wallet integration contract
 
-The SDK now builds instructions for Stockroom's own program. The existing published website still reads external markets and does not submit these instructions. Do not label it as an active Stockroom lending protocol until this integration and a wallet flow have been exercised.
+The [published Stockroom Devnet app](https://stockroom-cash-access.morganlyk.chatgpt.site/devnet) now submits instructions to Stockroom's own deployed credit program. The root market-research screen remains separate. A temporary browser wallet completed faucet, deposit-and-borrow, full repayment, collateral release, supply and redemption on Devnet; all six receipts were independently checked as finalized. See `artifacts/devnet-browser-lifecycle.json` for evidence and `artifacts/app-demo.json` for the interactive market addresses.
 
 ## Keep the network and assets explicit
 
-Use a separate **Stockroom Devnet** mode after deployment. Read the market/mint/oracle addresses from a completed `artifacts/devnet-*.json` run, not from placeholders or mainnet xStock lists. Confirm the RPC genesis hash against `DEVNET_GENESIS`, and require a wallet whose active chain is Solana Devnet. Actual issuer tokens and demo mints must never share an ambiguous label.
+Use a separate **Stockroom Devnet** mode after deployment. Read the interactive market/mint/oracle addresses from `artifacts/app-demo.json`, not from placeholders or mainnet xStock lists. Confirm the RPC genesis hash against `DEVNET_GENESIS`, and require a wallet whose active chain is Solana Devnet. Actual issuer tokens and demo mints must never share an ambiguous label.
 
-Show “Demo stock” and “Demo USD — no monetary value.” Publicly expose only addresses, IDLs and transaction signatures. Do not bundle `.keys/`, a mint authority, the demo oracle authority or deployment secrets into the browser. The CLI currently funds test users; there is no public automated test-token faucet or continuously maintained oracle feed.
+Show “Demo stock” and “Demo USD — no monetary value.” Publicly expose only addresses, IDLs and transaction signatures. Do not bundle `.keys/`, a mint authority, the demo oracle authority or deployment secrets into the browser. The private app uses a separate, budget-limited Devnet authority for a fixed demo faucet pack and fixed 200 demo-USD oracle updates accompanying collateral/borrowing actions. The authority stays server-side and cosigns only validated instruction shapes; the user signs locally. The deployer key is not used by the app. Browser RPC reads and submits transactions directly to Devnet. There is no continuously maintained live stock-price feed. A new wallet can claim once through atomic position initialization; this is not a durable per-person anti-abuse limit and needs strengthening before public access.
 
 ## Transaction flow
 
@@ -35,6 +35,8 @@ Display available cash separately from NAV: lent-out assets cannot be instantly 
 
 Repayment does not require a fresh price; top-up also remains available during a stale/closed/paused state. Debt-free collateral release remains available with a stale oracle. Liquidation requires a fresh price and an unhealthy position. A price crash can reduce lender NAV; the protocol does not promise a backstop.
 
-## Wallet acceptance tests still required
+## Verification and remaining wallet checks
 
-Before publishing this transaction flow, exercise a Devnet wallet end to end: reject wrong network, reject signature cancellation, handle expired blockhash, confirm a real borrow/repay, refetch on reload, and verify a rejected unhealthy withdrawal leaves balances unchanged. CLI and LiteSVM tests in this repository do not substitute for those browser-wallet checks.
+The temporary browser wallet completed the six-action cycle against the deployed program, ending with zero collateral, debt and lender shares; all 25 demo stocks returned to the wallet. The app build, type check, existing 16 tests, three amount/share-math tests and three sponsor mutation tests passed. The published Devnet page loads and reads the funded market.
+
+An external wallet extension was unavailable for end-to-end testing. External-wallet cancellation, wrong-network handling, expired-blockhash recovery and reload recovery still need dedicated browser acceptance checks. The existing CLI and LiteSVM rejection tests support program behavior but do not substitute for those wallet UI checks. This validation is not an independent security audit.
