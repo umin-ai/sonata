@@ -33,11 +33,14 @@ import type {
   prepareDemo,
   DemoActionInput,
 } from "@/lib/stockroom/runtime";
-import deployment from "@/lib/stockroom/deployment.json";
+import { getMarket, marketCatalog } from "@/lib/stockroom/markets";
+import { MarketOverview, MarketLedger } from "./market-overview";
+import type { demoMarkets } from "@/lib/stockroom/runtime";
 
 type Snapshot = Awaited<ReturnType<typeof demoSnapshot>>;
 type Review = Awaited<ReturnType<typeof prepareDemo>>;
 type Receipt = {
+  marketId?: string;
   signature: string;
   kind: DemoActionInput["kind"];
   status: string;
@@ -100,6 +103,13 @@ function Stat({
 
 export default function DevnetPage() {
   const external = useWallet("solana:devnet");
+  const [marketId, setMarketId] = useState("MockSPYx");
+  const deployment = getMarket(marketId);
+  const [markets, setMarkets] = useState<
+    Awaited<ReturnType<typeof demoMarkets>>
+  >([]);
+  const [marketError, setMarketError] = useState("");
+  const currentMarket = useRef(marketId);
   const demo = useRef<Keypair | null>(null),
     lock = useRef(false);
   const [demoAddress, setDemoAddress] = useState(""),
@@ -117,37 +127,73 @@ export default function DevnetPage() {
     [cash, setCash] = useState("500"),
     [supply, setSupply] = useState("100");
   const currentAddress = useRef(address);
-  const activeRecords = records.filter((r) => r.wallet === address),
+  const activeRecords = records.filter(
+      (r) => r.wallet === address && (r.marketId ?? "legacy") === marketId,
+    ),
     pending = activeRecords.some((r) => r.status === "pending");
   const disabled = !!busy || loading || pending;
   const refresh = useCallback(async () => {
-    const target = address;
+    const target = address,
+      selected = marketId;
     setLoading(true);
     try {
-      const next = await (await runtime()).demoSnapshot(target || undefined);
-      if (currentAddress.current === target) {
+      const next = await (
+        await runtime()
+      ).demoSnapshot(target || undefined, selected);
+      if (
+        currentAddress.current === target &&
+        currentMarket.current === selected
+      ) {
         setData(next);
         setError("");
       }
+      try {
+        const overview = await (await runtime()).demoMarkets();
+        setMarkets(overview);
+        setMarketError("");
+      } catch (e) {
+        setMarketError(
+          e instanceof Error ? e.message : "Market list unavailable.",
+        );
+      }
     } catch (e) {
       console.error("Devnet read failed", e);
-      if (currentAddress.current === target)
+      if (
+        currentAddress.current === target &&
+        currentMarket.current === selected
+      )
         setError(e instanceof Error ? e.message : "Unable to read Devnet.");
     } finally {
-      if (currentAddress.current === target) setLoading(false);
+      if (
+        currentAddress.current === target &&
+        currentMarket.current === selected
+      )
+        setLoading(false);
     }
-  }, [address]);
+  }, [address, marketId]);
   // Synchronize the selected wallet with its external RPC state after hydration.
   /* eslint-disable react-hooks/set-state-in-effect -- Hydrate browser-only wallet storage and synchronize external RPC state. */
   useEffect(() => {
     currentAddress.current = address;
+    currentMarket.current = marketId;
     setData(null);
     setReview(null);
     void refresh();
-  }, [address, refresh]);
+  }, [address, marketId, refresh]);
   // Browser storage is unavailable during server rendering.
   useEffect(() => {
     try {
+      const requested = new URLSearchParams(window.location.search).get(
+        "market",
+      );
+      if (
+        requested &&
+        (requested === "legacy" ||
+          marketCatalog.some((m) => m.id === requested))
+      ) {
+        currentMarket.current = requested;
+        setMarketId(requested);
+      }
       const saved = sessionStorage.getItem("stockroom.devnet.wallet.v1");
       if (saved) {
         const k = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(saved)));
@@ -185,6 +231,20 @@ export default function DevnetPage() {
       );
     } catch {}
   }, [records, ready]);
+  function selectMarket(id: string) {
+    if (disabled || lock.current) return;
+    currentMarket.current = id;
+    setMarketId(id);
+    setData(null);
+    setReview(null);
+    setNotice("");
+    setError("");
+    window.history.replaceState(
+      null,
+      "",
+      `/devnet?market=${encodeURIComponent(id)}`,
+    );
+  }
   async function startDemo() {
     if (disabled) return;
     setError("");
@@ -225,11 +285,16 @@ export default function DevnetPage() {
         await runtime()
       ).prepareDemo({
         wallet: address,
+        marketId,
         kind,
         amount: kind === "supply" ? supply : cash,
         collateral,
       });
-      if (r.network !== "solana:devnet" || r.wallet !== currentAddress.current)
+      if (
+        r.network !== "solana:devnet" ||
+        r.wallet !== currentAddress.current ||
+        r.marketId !== currentMarket.current
+      )
         throw Error("Wallet or network changed. Review again.");
       setReview(r);
     } catch (e) {
@@ -274,7 +339,11 @@ export default function DevnetPage() {
     setError("");
     let submitted: Receipt | null = null;
     try {
-      if (review.wallet !== address || Date.now() > review.expiresAt)
+      if (
+        review.wallet !== address ||
+        review.marketId !== currentMarket.current ||
+        Date.now() > review.expiresAt
+      )
         throw Error(
           "This preview expired or the wallet changed. Close it and review again.",
         );
@@ -311,6 +380,7 @@ export default function DevnetPage() {
       submitted = {
         signature,
         kind: review.kind,
+        marketId: review.marketId,
         status: "pending",
         at: new Date().toISOString(),
         wallet: address,
@@ -359,14 +429,17 @@ export default function DevnetPage() {
   const projectedCollateral = (p?.collateral || 0) + Number(collateral || 0),
     projectedDebt = (p?.debt || 0) + Number(cash || 0);
   const projectedLtv =
-    projectedCollateral > 0 ? projectedDebt / (projectedCollateral * 200) : 0;
+    projectedCollateral > 0
+      ? projectedDebt / (projectedCollateral * deployment.demoPrice)
+      : 0;
   const badBorrow =
     !Number.isFinite(projectedLtv) ||
     Number(collateral) <= 0 ||
     Number(cash) <= 0 ||
     projectedLtv > 0.5 ||
     (w !== null && w !== undefined && Number(collateral) > w.stock);
-  const ltv = p && p.collateral > 0 ? p.debt / (p.collateral * 200) : 0;
+  const ltv =
+    p && p.collateral > 0 ? p.debt / (p.collateral * deployment.demoPrice) : 0;
 
   return (
     <>
@@ -419,10 +492,10 @@ export default function DevnetPage() {
         <div className="workspace-heading">
           <div>
             <p className="eyebrow">STOCKROOM CREDIT / INTERACTIVE DEMO</p>
-            <h1>Keep your stocks. Access cash.</h1>
+            <h1>Devnet stock markets</h1>
             <p>
-              Deposit demo stocks, borrow demo USD, then repay to release your
-              collateral.
+              Choose a mock stock market. Supply cash, borrow against
+              collateral, and follow every transaction on Solana.
             </p>
           </div>
           <Button
@@ -433,6 +506,23 @@ export default function DevnetPage() {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             Refresh balances
           </Button>
+        </div>
+        <MarketOverview
+          markets={markets}
+          selected={marketId}
+          onSelect={selectMarket}
+          disabled={disabled}
+          error={marketError}
+        />
+        <div className="market-selection-title">
+          <div>
+            <p className="eyebrow">SELECTED MARKET / DEMO USD</p>
+            <h2>{deployment.symbol}</h2>
+          </div>
+          <span>
+            {deployment.name} · fixed test price {num(deployment.demoPrice)}{" "}
+            demo USD
+          </span>
         </div>
         <section className="card market-metrics-bar" aria-label="Market terms">
           <Stat
@@ -539,7 +629,7 @@ export default function DevnetPage() {
                 <>
                   <div className="devnet-wallet-grid">
                     <Stat
-                      label="Demo stocks"
+                      label={deployment.symbol}
                       value={num(w?.stock, 4)}
                       sub="Wallet balance · Token-2022"
                     />
@@ -578,9 +668,9 @@ export default function DevnetPage() {
                   </div>
                   {!p?.exists && (
                     <p className="fine-print">
-                      One starter pack per wallet: 25 demo stocks, 1,000 demo
-                      USD and 0.005 Devnet SOL. Account setup uses part of that
-                      SOL.
+                      One pack per wallet per market: 25 {deployment.symbol},
+                      1,000 demo USD and 0.005 Devnet SOL. Account setup uses
+                      part of that SOL.
                     </p>
                   )}
                 </>
@@ -600,7 +690,7 @@ export default function DevnetPage() {
                 <Stat
                   label="Collateral deposited"
                   value={num(p?.collateral, 4)}
-                  sub="demo stocks"
+                  sub={deployment.symbol}
                 />
                 <Stat
                   label="Outstanding debt"
@@ -659,13 +749,13 @@ export default function DevnetPage() {
             </section>
             <section className="card devnet-activity">
               <div className="section-title">
-                <h2>Transaction receipts</h2>
+                <h2>Your transaction receipts</h2>
                 <span className="provider">Solana Devnet</span>
               </div>
               {!activeRecords.length ? (
                 <p className="devnet-copy">
-                  Your signed transactions will appear here, with links to the
-                  onchain receipts.
+                  Transactions signed in this browser for this wallet and market
+                  appear here. The market activity below includes other wallets.
                 </p>
               ) : (
                 <div>
@@ -719,7 +809,7 @@ export default function DevnetPage() {
                     Deposit collateral and receive your loan in one transaction.
                   </p>
                   <label className="field-label" htmlFor="demo-collateral">
-                    Deposit demo stocks
+                    Deposit {deployment.symbol}
                     <span>Available: {num(w?.stock, 4)}</span>
                   </label>
                   <div className="amount-input">
@@ -730,7 +820,7 @@ export default function DevnetPage() {
                       onChange={(e) => setCollateral(e.target.value)}
                       disabled={!!busy}
                     />
-                    <span>STOCK</span>
+                    <span>{deployment.symbol}</span>
                   </div>
                   <label className="field-label" htmlFor="demo-cash">
                     Borrow demo USD<span>50% maximum LTV</span>
@@ -760,7 +850,7 @@ export default function DevnetPage() {
                   </div>
                   <dl className="devnet-terms">
                     <Detail label="Illustrative stock price">
-                      200 demo USD
+                      {num(deployment.demoPrice)} demo USD
                     </Detail>
                     <Detail label="Loan-to-value after borrowing">
                       {num(projectedLtv * 100, 1)}%
@@ -851,8 +941,9 @@ export default function DevnetPage() {
               </p>
               <p>
                 The stock price is a fixed, administrator-controlled test feed
-                at 200 demo USD. It refreshes with borrowing transactions. These
-                tokens do not represent real equities or redeemable dollars.
+                at {num(deployment.demoPrice)} demo USD. It refreshes with
+                borrowing transactions. These tokens do not represent real
+                equities or redeemable dollars.
               </p>
               <p>
                 The programs are upgradeable and have not been independently
@@ -877,6 +968,11 @@ export default function DevnetPage() {
             </section>
           </aside>
         </div>
+        <MarketLedger
+          key={marketId}
+          marketId={marketId}
+          refreshKey={data?.slot ?? 0}
+        />
         <footer>
           <span>Stockroom credit · Test assets only</span>
           <span>
@@ -943,6 +1039,7 @@ export default function DevnetPage() {
           {review && (
             <>
               <dl>
+                <Detail label="Market">{deployment.symbol} / demo USD</Detail>
                 {Object.entries(review.limits)
                   .filter(([k]) => !k.includes("Shares"))
                   .map(([k, v]) => (
@@ -951,15 +1048,15 @@ export default function DevnetPage() {
                       label={
                         (
                           {
-                            stock: "Receive demo stocks",
+                            stock: `Receive ${deployment.symbol}`,
                             cash:
                               review.kind === "faucet"
                                 ? "Receive demo USD"
                                 : "Demo USD amount",
                             collateral:
                               review.kind === "withdraw"
-                                ? "Release demo stocks"
-                                : "Deposit demo stocks",
+                                ? `Release ${deployment.symbol}`
+                                : `Deposit ${deployment.symbol}`,
                             testSolGrant: "Devnet SOL starter grant",
                             estimatedCash: "Estimated demo USD",
                             maximumCash: "Maximum demo USD payment",

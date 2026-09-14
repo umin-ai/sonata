@@ -5,8 +5,8 @@ The original `/` market research and example experiences are retained.
 
 ## Try it
 
-1. Choose **Try with demo wallet**, or connect a Wallet Standard wallet supporting `solana:devnet` and `solana:signTransaction`.
-2. Get demo assets. Review and sign the fixed starter pack: 25 demo stocks, 1,000 demo USD, and 0.005 Devnet SOL. Position rent is deducted from that SOL; the faucet pays for associated token account setup and the grant's network fee.
+1. Select **MockSPYx**, **MockNVDAx**, **MockQQQx** or **MockTSLAx**. Choose **Try with demo wallet**, or connect a Wallet Standard wallet supporting `solana:devnet` and `solana:signTransaction`.
+2. Get demo assets. Review and sign the fixed starter pack: 25 selected mock stocks, 1,000 demo USD, and 0.005 Devnet SOL. Position rent is deducted from that SOL; the faucet pays for associated token account setup and the grant's network fee.
 3. Deposit 8 demo stocks and borrow 500 demo USD atomically.
 4. Repay the entire loan, including accrued interest, then release collateral.
 5. The Supply tab allows supplying and redeeming demo USD. Redemptions depend on pool cash availability.
@@ -15,20 +15,19 @@ The temporary wallet key stays in sessionStorage. It is not uploaded. It is disp
 
 ## Network and authorities
 
-Public addresses and initialization receipts are in `lib/stockroom/deployment.json`.
-The interactive market began with 50,000 demo USD supplied as lending capital.
+The four market registries and issuance receipts are in `lib/stockroom/mock-markets.json`, each initially funded with 25,000 demo USD. The original 50,000-demo-USD market is preserved in `lib/stockroom/deployment.json` and accessible through Original demo position.
 These freely minted assets have no financial backing or real-world value.
 
 Browser-side reads, simulation, sending, and receipt checks use the Solana Labs public Devnet endpoint, verified against the Devnet genesis hash. Public endpoints can throttle or be reset. The browser reads confirmed account state and the onchain clock; balances are not fabricated when reads fail.
 
 The authenticated `/api/devnet` endpoint never calls an RPC. It verifies and co-signs only:
 
-- An exact, canonical starter-pack transaction, including position initialization. The existing position PDA prevents another successful grant to the same wallet.
-- A fixed 200 demo USD oracle publication preceding allowed Stockroom borrower instructions. The caller pays the network fee. No other instruction may reference the demo authority.
+- An exact, canonical starter-pack transaction, including position initialization. The existing position PDA prevents another successful grant to the same wallet within that market.
+- The selected market’s exact fixed demo price publication preceding allowed Stockroom borrower instructions. The caller pays the network fee. No other instruction may reference the demo authority.
 
 `STOCKROOM_DEMO_AUTHORITY` is a server-only secret for a dedicated disposable Devnet authority. It controls these demo mints and this market's mock oracle. It is separate from the program upgrade authority. It was funded with only 0.25 Devnet SOL. No deployer private key is embedded in the app or hosted environment.
 
-This faucet is suitable for the current owner-private trial. Claim checks are onchain per wallet, not a durable per-person anti-Sybil system. The sponsor's finite test-SOL budget bounds expenditure; add authenticated per-person rate limiting before broad public sharing. Supply and repayment do not require the sponsor.
+This faucet is suitable for the current owner-private trial. Claim checks are onchain per wallet and market, not a durable per-person anti-Sybil system. The sponsor's finite test-SOL budget bounds expenditure; add authenticated per-person rate limiting before broad public sharing. Supply and repayment do not require the sponsor.
 
 ## Transaction boundaries
 
@@ -42,7 +41,7 @@ This faucet is suitable for the current owner-private trial. Claim checks are on
 
 ## Limitations
 
-The demo oracle is administrator-controlled, fixed at 200, and refreshed in the borrowing transaction. There is no live equity feed or realistic price-discovery demonstration. The programs remain upgradeable and have not undergone an independent audit. Real xStocks with issuer controls are not accepted by this demo. The demo does not establish regulatory eligibility, real collateral redemption rights, or production solvency.
+The demo oracle is administrator-controlled, fixed per market (600/180/500/350 demo USD; the original market remains 200), and refreshed in the borrowing transaction. There is no live equity feed or realistic price-discovery demonstration. The programs remain upgradeable and have not undergone an independent audit. Real xStocks with issuer controls are not accepted by this demo. The demo does not establish regulatory eligibility, real collateral redemption rights, or production solvency.
 
 The existing protocol's compiled-SBF and Devnet tests cover liquidation and bad debt. The browser currently presents borrowing, full repayment, collateral release, supply, and full redemption; it does not expose a liquidator console or a public price-shock button.
 
@@ -52,6 +51,10 @@ Anchor's published browser bundle and a Buffer polyfill are used for the shared 
 
 Sources: [Solana cluster documentation](https://solana.com/docs/references/clusters), the deployed protocol's committed IDLs and SDK, and the pinned packages' shipped source and type declarations. GPL source notices accompany the SDK and integer math.
 
-## Verified browser run, 14 September 2026
+## Verified original-market browser run, 14 September 2026
 
 All six steps passed with actual wallet signatures: grant, atomic deposit/borrow, full repayment, collateral release, supply, and redemption. Public receipts are recorded in `evidence/devnet-browser-lifecycle.json`. The final position had zero debt, collateral, and LP shares; the wallet held all 25 demo stocks again. The browser wallet path was exercised; an external wallet extension was not available for end-to-end testing.
+
+## Four mock markets
+
+See `docs/mock-stock-issuance.md` for official issuer research, token design and scope. `evidence/mock-market-lifecycle.json` records 24 finalized lifecycle transactions plus cross-market isolation checks. The all-wallet ledger reads market signatures and decodes actual token balance changes when expanded. It is distinct from this browser’s saved user receipts.

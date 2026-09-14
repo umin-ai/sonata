@@ -13,6 +13,8 @@ import {
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
+  unpackMint,
+  getScaledUiAmountConfig,
   createAssociatedTokenAccountIdempotentInstruction,
   createMintToCheckedInstruction,
 } from "@solana/spl-token";
@@ -27,7 +29,8 @@ import {
 } from "./client.mjs";
 import creditIdl from "./idl/stockroom_credit.json";
 import oracleIdl from "./idl/demo_oracle.json";
-import config from "./deployment.json";
+import legacy from "./deployment.json";
+import { getMarket, marketCatalog } from "./markets";
 import {
   atoms,
   accruedDebt,
@@ -51,7 +54,8 @@ async function devnet() {
   }
   return connection;
 }
-function client() {
+export function clientForMarket(marketId = "legacy") {
+  const config = getMarket(marketId);
   const provider = { connection };
   return createClient(creditIdl, oracleIdl, provider, {
     admin: new PublicKey(config.admin),
@@ -64,15 +68,16 @@ export function ownerKey(address: string) {
   const owner = new PublicKey(address);
   if (
     !PublicKey.isOnCurve(owner.toBytes()) ||
-    owner.toBase58() === config.admin
+    owner.toBase58() === legacy.admin
   )
     throw Error("Connect a user wallet on Devnet.");
   return owner;
 }
 const big = (n: { toString(): string }) => BigInt(n.toString());
-async function read(address?: string) {
+async function read(address: string | undefined, marketId: string) {
+  const config = getMarket(marketId);
   await devnet();
-  const c = client(),
+  const c = clientForMarket(marketId),
     owner = address ? ownerKey(address) : null;
   const keys = [
     c.market,
@@ -86,6 +91,8 @@ async function read(address?: string) {
       c.collateral(owner).userStock,
       owner,
     );
+  const mintIndex = keys.length;
+  keys.push(new PublicKey(config.collateralMint));
   const { context, value } = await connection.getMultipleAccountsInfoAndContext(
     keys,
     "confirmed",
@@ -107,10 +114,24 @@ async function read(address?: string) {
     m.aprBps !== 500 ||
     m.openingLtvBps !== 5000 ||
     m.liquidationLtvBps !== 6500 ||
-    big(o.price) !== 200000000n ||
+    big(o.price) !== BigInt(config.demoPrice) * 1000000n ||
     !o.authority.equals(new PublicKey(config.admin))
   )
     throw Error("Demo terms changed. Refresh integration before continuing.");
+  const mint = unpackMint(
+    new PublicKey(config.collateralMint),
+    value[mintIndex],
+    TOKEN_2022_PROGRAM_ID,
+  );
+  const scaled = getScaledUiAmountConfig(mint);
+  if (
+    mint.decimals !== 8 ||
+    !scaled ||
+    scaled.multiplier !== 1 ||
+    scaled.newMultiplier !== 1 ||
+    mint.freezeAuthority !== null
+  )
+    throw Error("Mock token configuration changed. Transactions are disabled.");
   if (!value[2] || value[2].data.length !== 40)
     throw Error("Network clock unavailable.");
   const now = value[2].data.readBigInt64LE(32);
@@ -121,7 +142,7 @@ async function read(address?: string) {
     big(m.interestRemainder),
   );
   let p = null;
-  if (value[3]) {
+  if (owner && value[3]) {
     if (!value[3].owner.equals(CREDIT_ID))
       throw Error("Invalid position owner.");
     p = c.credit.coder.accounts.decode("position", value[3].data);
@@ -160,8 +181,9 @@ async function read(address?: string) {
     sol: owner ? (value[6]?.lamports ?? 0) / 1e9 : 0,
   };
 }
-export async function demoSnapshot(address?: string) {
-  const s = await read(address),
+export async function demoSnapshot(address?: string, marketId = "legacy") {
+  const config = getMarket(marketId);
+  const s = await read(address, marketId),
     userDebt = s.p
       ? assetsForShares(big(s.p.debtShares), s.debt, s.debtShares, true)
       : 0n;
@@ -180,7 +202,7 @@ export async function demoSnapshot(address?: string) {
     apr: 0.05,
     openingLtv: 0.5,
     liquidationLtv: 0.65,
-    price: 200,
+    price: config.demoPrice,
     paused: s.m.paused,
     oraclePublishedAt: Number(s.o.publishedAt) * 1000,
     oracleAge: Number(s.now - big(s.o.publishedAt)),
@@ -211,7 +233,7 @@ export async function demoSnapshot(address?: string) {
       ),
       borrowCapacity: Math.max(
         0,
-        display(collateral, 8) * 100 - display(userDebt, 6),
+        display(collateral, 8) * config.demoPrice * 0.5 - display(userDebt, 6),
       ),
       hasSupply: !!s.p && big(s.p.supplyShares) > 0n,
       hasDebt: !!s.p && big(s.p.debtShares) > 0n,
@@ -221,6 +243,7 @@ export async function demoSnapshot(address?: string) {
 export const DemoAction = z
   .object({
     wallet: z.string().min(32).max(44),
+    marketId: z.string().max(20),
     kind: z.enum([
       "faucet",
       "open",
@@ -237,7 +260,8 @@ export const DemoAction = z
   .strict();
 export type DemoActionInput = z.infer<typeof DemoAction>;
 export async function prepareDemo(input: DemoActionInput) {
-  const s = await read(input.wallet),
+  const config = getMarket(input.marketId);
+  const s = await read(input.wallet, input.marketId),
     { c, owner, m, p } = s,
     authority = { publicKey: new PublicKey(config.admin) },
     kind = input.kind;
@@ -247,7 +271,7 @@ export async function prepareDemo(input: DemoActionInput) {
   if (kind === "faucet") {
     if (p)
       throw Error(
-        "This wallet already claimed its starter assets. Use the balances in your wallet.",
+        "This wallet already claimed this market’s starter assets. Use the balances in your wallet.",
       );
     if (
       (await connection.getBalance(authority.publicKey, "confirmed")) < 25000000
@@ -300,7 +324,7 @@ export async function prepareDemo(input: DemoActionInput) {
     if (m.paused && ["open", "borrow", "deposit", "supply"].includes(kind))
       throw Error("New lending activity is paused.");
     if (["open", "borrow", "withdraw"].includes(kind))
-      ixs.push(await c.publish(200000000n));
+      ixs.push(await c.publish(BigInt(config.demoPrice) * 1000000n));
     const userDebt = assetsForShares(
       big(p.debtShares),
       s.debt,
@@ -323,7 +347,8 @@ export async function prepareDemo(input: DemoActionInput) {
         throw Error("Not enough available lending liquidity.");
       if (
         userDebt + amount >
-        (collateral * 200000000n * 5000n) / (100000000n * 10000n)
+        (collateral * BigInt(config.demoPrice) * 1000000n * 5000n) /
+          (100000000n * 10000n)
       )
         throw Error("This amount exceeds the 50% opening loan-to-value limit.");
       const maxShares =
@@ -395,6 +420,7 @@ export async function prepareDemo(input: DemoActionInput) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         wallet: input.wallet,
+        marketId: input.marketId,
         kind,
         transaction: serialized.toString("base64"),
       }),
@@ -425,6 +451,7 @@ export async function prepareDemo(input: DemoActionInput) {
   return {
     network: "solana:devnet",
     kind,
+    marketId: input.marketId,
     wallet: input.wallet,
     transaction: serialized.toString("base64"),
     lastValidBlockHeight: block.lastValidBlockHeight,
@@ -475,5 +502,164 @@ export async function demoReceipt(
         : (s?.confirmationStatus ?? "pending"),
     error: s?.err ?? null,
     slot: s?.slot ?? null,
+  };
+}
+
+export async function demoMarkets() {
+  await devnet();
+  const keys = marketCatalog.flatMap((c) =>
+    [c.market, c.collateralMint, c.collateralVault].map(
+      (k) => new PublicKey(k),
+    ),
+  );
+  keys.push(SYSVAR_CLOCK_PUBKEY);
+  const { context, value } = await connection.getMultipleAccountsInfoAndContext(
+    keys,
+    "confirmed",
+  );
+  const now = value.at(-1)!.data.readBigInt64LE(32);
+  return marketCatalog.map((config, index) => {
+    const [account, mint, vault] = value.slice(index * 3, index * 3 + 3);
+    if (
+      !account?.owner.equals(CREDIT_ID) ||
+      !mint?.owner.equals(TOKEN_2022_PROGRAM_ID) ||
+      !vault?.owner.equals(TOKEN_2022_PROGRAM_ID)
+    )
+      throw Error("Market registry verification failed.");
+    const c = clientForMarket(config.id),
+      m = c.credit.coder.accounts.decode("market", account.data);
+    if (
+      !m.collateralMint.equals(new PublicKey(config.collateralMint)) ||
+      !m.collateralVault.equals(new PublicKey(config.collateralVault))
+    )
+      throw Error("Market collateral mismatch.");
+    const debt = accruedDebt(
+      big(m.debtAssets),
+      BigInt(m.aprBps),
+      now - big(m.lastAccrual),
+      big(m.interestRemainder),
+    );
+    return {
+      id: config.id,
+      symbol: config.symbol,
+      slot: context.slot,
+      cash: display(big(m.cash), 6),
+      borrowed: display(debt, 6),
+      supplied: display(big(m.cash) + debt, 6),
+      collateral: display(vault.data.readBigUInt64LE(64), 8),
+      issued: display(mint.data.readBigUInt64LE(36), 8),
+      utilization:
+        big(m.cash) + debt > 0n ? Number(debt) / Number(big(m.cash) + debt) : 0,
+      apr: m.aprBps / 10000,
+      paused: m.paused,
+    };
+  });
+}
+export async function marketHistory(marketId: string, before?: string) {
+  await devnet();
+  return connection.getSignaturesForAddress(
+    new PublicKey(getMarket(marketId).market),
+    { limit: 12, ...(before ? { before } : {}) },
+    "confirmed",
+  );
+}
+export async function movementDetail(marketId: string, signature: string) {
+  await devnet();
+  const config = getMarket(marketId);
+  const tx = await connection.getParsedTransaction(signature, {
+    commitment: "confirmed",
+    maxSupportedTransactionVersion: 0,
+  });
+  if (!tx) throw Error("Transaction details are not available yet. Try again.");
+  if (
+    !tx.transaction.message.accountKeys.some(
+      (k) => k.pubkey.toBase58() === config.market,
+    )
+  )
+    throw Error("Receipt does not belong to this market.");
+  const accounts = tx.transaction.message.accountKeys;
+  const before = tx.meta?.preTokenBalances ?? [],
+    after = tx.meta?.postTokenBalances ?? [];
+  const indexes = [
+    ...new Set([...before, ...after].map((b) => b.accountIndex)),
+  ];
+  const movements = indexes.flatMap((i) => {
+    const pre = before.find((b) => b.accountIndex === i),
+      post = after.find((b) => b.accountIndex === i),
+      b = post ?? pre!;
+    if (![config.collateralMint, config.debtMint].includes(b.mint)) return [];
+    const delta =
+      BigInt(post?.uiTokenAmount.amount ?? "0") -
+      BigInt(pre?.uiTokenAmount.amount ?? "0");
+    if (delta === 0n) return [];
+    const account = accounts[i].pubkey.toBase58();
+    return [
+      {
+        account,
+        owner: b.owner ?? "",
+        location:
+          account === config.cashVault
+            ? "Lending vault"
+            : account === config.collateralVault
+              ? "Collateral vault"
+              : "Wallet token account",
+        symbol: b.mint === config.collateralMint ? config.symbol : "demo USD",
+        amount: display(delta, b.uiTokenAmount.decimals),
+      },
+    ];
+  });
+  const actionNames = [
+    "Supply",
+    "Redeem",
+    "Deposit collateral",
+    "Borrow",
+    "Repay",
+    "Release collateral",
+    "Liquidate",
+  ];
+  const events: {
+    action: string;
+    cash: number;
+    collateral: number;
+    badDebt: number;
+    owner: string;
+  }[] = [];
+  // Track invocation depth so a foreign program cannot spoof Stockroom events.
+  const stack: string[] = [];
+  for (const log of tx.meta?.logMessages ?? []) {
+    const invoke = /^Program (\w+) invoke/.exec(log);
+    if (invoke) {
+      stack.push(invoke[1]);
+      continue;
+    }
+    if (/^Program \w+ (success|failed)/.test(log)) {
+      stack.pop();
+      continue;
+    }
+    if (
+      !log.startsWith("Program data: ") ||
+      stack.at(-1) !== config.creditProgram
+    )
+      continue;
+    const decoded = clientForMarket(marketId).credit.coder.events.decode(
+      log.slice(14),
+    );
+    if (decoded?.data.market?.toBase58() === config.market) {
+      const e = decoded.data;
+      events.push({
+        action: actionNames[e.action] ?? "Credit action",
+        cash: display(big(e.assets), 6),
+        collateral: display(big(e.collateral), 8),
+        badDebt: display(big(e.badDebt), 6),
+        owner: e.owner.toBase58(),
+      });
+    }
+  }
+  return {
+    failed: !!tx.meta?.err,
+    fee: (tx.meta?.fee ?? 0) / 1e9,
+    slot: tx.slot,
+    events,
+    movements,
   };
 }

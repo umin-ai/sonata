@@ -38,7 +38,7 @@ const encoded = (tx: Transaction) =>
   tx
     .serialize({ requireAllSignatures: false, verifySignatures: false })
     .toString("base64");
-async function pack() {
+async function pack(selected = c, selectedConfig = config) {
   return new Transaction({ feePayer: admin, recentBlockhash: blockhash }).add(
     compute(),
     SystemProgram.transfer({
@@ -48,34 +48,34 @@ async function pack() {
     }),
     createAssociatedTokenAccountIdempotentInstruction(
       admin,
-      c.cash(owner).userCash,
+      selected.cash(owner).userCash,
       owner,
-      new PublicKey(config.debtMint),
+      new PublicKey(selectedConfig.debtMint),
     ),
     createAssociatedTokenAccountIdempotentInstruction(
       admin,
-      c.collateral(owner).userStock,
+      selected.collateral(owner).userStock,
       owner,
-      new PublicKey(config.collateralMint),
+      new PublicKey(selectedConfig.collateralMint),
       TOKEN_2022_PROGRAM_ID,
     ),
     createMintToCheckedInstruction(
-      new PublicKey(config.debtMint),
-      c.cash(owner).userCash,
+      new PublicKey(selectedConfig.debtMint),
+      selected.cash(owner).userCash,
       admin,
       1000000000n,
       6,
     ),
     createMintToCheckedInstruction(
-      new PublicKey(config.collateralMint),
-      c.collateral(owner).userStock,
+      new PublicKey(selectedConfig.collateralMint),
+      selected.collateral(owner).userStock,
       admin,
       2500000000n,
       8,
       [],
       TOKEN_2022_PROGRAM_ID,
     ),
-    await c.initializePosition(owner),
+    await selected.initializePosition(owner),
   );
 }
 test("only the exact starter pack is eligible for a sponsor signature", async () => {
@@ -163,4 +163,63 @@ test("a caller cannot charge the oracle authority transaction fees", async () =>
     }),
     /Unexpected sponsored/,
   );
+});
+
+test("each mock market sponsors only its own fixed oracle and collateral accounts", async () => {
+  const { marketCatalog, getMarket } = await import("../stockroom/markets");
+  assert.throws(() => getMarket("arbitrary-market"), /Unknown/);
+  for (const m of marketCatalog) {
+    const selected = createClient(
+      creditIdl,
+      oracleIdl,
+      { connection: new Connection("https://api.devnet.solana.com") },
+      {
+        admin,
+        collateralMint: new PublicKey(m.collateralMint),
+        debtMint: new PublicKey(m.debtMint),
+        oracleAccount: new PublicKey(m.oracleAccount),
+      },
+    );
+    await verifySponsor({
+      wallet: owner.toBase58(),
+      marketId: m.id,
+      kind: "faucet",
+      transaction: encoded(await pack(selected, m)),
+    });
+    const tx = new Transaction({
+      feePayer: owner,
+      recentBlockhash: blockhash,
+    }).add(
+      compute(),
+      await selected.publish(BigInt(m.demoPrice) * 1000000n),
+      await selected.depositCollateral(owner, 800000000n),
+      await selected.borrow(owner, 500000000n),
+    );
+    await verifySponsor({
+      wallet: owner.toBase58(),
+      marketId: m.id,
+      kind: "open",
+      transaction: encoded(tx),
+    });
+    const wrongMarket = marketCatalog.find((x) => x.id !== m.id)!;
+    await assert.rejects(
+      verifySponsor({
+        wallet: owner.toBase58(),
+        marketId: wrongMarket.id,
+        kind: "open",
+        transaction: encoded(tx),
+      }),
+      /fixed demo price/,
+    );
+    tx.instructions[2] = await c.depositCollateral(owner, 800000000n);
+    await assert.rejects(
+      verifySponsor({
+        wallet: owner.toBase58(),
+        marketId: m.id,
+        kind: "open",
+        transaction: encoded(tx),
+      }),
+      /Unexpected instruction/,
+    );
+  }
 });

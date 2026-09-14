@@ -18,10 +18,11 @@ import { z } from "zod";
 import { createClient, CREDIT_ID } from "../stockroom/client.mjs";
 import creditIdl from "../stockroom/idl/stockroom_credit.json";
 import oracleIdl from "../stockroom/idl/demo_oracle.json";
-import config from "../stockroom/deployment.json";
+import { getMarket } from "../stockroom/markets";
 export const SponsorRequest = z
   .object({
     wallet: z.string().min(32).max(44),
+    marketId: z.string().max(20).optional(),
     kind: z.enum(["faucet", "open", "borrow", "withdraw"]),
     transaction: z.string().max(1800),
   })
@@ -45,6 +46,7 @@ function equalInstruction(
 // Only fixed demo grants and price updates may use the disposable signer.
 // This key has no program upgrade authority. No RPC is used by this endpoint.
 export async function verifySponsor(input: z.infer<typeof SponsorRequest>) {
+  const config = getMarket(input.marketId ?? "legacy");
   const owner = new PublicKey(input.wallet),
     admin = new PublicKey(config.admin);
   if (!PublicKey.isOnCurve(owner.toBytes()) || owner.equals(admin))
@@ -127,7 +129,7 @@ export async function verifySponsor(input: z.infer<typeof SponsorRequest>) {
       tx.instructions.length !== (input.kind === "open" ? 4 : 3)
     )
       throw Error("Unexpected sponsored transaction.");
-    const oracleIx = await c.publish(200000000n);
+    const oracleIx = await c.publish(BigInt(config.demoPrice) * 1000000n);
     if (
       !equalInstruction(tx.instructions[0], compute) ||
       !equalInstruction(tx.instructions[1], oracleIx)
@@ -147,7 +149,8 @@ export async function verifySponsor(input: z.infer<typeof SponsorRequest>) {
         !ix.programId.equals(CREDIT_ID) ||
         !ix.data.subarray(0, 8).equals(Buffer.from(idl.discriminator)) ||
         ix.keys.some((k) => k.pubkey.equals(admin)) ||
-        !ix.keys.some((k) => k.pubkey.equals(owner) && k.isSigner)
+        !ix.keys.some((k) => k.pubkey.equals(owner) && k.isSigner) ||
+        !ix.keys.some((k) => k.pubkey.equals(c.market))
       )
         throw Error("Unexpected instruction or use of the demo authority.");
     }
@@ -155,6 +158,7 @@ export async function verifySponsor(input: z.infer<typeof SponsorRequest>) {
   return tx;
 }
 export async function cosignDemo(input: z.infer<typeof SponsorRequest>) {
+  const config = getMarket(input.marketId ?? "legacy");
   const tx = await verifySponsor(input),
     value = process.env.STOCKROOM_DEMO_AUTHORITY;
   if (!value) throw Error("The demo faucet is not configured yet.");
