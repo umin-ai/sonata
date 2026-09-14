@@ -671,3 +671,183 @@
     font-size: 14px;
   }
 }
+
+/* Separate routes share the existing Stockroom workspace styling. */
+.market-route-nav,
+.activity-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 8px 0 24px;
+  font-size: 14px;
+}
+.market-route-nav > a,
+.market-activity-link {
+  color: #2d678a;
+}
+.market-route-nav label,
+.activity-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.activity-filter {
+  justify-content: flex-start;
+  margin-top: 24px;
+}
+.market-route-nav select,
+.activity-filter select {
+  border: 1px solid #cbd8e2;
+  border-radius: 7px;
+  padding: 10px 32px 10px 12px;
+  background: #fff;
+  color: #17394e;
+  font-size: 14px;
+}
+.market-page-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.market-page-heading > .mock-token-logo {
+  width: 52px;
+  height: 52px;
+}
+.market-page-heading .workspace-heading {
+  flex: 1;
+  margin-bottom: 0;
+}
+.market-page-heading + .market-metrics-bar {
+  margin-top: 24px;
+}
+.market-activity-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 14px;
+}
+.mock-market-flow {
+  padding: 24px;
+  margin-top: 28px;
+}
+.mock-market-flow h2 {
+  font-size: 22px;
+}
+.portfolio-empty {
+  text-align: center;
+  padding: 48px 24px;
+  margin-top: 24px;
+}
+.portfolio-empty > svg {
+  margin: 0 auto 16px;
+  color: #52728a;
+}
+.portfolio-empty h2 {
+  font-size: 24px;
+}
+.portfolio-empty p {
+  margin: 12px 0 24px;
+  color: #61778b;
+  font-size: 16px;
+}
+.portfolio-table-card {
+  padding: 24px;
+  margin-top: 24px;
+}
+.portfolio-table-card .section-title {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.portfolio-table-card .section-title a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #2d678a;
+  font-size: 14px;
+}
+.portfolio-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 25px 0;
+  border-top: 1px solid #e3eaf1;
+}
+.portfolio-market {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 190px;
+}
+.portfolio-market h3 {
+  font-size: 16px;
+  font-weight: 650;
+}
+.portfolio-market span {
+  font-size: 13px;
+  color: #61778b;
+}
+.portfolio-row dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  flex: 1;
+}
+.portfolio-row dt {
+  font-size: 13px;
+  color: #61778b;
+  margin-bottom: 6px;
+}
+.portfolio-row dd {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.portfolio-row dd small {
+  display: block;
+  font-size: 12px;
+  color: #61778b;
+  margin-top: 3px;
+}
+.portfolio-row > button {
+  font-size: 14px;
+}
+@media (max-width: 1000px) {
+  .portfolio-row {
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+  .portfolio-row dl {
+    min-width: 280px;
+  }
+}
+@media (max-width: 760px) {
+  .market-route-nav {
+    flex-wrap: wrap;
+  }
+  .market-page-heading {
+    align-items: flex-start;
+  }
+  .market-page-heading > .mock-token-logo {
+    margin-top: 22px;
+    width: 42px;
+    height: 42px;
+  }
+  .portfolio-row dl {
+    flex-basis: 100%;
+    min-width: 0;
+    gap: 12px;
+    order: 2;
+  }
+  .portfolio-row > button {
+    margin-left: auto;
+  }
+  .portfolio-market {
+    min-width: 0;
+  }
+  .portfolio-table-card,
+  .mock-market-flow {
+    padding: 18px;
+  }
+}

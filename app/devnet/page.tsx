@@ -8,7 +8,8 @@ export default async function DevnetRedirect({
   searchParams: Promise<{ market?: string | string[] }>;
 }) {
   const { market } = await searchParams;
-  const selected = typeof market === "string" &&
+  const selected =
+    typeof market === "string" &&
     (market === "legacy" || marketCatalog.some((m) => m.id === market));
-  redirect(selected ? `/?market=${encodeURIComponent(market)}` : "/");
+  redirect(selected ? `/markets/${encodeURIComponent(market)}` : "/");
 }

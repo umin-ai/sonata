@@ -1,12 +1,13 @@
 # Stockroom interactive Devnet app
 
-The homepage `/` opens directly to Stockroom's four Devnet markets and deployed credit and demo-oracle programs. Market selection uses `/?market=MockSPYx` (or another market ID). The former `/devnet` route redirects to `/`, preserving valid market selections, including the original demo market.
+The homepage `/` is the market directory for Stockroom's four Devnet pools. Each market has its own lending route at `/markets/MockSPYx` (or another market ID). `/portfolio` reads the connected wallet's positions across all four pools. `/activity` and `/activity/MockSPYx` show personal receipts and the selected market's onchain ledger.
 
-The app presents only Stockroom's own markets and lending flow. Browser wallet and receipt storage keys remain unchanged so existing Devnet sessions continue to work.
+The shared layout keeps wallet connection, signing reviews and receipt state across client navigation. Existing browser wallet and receipt storage keys remain unchanged. Old `/?market=...` and `/devnet?market=...` links redirect to the corresponding market route; `/devnet` redirects to the directory. Unknown market routes return a not-found page.
 
+Only Stockroom's own Devnet markets and lending flow are presented.
 ## Try it
 
-1. Select **MockSPYx**, **MockNVDAx**, **MockQQQx** or **MockTSLAx**. Choose **Try with demo wallet**, or connect a Wallet Standard wallet supporting `solana:devnet` and `solana:signTransaction`.
+1. Open a market from the homepage: **MockSPYx**, **MockNVDAx**, **MockQQQx** or **MockTSLAx**. Choose **Try with demo wallet**, or connect a Wallet Standard wallet supporting `solana:devnet` and `solana:signTransaction`.
 2. Get demo assets. Review and sign the fixed starter pack: 25 selected mock stocks, 1,000 demo USD, and 0.005 Devnet SOL. Position rent is deducted from that SOL; the faucet pays for associated token account setup and the grant's network fee.
 3. Deposit 8 demo stocks and borrow 500 demo USD atomically.
 4. Repay the entire loan, including accrued interest, then release collateral.
@@ -59,3 +60,7 @@ All six steps passed with actual wallet signatures: grant, atomic deposit/borrow
 ## Four mock markets
 
 See `docs/mock-stock-issuance.md` for official issuer research, token design and scope. `evidence/mock-market-lifecycle.json` records 24 finalized lifecycle transactions plus cross-market isolation checks. The all-wallet ledger reads market signatures and decodes actual token balance changes when expanded. It is distinct from this browser’s saved user receipts.
+
+## Navigation verification, 14 September 2026
+
+The directory opens each market on its own URL. Browser checks covered Markets → MockSPYx → Portfolio → Activity, retaining the temporary wallet and its saved receipts. A deposit-and-borrow review simulated successfully for the existing wallet and was closed without sending a transaction. Activity switching to MockNVDAx loaded that market's ledger. Direct route reads passed for the directory, Portfolio, Activity, market and market-activity URLs; legacy links redirected correctly and an unknown market returned 404.

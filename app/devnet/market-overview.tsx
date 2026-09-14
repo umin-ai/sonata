@@ -30,21 +30,21 @@ const runtime = () => import("@/lib/stockroom/runtime");
 
 export function MarketOverview({
   markets,
-  selected,
   onSelect,
   disabled,
   error,
 }: {
   markets: Markets;
-  selected: string;
   onSelect: (id: string) => void;
   disabled: boolean;
   error: string;
 }) {
-  const active = markets.find((m) => m.id === selected),
-    config = getMarket(selected);
   return (
-    <section id="markets" className="card mock-markets" aria-label="Devnet markets">
+    <section
+      id="markets"
+      className="card mock-markets"
+      aria-label="Devnet markets"
+    >
       <div className="section-title">
         <h2>Markets</h2>
         <span className="provider">4 isolated pools · demo USD</span>
@@ -65,18 +65,14 @@ export function MarketOverview({
           {marketCatalog.map((config) => {
             const m = markets.find((x) => x.id === config.id);
             return (
-              <TableRow
-                key={config.id}
-                data-state={selected === config.id ? "selected" : undefined}
-              >
+              <TableRow key={config.id}>
                 <TableCell>
                   <Button
                     variant="ghost"
                     className="market-symbol-button market-asset-button"
                     disabled={disabled}
                     onClick={() => onSelect(config.id)}
-                    aria-label={`Select ${config.symbol}`}
-                    aria-pressed={selected === config.id}
+                    aria-label={`Open ${config.symbol}`}
                   >
                     <TokenLogo symbol={config.symbol} />
                     <span>
@@ -94,13 +90,12 @@ export function MarketOverview({
                 <TableCell>{m ? num(m.apr * 100) + "%" : "—"}</TableCell>
                 <TableCell>
                   <Button
-                    variant={selected === config.id ? "default" : "outline"}
+                    variant="outline"
                     disabled={disabled}
                     onClick={() => onSelect(config.id)}
                     aria-label={`Open ${config.symbol} market`}
-                    aria-pressed={selected === config.id}
                   >
-                    {selected === config.id ? "Selected" : "Open"}
+                    Open
                   </Button>
                 </TableCell>
               </TableRow>
@@ -113,6 +108,33 @@ export function MarketOverview({
           {error} Refresh balances to retry.
         </p>
       )}
+      <p className="market-data-note">
+        Each pool accepts one mock stock as collateral and lends demo USD.
+        Prices are fixed test fixtures.
+      </p>
+      <Button
+        variant="ghost"
+        disabled={disabled}
+        onClick={() => onSelect("legacy")}
+      >
+        Open original demo market
+      </Button>
+    </section>
+  );
+}
+
+export function MarketAssetFlow({
+  markets,
+  marketId,
+}: {
+  markets: Markets;
+  marketId: string;
+}) {
+  const active = markets.find((m) => m.id === marketId),
+    config = getMarket(marketId);
+  return (
+    <section className="card mock-market-flow" aria-label="Market asset flow">
+      <h2>Market balances & accounts</h2>
       <div className="market-flow" aria-label="Selected market asset flow">
         <div>
           <span>01 / Issuance</span>
@@ -160,17 +182,6 @@ export function MarketOverview({
             {label} ↗
           </a>
         ))}
-        <Button
-          variant="ghost"
-          disabled={disabled}
-          onClick={() =>
-            onSelect(selected === "legacy" ? "MockSPYx" : "legacy")
-          }
-        >
-          {selected === "legacy"
-            ? "Back to MockSPYx"
-            : "Original demo position"}
-        </Button>
       </div>
     </section>
   );
