@@ -1,7 +1,8 @@
+import { MarketsPage } from "../stockroom-workspace";
 import { redirect } from "next/navigation";
 import { marketCatalog } from "@/lib/stockroom/markets";
 
-// Keep saved links working now that the Devnet app lives at the homepage.
+// Retain the earlier credit experiment separately from the vault prototype.
 export default async function DevnetRedirect({
   searchParams,
 }: {
@@ -11,5 +12,6 @@ export default async function DevnetRedirect({
   const selected =
     typeof market === "string" &&
     (market === "legacy" || marketCatalog.some((m) => m.id === market));
-  redirect(selected ? `/markets/${encodeURIComponent(market)}` : "/");
+  if (selected) redirect(`/markets/${encodeURIComponent(market)}`);
+  return <MarketsPage />;
 }

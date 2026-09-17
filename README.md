@@ -1,5 +1,13 @@
 # Stockroom
 
+## Current vault prototype — September 17, 2026
+
+The homepage now presents community-distributed stock liquidity vaults using explicitly simulated actions and data. Start with $10,000 demo USDC; deposit, generate a sample fee batch, compound or claim, and withdraw. Portfolio and Activity reflect your browser-local ledger. Community has separate creator funds and allocation controls. Ecosystem records sponsor integration gaps and reference repositories. No new vault transactions are sent to Solana.
+
+See [prototype documentation](docs/vault-prototype-2026-09-17.md) for formulas, boundaries, references and bounty status. The earlier credit application remains at `/devnet`, with `/credit/portfolio` and `/credit/activity`.
+
+## Earlier credit implementation
+
 A stock-backed credit workspace for tokenized-stock holders on Solana. Start with a cash request, understand the debt and downside, and follow the position through repayment and collateral release.
 
 This release is a product validation prototype. It has a complete interactive example and read-only mainnet integrations. Real transactions take place in the selected protocol, Jupiter or Kamino. It does not establish product-market fit or a verified funded lending integration.

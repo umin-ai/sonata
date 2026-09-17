@@ -1219,10 +1219,10 @@ function AppLink({
 function StockroomShell({ children }: { children: React.ReactNode }) {
   const { pathname, address, disabled, busy, review, setPicker, data } =
     useStockroom();
-  const active = pathname.startsWith("/portfolio")
-    ? "/portfolio"
-    : pathname.startsWith("/activity")
-      ? "/activity"
+  const active = pathname.startsWith("/credit/portfolio")
+    ? "/credit/portfolio"
+    : (pathname.startsWith("/activity") || pathname.startsWith("/credit/activity"))
+      ? "/credit/activity"
       : "/";
   return (
     <>
@@ -1240,9 +1240,9 @@ function StockroomShell({ children }: { children: React.ReactNode }) {
         </AppLink>
         <nav className="primary-nav" aria-label="Main navigation">
           {[
-            ["/", "Markets"],
-            ["/portfolio", "Portfolio"],
-            ["/activity", "Activity"],
+            ["/devnet", "Markets"],
+            ["/credit/portfolio", "Portfolio"],
+            ["/credit/activity", "Activity"],
           ].map(([href, label]) => (
             <AppLink
               key={href}

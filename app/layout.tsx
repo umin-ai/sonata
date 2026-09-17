@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { StockroomProvider } from "./stockroom-workspace";
+import { AppProvider } from "./vault-workspace";
+import "./vaults.css";
 import "./devnet/devnet.css";
 export const metadata: Metadata = {
-  title: "Stockroom — Devnet stock markets",
+  title: "Stockroom — Tokenized stock vaults",
   description:
-    "Explore Stockroom’s four mock stock markets on Solana Devnet. Supply demo USD, borrow against mock stocks, manage your position, and follow onchain activity.",
+    "Explore tokenized-stock vaults, simulated compounding and community treasuries. Interactive prototype; no real funds.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 export default function RootLayout({
@@ -16,7 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <StockroomProvider>{children}</StockroomProvider>
+        <AppProvider>{children}</AppProvider>
       </body>
     </html>
   );
