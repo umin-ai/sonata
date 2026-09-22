@@ -8,3 +8,6 @@ export const quoteAssetBySymbol = (symbol: string) =>
   quoteAssetList.find((a) => a.symbol === symbol);
 export const isDeployableQuote = (symbol: string) =>
   !!quoteAssetBySymbol(symbol);
+/** Display symbol for a market's quote mint. Markets differ, so never assume mSPY. */
+export const quoteSymbolOf = (mint: string) =>
+  quoteAssetList.find((a) => a.mint === mint)?.symbol ?? "quote";

@@ -51,6 +51,7 @@ import { LiveWallet, useLive } from "./live-session";
 import { OnchainTreasury } from "./treasury-workspace";
 import { LiquidityPortfolio } from "@/app/earn/workspace";
 import { GraduationProgress } from "./graduation-progress";
+import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 const href = (m: Market) => `/onchain?pool=${m.pool}`;
 function useMarkets() {
@@ -266,13 +267,13 @@ function MarketCard({ market: m }: { market: Market }) {
       <div className="sr-detail-row">
         <span>Creator reserve</span>
         <strong>
-          {data ? formatUnits(data.available) : "—"} <TokenName symbol="mSPY" />
+          {data ? formatUnits(data.available) : "—"} <TokenName symbol={quoteSymbolOf(m.quoteMint)} />
         </strong>
       </div>
       <div className="sr-detail-row">
         <span>Lifetime collected fees</span>
         <strong>
-          {data ? formatUnits(data.claimed) : "—"} <TokenName symbol="mSPY" />
+          {data ? formatUnits(data.claimed) : "—"} <TokenName symbol={quoteSymbolOf(m.quoteMint)} />
         </strong>
       </div>
       <div className="sr-detail-row">
@@ -499,7 +500,7 @@ export function LiveLaunch() {
         </Card>
         <Card className="sr-panel launch-summary">
           <span className="sr-eyebrow">LAUNCH PREVIEW</span>
-          <h3><TokenPair base={draft?.symbol || symbol || "TOKEN"} quote={draft ? "mSPY" : settings.quote}/></h3>
+          <h3><TokenPair base={draft?.symbol || symbol || "TOKEN"} quote={draft ? quoteSymbolOf(draft.quoteMint) : settings.quote}/></h3>
           <p className="sr-note">{name || "Your token name"}</p>
           <div className="sr-detail-row">
             <span>Trading fee</span>
@@ -512,7 +513,7 @@ export function LiveLaunch() {
           <div className="sr-detail-row">
             <span>Mock stock</span>
             <strong>
-              <TokenName symbol={draft ? "mSPY" : settings.quote} /> · 8 decimals
+              <TokenName symbol={draft ? quoteSymbolOf(draft.quoteMint) : settings.quote} /> · 8 decimals
             </strong>
           </div>
           <div className="sr-detail-row">
@@ -595,39 +596,36 @@ export function LivePortfolio() {
       <Failure text={error || failure} />
       {address && (
         <>
+          {/* One wallet and reserve figure per quote token: amounts in different
+              mock stocks are never added together. */}
           <div className="sr-stats">
-            <Card>
-              <span>
-                Wallet <TokenName symbol="mSPY" />
-              </span>
-              <strong>
-                {positions[0] ? formatUnits(positions[0].balance.quote) : "—"}
-              </strong>
-              <small>Shared across these markets · not counted twice</small>
-            </Card>
+            {[...new Set(positions.map((p) => p.market.quoteMint))].map((mint) => {
+              const rows = positions.filter((p) => p.market.quoteMint === mint);
+              const q = quoteSymbolOf(mint);
+              return (
+                <Card key={mint}>
+                  <span>
+                    Wallet <TokenName symbol={q} />
+                  </span>
+                  <strong>{formatUnits(rows[0].balance.quote)}</strong>
+                  <small>
+                    Creator reserves{" "}
+                    {formatUnits(
+                      rows
+                        .filter((p) => p.market.creator === address)
+                        .reduce((sum, p) => sum + BigInt(p.treasury.available), 0n),
+                    )}{" "}
+                    {q} · across {rows.length} market{rows.length === 1 ? "" : "s"}
+                  </small>
+                </Card>
+              );
+            })}
             <Card>
               <span>Devnet SOL</span>
               <strong>
                 {positions[0] ? formatUnits(positions[0].balance.sol, 9) : "—"}
               </strong>
               <small>For transaction fees</small>
-            </Card>
-            <Card>
-              <span>Creator reserves</span>
-              <strong>
-                {positions.length
-                  ? formatUnits(
-                      positions
-                        .filter((p) => p.market.creator === address)
-                        .reduce(
-                          (sum, p) => sum + BigInt(p.treasury.available),
-                          0n,
-                        ),
-                    )
-                  : "—"}{" "}
-                mSPY
-              </strong>
-              <small>Allocated, available to your creator wallet</small>
             </Card>
           </div>
           <Card className="sr-panel">

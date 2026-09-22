@@ -25,7 +25,7 @@ import treasuryIdl from "./stockroom_treasury.json";
 import dbcIdl from "./dbc.json";
 import initialMarket from "./market.json";
 import { buildCurveParams } from "./dbc-preview";
-import { quoteAssetList, quoteAssetBySymbol } from "./quote-assets";
+import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { graduationProgress } from "./graduation";
 export type Market = typeof initialMarket & { symbol: string; name: string };
 export const market: Market = {
@@ -558,9 +558,9 @@ export async function prepareTrade(
       (await connection.getMinimumBalanceForRentExemption(182))
     : 0;
   return finalizeTransaction(tx, side, wallet, raw.toString(), wallet, {
-    inputSymbol: side === "buy" ? "mSPY" : market.symbol,
+    inputSymbol: side === "buy" ? quoteSymbolOf(market.quoteMint) : market.symbol,
     inputDecimals: side === "buy" ? 8 : 6,
-    outputSymbol: side === "buy" ? market.symbol : "mSPY",
+    outputSymbol: side === "buy" ? market.symbol : quoteSymbolOf(market.quoteMint),
     outputDecimals: side === "buy" ? 6 : 8,
     expectedOut: quote.outputAmount.toString(),
     minimumOut: quote.minimumAmountOut.toString(),

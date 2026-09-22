@@ -8,6 +8,20 @@
       "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
       "decimals": 8,
       "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mQQQ",
+      "name": "Nasdaq 100",
+      "mint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mTSLA",
+      "name": "Tesla",
+      "mint": "4UK6qbvzW4zuUfK7mXeJbkVh7ByrPcJMmHB4Ff8MTBaH",
+      "decimals": 8,
+      "tokenProgram": "token2022"
     }
   ]
 }
