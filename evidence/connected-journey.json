@@ -1,0 +1,128 @@
+{
+  "verifiedAt": "2026-09-17T20:12:54.607Z",
+  "network": "devnet",
+  "creator": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+  "position": "3WTQthKRanYwZAaYUFBUqfvU7a19wpKLTLV7JawieWNB",
+  "campaign": "DKxuabBy6yUHZ3nyQeuNR7WQnM8UzWfz2SV2sL8ddBT2",
+  "treasury": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+  "checks": {
+    "reserveDeploymentAtomic": true,
+    "creatorOwnedPositionFullyExited": true,
+    "rewardFundingAtomic": true,
+    "creatorWalletNotChargedRewardPrincipal": true,
+    "bothMembersPaidExactlyOnce": true,
+    "rewardEscrowEmpty": true,
+    "reserveRemainingRaw": "20"
+  },
+  "receipts": [
+    {
+      "signature": "2d5jPstaBQyMGzhohJdkKahJ4VJT5jwFVVon5YqYXDy3jnihU5MHv1J9rxzB1YkW7caNYf4yQkSyeBzMhtSHVPKN",
+      "group": "scripted-rewards",
+      "slot": 499979167,
+      "signer": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+      "instructions": [
+        "fund"
+      ],
+      "quoteDeltas": {
+        "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr": "-100",
+        "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF": "0",
+        "6Wb8XctDQdbNpeg6HicEeseKi2LoPtZsWKuQqHeGuv7j": "100"
+      }
+    },
+    {
+      "signature": "5Wu5ZFj1e5PqjUNadF3xvsy3yew68wk9ktaqgkrBNjyMV4WVK4GZd8LdX9Xd5Xsh1ALjPcPiY2Dna4kUbLygqAqz",
+      "group": "scripted-rewards",
+      "slot": 499979184,
+      "signer": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+      "instructions": [
+        "claim"
+      ],
+      "quoteDeltas": {
+        "6Wb8XctDQdbNpeg6HicEeseKi2LoPtZsWKuQqHeGuv7j": "-40",
+        "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ": "40"
+      }
+    },
+    {
+      "signature": "65M1VBkwQRAGL84xRtEZPt4YSZ9QwPNxMoKZoHgn3rt2D4Z2FpifJt27SCybEgYUQGowHHupvWenmpqNLZXnwxDU",
+      "group": "scripted-rewards",
+      "slot": 499979202,
+      "signer": "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT",
+      "instructions": [
+        "claim"
+      ],
+      "quoteDeltas": {
+        "6Wb8XctDQdbNpeg6HicEeseKi2LoPtZsWKuQqHeGuv7j": "-60",
+        "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT": "60"
+      }
+    },
+    {
+      "signature": "iF44w4odSbcAcPfbd3duA7LJR5CftSZG477z1nPgmDzRTGd8dEFrRPrbGDPR8QX9DZZZBkEEpqodAz9ea7N5CPG",
+      "group": "browser-capital",
+      "slot": 499979279,
+      "signer": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+      "instructions": [
+        "withdrawRetained",
+        "createPosition",
+        "addLiquidity"
+      ],
+      "quoteDeltas": {
+        "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW": "-100",
+        "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft": "1",
+        "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC": "99"
+      }
+    },
+    {
+      "signature": "3bgrfU4s2UckTHBEsAEJwkdDiBy4xZV3UmqY1rph3qAzTYu6gR3M6hYPb6R4hxWk1SthDWWhZLZYcEcxRckiyGut",
+      "group": "browser-rewards",
+      "slot": 499979740,
+      "signer": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+      "instructions": [
+        "fund"
+      ],
+      "quoteDeltas": {
+        "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW": "-80",
+        "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft": "0",
+        "DKxuabBy6yUHZ3nyQeuNR7WQnM8UzWfz2SV2sL8ddBT2": "80"
+      }
+    },
+    {
+      "signature": "rcwVKVwouN1ryv8kencbGfATSN44TzDRjDoTp4G2fYTK2idufAh9M4mWa3C9r7wTRET6ySyGgZWZqm8HAKLfwu9",
+      "group": "browser-rewards",
+      "slot": 499980277,
+      "signer": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+      "instructions": [
+        "claim"
+      ],
+      "quoteDeltas": {
+        "DKxuabBy6yUHZ3nyQeuNR7WQnM8UzWfz2SV2sL8ddBT2": "-40",
+        "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft": "40"
+      }
+    },
+    {
+      "signature": "2pWA9hhL8DwBHmqXcb4gUufTdADz9bEopHdWbiAR96qEKwyxmZetGE8d5WYMd2gFhuY3PaYmHoRRa69VbPDTDyCo",
+      "group": "browser-capital",
+      "slot": 499980743,
+      "signer": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+      "instructions": [
+        "removeLiquidity"
+      ],
+      "quoteDeltas": {
+        "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft": "98",
+        "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC": "-98"
+      }
+    },
+    {
+      "signature": "3LbMEBoHEkqfzsAmcmeVaCrSKEyXnnq2B8PKjNWws2neBqkWZwrPtjXrJPJFRDLt7nCfZwPMLkqmSMRdcxTzUjSh",
+      "group": "browser-rewards",
+      "slot": 499980973,
+      "signer": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+      "instructions": [
+        "claim"
+      ],
+      "quoteDeltas": {
+        "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ": "40",
+        "DKxuabBy6yUHZ3nyQeuNR7WQnM8UzWfz2SV2sL8ddBT2": "-40"
+      }
+    }
+  ]
+}

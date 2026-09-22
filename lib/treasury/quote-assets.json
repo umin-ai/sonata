@@ -1,0 +1,13 @@
+{
+  "network": "devnet",
+  "note": "Mock stock quote mints that exist on Devnet. Only listed mints can back a real launch; the launch UI shows anything absent here as preview-only. Add an entry after the mint is created and verified onchain.",
+  "assets": [
+    {
+      "symbol": "mSPY",
+      "name": "S&P 500",
+      "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    }
+  ]
+}

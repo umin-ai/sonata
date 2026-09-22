@@ -1,0 +1,71 @@
+{
+  "network": "devnet",
+  "createdAt": "2026-09-17T17:13:20.221Z",
+  "programId": "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj",
+  "vault": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+  "treasury": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+  "pool": "BZVxHsS8DQAkigYvQAPfssFGZRVSuWSYHrYQn2QmeFSf",
+  "config": "CUeJ6fgsw6wGXPCBchj9jxpkGVWzanXxYJFMiAPJea5J",
+  "baseMint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+  "quoteMint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+  "quoteDecimals": 8,
+  "baseDecimals": 6,
+  "creator": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+  "payoutOwner": "FVi525b7VrxYRFg7BdEQK8BJGSao4c3xcr6Yv5kLhXJh",
+  "treasuryQuote": "6xZKeq3bEwN5X3Tz9MApDnTRRL6MNp2gLcchWeMKxF7R",
+  "treasuryBase": "2t8LNEuNXQ9m6amguUcAsEhRhsLuLhbfHDqv6iMk3ZYn",
+  "payoutQuote": "6iTSDhnqE51EpH2frtE3gCABpvWCstWKu5CEHrJJp7qv",
+  "baseVault": "8Xm3533bLYjpaBM57jKi19noaTxAtSPjyTZmLygQR5iS",
+  "quoteVault": "7etAC9hGUddET4o7jCCQ3YHgf9QptAqoqoqiQQTT7wRi",
+  "traces": [
+    {
+      "label": "Initialize fee authority",
+      "signature": "5JHkZVpMkaGpKHjF3mzvZrUCmNsJumTJfTnfent3dJfMhdGFJHa8ex4xoexv9kzPmThPTXGzFEpzfo6aLwDdfEiv"
+    },
+    {
+      "label": "Create Meteora config",
+      "signature": "2NyBV1Y2FsbTcheFqbo8JRUtFrLyAPzEt7sAMT7g6zY21ckKgfo7qAFV3S9RLPk2UMYambkeGiN1VfrrioiEdpiS"
+    },
+    {
+      "label": "Create ROOM / mSPY pool and first trade",
+      "signature": "5cJ8KC3FLqMUBrJsDwZZj7PpodSrGsqdkaycrLVCxFUrYYtd9pcfvsBmneHLFyozbzysiWJw7univRHxCZ4FbHrT"
+    },
+    {
+      "label": "Register authorized treasury",
+      "signature": "3djJU5TAXQBvjSp6hrogALDNarZSSwWeTvmCEp9Eiz9gbGmCq82g7tozJb5h3xMw1NqiV9Y6GYpZRXax6H1Xgp58"
+    },
+    {
+      "label": "Create custody accounts",
+      "signature": "41oBKFfFoccYayfbGQ7GKCW3GbowqxUhkD3QbX4zrL16g4Kq4W32g1CBaroiyrbR4YSkZDCvkE5vW2yuPyMhe82B"
+    },
+    {
+      "label": "Collect real DBC trading fees",
+      "signature": "2prZJ66Um1DNMUyhVkJros7grkrJmkE6TPhdPHZyMNbY1mrXRv6HLUutBgWHfjFi7yVBe33szkXHt4wZ3obwvXZf"
+    },
+    {
+      "label": "Allocate 50% payout / 50% retained",
+      "signature": "5zVYnu6FUVuBpMrRjEZb52JMmkAS2viR3vsq8KBSNaYQFEdqovKz1paHef5tn6baxrVCvbSH73MTefVpTcWKsiGD"
+    },
+    {
+      "label": "Withdraw half of retained stock",
+      "signature": "3vEPjWQYSjMuAKeFJsft9QEQPZ8UBxQcwFLhRtC2dXGPAD55sFrTyqvJtWiT2kFENeUfb4UenXjpaXZYibyH2pFQ"
+    },
+    {
+      "label": "Second trade; new fees available",
+      "signature": "83qN9BeDWvQpN8EpqUKWydasVDigAmdq3AxXdLFdX7WGhbJDxx7mGeCfKb75F4jFBHcUo6ZnEv5QKHCaBXkToAB"
+    }
+  ],
+  "proof": {
+    "claimed": "400000",
+    "paid": "200000",
+    "retained": "200000",
+    "withdrawn": "100000",
+    "uncollected": "240000"
+  },
+  "ledger": {
+    "totalClaimed": "400000",
+    "totalDistributed": "200000",
+    "totalRetained": "200000",
+    "totalWithdrawn": "100000"
+  }
+}

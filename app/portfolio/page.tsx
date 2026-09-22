@@ -1,3 +1,4 @@
-import { VaultPortfolio } from '../vault-workspace';
-export const metadata={title:'Portfolio — Stockroom'};
-export default function Page(){return <VaultPortfolio/>;}
+import { LivePortfolio } from "@/app/onchain/live-workspace";
+export default function Page() {
+  return <LivePortfolio />;
+}

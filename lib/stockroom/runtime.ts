@@ -624,7 +624,7 @@ export async function movementDetail(marketId: string, signature: string) {
     badDebt: number;
     owner: string;
   }[] = [];
-  // Track invocation depth so a foreign program cannot spoof Stockroom events.
+  // Track invocation depth so a foreign program cannot spoof Sonata events.
   const stack: string[] = [];
   for (const log of tx.meta?.logMessages ?? []) {
     const invoke = /^Program (\w+) invoke/.exec(log);

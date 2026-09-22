@@ -1,0 +1,157 @@
+TAP version 13
+# (node:23298) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: limits remain conservative above Number precision and do not round a tiny maximum down
+ok 1 - limits remain conservative above Number precision and do not round a tiny maximum down
+  ---
+  duration_ms: 0.599292
+  ...
+# Subtest: partial followed by full exit leaves no orphaned LP unit
+ok 2 - partial followed by full exit leaves no orphaned LP unit
+  ---
+  duration_ms: 0.07025
+  ...
+# Subtest: invalid bounds cannot over-redeem or remove zero liquidity
+ok 3 - invalid bounds cannot over-redeem or remove zero liquidity
+  ---
+  duration_ms: 0.201375
+  ...
+# Subtest: Meteora swap quote uses basis points, matching the advertised 0.5% minimum
+ok 4 - Meteora swap quote uses basis points, matching the advertised 0.5% minimum
+  ---
+  duration_ms: 309.814541
+  ...
+# (node:23299) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: member allocations preserve mock-stock atoms and accept explicit rows
+ok 5 - member allocations preserve mock-stock atoms and accept explicit rows
+  ---
+  duration_ms: 2.245042
+  ...
+# Subtest: duplicate, ambiguous, empty, zero and over-precision promises are rejected
+ok 6 - duplicate, ambiguous, empty, zero and over-precision promises are rejected
+  ---
+  duration_ms: 0.754625
+  ...
+# Subtest: a PDA with no signing key cannot receive an irreversible grant
+ok 7 - a PDA with no signing key cannot receive an irreversible grant
+  ---
+  duration_ms: 1.351041
+  ...
+# (node:23300) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stockroom uses its independently deployed program, ROOM mint and pool
+ok 8 - Stockroom uses its independently deployed program, ROOM mint and pool
+  ---
+  duration_ms: 0.386917
+  ...
+# Subtest: custody addresses derive from the Stockroom program and pinned recipients
+ok 9 - custody addresses derive from the Stockroom program and pinned recipients
+  ---
+  duration_ms: 2.839417
+  ...
+# (node:23301) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: stock amounts preserve all eight decimals and u64 precision
+ok 10 - stock amounts preserve all eight decimals and u64 precision
+  ---
+  duration_ms: 1.181666
+  ...
+# Subtest: unsafe or ambiguous amounts fail before a transaction is built
+ok 11 - unsafe or ambiguous amounts fail before a transaction is built
+  ---
+  duration_ms: 2.709084
+  ...
+# Subtest: community-token input uses six decimals, independently of the stock mint
+ok 12 - community-token input uses six decimals, independently of the stock mint
+  ---
+  duration_ms: 0.161583
+  ...
+# (node:23302) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: deposit, fee batch, compound and full exit conserve user balances
+ok 13 - deposit, fee batch, compound and full exit conserve user balances
+  ---
+  duration_ms: 4.770458
+  ...
+# Subtest: claim does not compound and invalid amounts never change funds
+ok 14 - claim does not compound and invalid amounts never change funds
+  ---
+  duration_ms: 0.327833
+  ...
+# Subtest: creator allocation remains separate, sums exactly and cannot be replayed
+ok 15 - creator allocation remains separate, sums exactly and cannot be replayed
+  ---
+  duration_ms: 5.922
+  ...
+# Subtest: one trade batch pays both owners once and accounts for every fee cent
+ok 16 - one trade batch pays both owners once and accounts for every fee cent
+  ---
+  duration_ms: 0.722583
+  ...
+# Subtest: creator to treasury to LP fees to member claim is connected and conserves money
+ok 17 - creator to treasury to LP fees to member claim is connected and conserves money
+  ---
+  duration_ms: 1.155916
+  ...
+# Subtest: treasury compounding and exits do not move personal money
+ok 18 - treasury compounding and exits do not move personal money
+  ---
+  duration_ms: 0.28675
+  ...
+# Subtest: stale pricing blocks both owners at the ledger, while allowing fixed-price exits
+ok 19 - stale pricing blocks both owners at the ledger, while allowing fixed-price exits
+  ---
+  duration_ms: 2.426083
+  ...
+# Subtest: existing sessions retain money and acquire the new treasury ledgers
+ok 20 - existing sessions retain money and acquire the new treasury ledgers
+  ---
+  duration_ms: 1.628708
+  ...
+# Subtest: fresh launch to fees to treasury to member payout is funded and traceable
+ok 21 - fresh launch to fees to treasury to member payout is funded and traceable
+  ---
+  duration_ms: 3.472417
+  ...
+# Subtest: seed lock restricts only its original capital, with exact release and no time-generated income
+ok 22 - seed lock restricts only its original capital, with exact release and no time-generated income
+  ---
+  duration_ms: 0.807791
+  ...
+# Subtest: 100% reinvestment never creates a second claim and treasury receives only its fee share
+ok 23 - 100% reinvestment never creates a second claim and treasury receives only its fee share
+  ---
+  duration_ms: 2.732792
+  ...
+# Subtest: draft and invalid market operations reject without mutating the input
+ok 24 - draft and invalid market operations reject without mutating the input
+  ---
+  duration_ms: 1.776459
+  ...
+# (node:23303) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: forecast has an independently calculable fixed-pool result and reconciles its components
+ok 25 - forecast has an independently calculable fixed-pool result and reconciles its components
+  ---
+  duration_ms: 0.598625
+  ...
+# Subtest: zero activity produces no return and costs can exhaust capital without a negative balance
+ok 26 - zero activity produces no return and costs can exhaust capital without a negative balance
+  ---
+  duration_ms: 0.090459
+  ...
+# Subtest: reinvestment changes fee participation while payouts remain part of total value
+ok 27 - reinvestment changes fee participation while payouts remain part of total value
+  ---
+  duration_ms: 0.1545
+  ...
+1..27
+# tests 27
+# suites 0
+# pass 27
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 406.4145

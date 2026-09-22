@@ -1,51 +1,451 @@
 "use client";
-import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { ArrowUpRight, ArrowRight, ArrowDownLeft, Layers3, Wallet, Users, Activity, Compass, Search, ShieldCheck, RefreshCw, Info, ChevronRight, Check, FlaskConical, ExternalLink, SlidersHorizontal, CircleDollarSign, ChartNoAxesCombined, Zap } from 'lucide-react';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { StockroomProvider } from './stockroom-workspace';
-import { initialDemo, transition, vaults, type Demo, type Action, type Vault } from '@/lib/vaults/demo';
-const money=(c:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}).format(c/100);
-const compact=(n:number)=>n>=1e6?`$${(n/1e6).toFixed(2)}M`:`$${(n/1000).toFixed(1)}K`;
-const Context=createContext<{state:Demo;act:(a:Action)=>void;ready:boolean}|null>(null);
-const useDemo=()=>useContext(Context)!;
-export function AppProvider({children}:{children:ReactNode}) {
- const path=usePathname();
- if(path.startsWith('/devnet')||path.startsWith('/markets')||path.startsWith('/credit')||path.startsWith('/activity/')) return <StockroomProvider>{children}</StockroomProvider>;
- return <VaultProvider>{children}</VaultProvider>;
+import { MeteoraLabel } from "@/app/protocol-identity";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useEffect, useState, useRef, type ReactNode } from "react";
+import { StockroomShell } from "./stockroom-shell";
+import { toast } from "sonner";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  ArrowUpRight,
+  ArrowRight,
+  Layers3,
+  Compass,
+  ShieldCheck,
+  FlaskConical,
+  ExternalLink,
+  ChartNoAxesCombined,
+  Zap,
+} from "lucide-react";
+import { StockroomProvider } from "./stockroom-workspace";
+import {
+  initialDemo,
+  hydrateDemo,
+  transition,
+  type Demo,
+  type Action,
+} from "@/lib/vaults/demo";
+import { DemoContext as Context } from "./vault-state";
+export {
+  MarketDirectory as VaultDirectory,
+  MarketDetail as VaultDetail,
+  CapitalPortfolio as VaultPortfolio,
+  CommunityHub as CommunityPage,
+  CapitalActivity as VaultActivity,
+} from "./market-workspace";
+export function AppProvider({ children }: { children: ReactNode }) {
+  const path = usePathname();
+  if (
+    path.startsWith("/devnet") ||
+    path.startsWith("/markets") ||
+    path.startsWith("/credit") ||
+    path.startsWith("/activity/")
+  )
+    return (
+      <div className="sr-credit-app">
+        <StockroomProvider>{children}</StockroomProvider>
+      </div>
+    );
+  return <VaultProvider>{children}</VaultProvider>;
 }
-function VaultProvider({children}:{children:ReactNode}){
- const [state,setState]=useState<Demo>(initialDemo);const stateRef=useRef(state);stateRef.current=state;const [ready,setReady]=useState(false);const [toast,setToast]=useState('');const [wallet,setWallet]=useState(false);const path=usePathname();
- useEffect(()=>{window.scrollTo({top:0,behavior:'instant'});},[path]);
- useEffect(()=>{try{const raw=localStorage.getItem('stockroom-vault-demo-v1');if(raw){const s=JSON.parse(raw);if(s.version===1&&Number.isSafeInteger(s.cash)&&s.positions&&Array.isArray(s.entries))setState(s);}}catch{}setReady(true);},[]);
- useEffect(()=>{if(ready)try{localStorage.setItem('stockroom-vault-demo-v1',JSON.stringify(state));}catch{setToast('Browser storage unavailable; this session will not be saved.');}},[state,ready]);
- useEffect(()=>{if(toast){const t=setTimeout(()=>setToast(''),5500);return()=>clearTimeout(t);}},[toast]);
- const act=(a:Action)=>{const next=transition(stateRef.current,a,crypto.randomUUID(),new Date().toISOString());stateRef.current=next;setState(next);setToast(`${next.entries[0].type} complete · simulation only`);};
- const nav=[['/','Vaults',Layers3],['/portfolio','Portfolio',Wallet],['/community','Community',Users],['/activity','Activity',Activity],['/ecosystem','Ecosystem',Compass]] as const;
- return <Context.Provider value={{state,act,ready}}><div className="sr-app"><aside className="sr-sidebar"><Link className="sr-brand" href="/"><span className="sr-mark"><Layers3 size={22}/></span>stockroom<span className="sr-brand-period">.</span></Link><div className="sr-sidebar-label">WORKSPACE</div><nav aria-label="Main navigation">{nav.map(([url,label,Icon])=><Link key={url} className={(path===url||(url==='/'&&path.startsWith('/vaults')))?'active':''} href={url}><Icon size={19}/>{label}{label==='Vaults'&&<small>04</small>}</Link>)}</nav><div className="sr-sidebar-bottom"><Link href="/devnet"><FlaskConical size={18}/>Credit sandbox <ArrowUpRight size={14}/></Link><div className="sr-network"><span className="sr-sol">≋</span><div>Built for Solana<small>Interactive prototype</small></div></div></div></aside><div className="sr-body"><header className="sr-header"><div className="sr-breadcrumb">Workspace <ChevronRight size={14}/><span>{path.startsWith('/vaults')?'Vault details':path==='/ecosystem'?'Ecosystem':nav.find(n=>n[0]===path)?.[1]??'Vaults'}</span></div><div className="sr-header-right"><span className="sr-demo-pill"><FlaskConical size={13}/> Demo mode</span><button className="sr-wallet" onClick={()=>setWallet(true)}><Wallet size={16}/>Demo wallet <span>{money(state.cash)}</span></button></div></header><main className="sr-main"><div className="sr-demo-strip"><span><Info size={14}/> All balances, rates and transactions are simulated. No real funds or wallet signatures.</span><Link href="/ecosystem">Integration status <ArrowUpRight size={13}/></Link></div>{children}<footer className="sr-footer"><span>stockroom. <span>Capital with a purpose.</span></span><span>Solana prototype <span>·</span> No live APY or audited vaults</span></footer></main></div>{toast&&<div className="sr-toast" role="status"><Check size={18}/>{toast}</div>}<Dialog open={wallet} onOpenChange={setWallet}><DialogContent className="sr-modal"><DialogTitle>Demo wallet</DialogTitle><DialogDescription>This local example starts with $10,000 demo USDC. No wallet connection is required.</DialogDescription><div className="sr-modal-number">{money(state.cash)}</div><p>Your simulation is saved in this browser. The credit sandbox is a separate, earlier devnet experiment.</p><button className="sr-primary" onClick={()=>{setState(initialDemo());setWallet(false);setToast('Demo reset to its starting balances.');}}>Reset demo balances</button></DialogContent></Dialog></div></Context.Provider>;
+function VaultProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<Demo>(initialDemo);
+  const stateRef = useRef(state);
+  const [ready, setReady] = useState(false),
+    [hasBackup, setHasBackup] = useState(false);
+  const path = usePathname();
+  useEffect(() => {
+    if (!window.location.hash) window.scrollTo({ top: 0, behavior: "instant" });
+  }, [path]);
+  useEffect(() => {
+    let cancelled = false;
+    // Load browser-owned state after hydration; actions remain disabled until ready.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      try {
+        setHasBackup(!!localStorage.getItem("stockroom-vault-demo-backup"));
+        const raw = localStorage.getItem("stockroom-vault-demo-v1");
+        if (raw) {
+          const saved = hydrateDemo(JSON.parse(raw));
+          stateRef.current = saved;
+          setState(saved);
+        }
+      } catch {}
+      setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (ready)
+      try {
+        localStorage.setItem("stockroom-vault-demo-v1", JSON.stringify(state));
+      } catch {
+        toast.error(
+          "Browser storage unavailable; this session will not be saved.",
+        );
+      }
+  }, [state, ready]);
+  const act = (a: Action) => {
+    if (!ready) throw new Error("Your saved demo is still loading.");
+    const next = transition(
+      stateRef.current,
+      a,
+      crypto.randomUUID(),
+      new Date().toISOString(),
+    );
+    stateRef.current = next;
+    setState(next);
+    toast.success(`${next.entries[0].type} complete`, {
+      description: "Local simulation · no real funds moved",
+    });
+  };
+  const reset = () => {
+    try {
+      localStorage.setItem(
+        "stockroom-vault-demo-backup",
+        JSON.stringify(stateRef.current),
+      );
+      setHasBackup(true);
+    } catch {
+      toast.error("Could not save backup. Existing session kept.");
+      return;
+    }
+    const fresh = initialDemo();
+    stateRef.current = fresh;
+    setState(fresh);
+    toast.success("Fresh demo started. Previous session can be restored.");
+  };
+  const restore = () => {
+    try {
+      const raw = localStorage.getItem("stockroom-vault-demo-backup");
+      if (raw) {
+        const old = hydrateDemo(JSON.parse(raw));
+        stateRef.current = old;
+        setState(old);
+        toast.success("Previous demo restored.");
+      }
+    } catch {
+      toast.error("Previous demo could not be read.");
+    }
+  };
+  return (
+    <Context.Provider value={{ state, act, ready }}>
+      <StockroomShell reset={reset} restore={restore} hasBackup={hasBackup}>
+        {children}
+      </StockroomShell>
+    </Context.Provider>
+  );
 }
-function Logo({ticker,size=42}:{ticker:string;size?:number}){return <span className="sr-token" style={{width:size,height:size}}><img src={`/token-logos/${ticker}.png`} alt="" width={size} height={size}/><span className="sr-usdc">$</span></span>}
-function Heading({eyebrow,title,description,action}:{eyebrow:string;title:string;description:string;action?:ReactNode}){return <div className="sr-heading"><div><div className="sr-eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>}
-function Stats({items}:{items:{label:string,value:string,sub:string}[]}){return <div className="sr-stats">{items.map(x=><div key={x.label}><span>{x.label}</span><strong>{x.value}</strong><small>{x.sub}</small></div>)}</div>}
-function Spark({color='#bcf080',variant=0}:{color?:string;variant?:number}){const paths=['0,47 12,42 23,45 34,34 46,38 58,28 69,32 82,18 93,23 106,12 120,8','0,48 12,46 23,34 34,40 46,22 58,27 69,16 82,25 93,12 106,16 120,4'];return <svg className="sr-spark" viewBox="0 0 120 55" aria-label="Illustrative trend"><polyline fill="none" stroke={color} strokeWidth="2" points={paths[variant%2]}/></svg>}
-export function VaultDirectory(){const [filter,setFilter]=useState('All vaults');const [query,setQuery]=useState('');const [sort,setSort]=useState('tvl');const list=[...vaults].filter(v=>(filter==='All vaults'||v.category===filter)&&`${v.name} ${v.ticker}`.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>sort==='apy'?b.apy-a.apy:b.tvl-a.tvl);return <><Heading eyebrow="THE STOCKROOM VAULTS" title="Your stocks. More possibilities." description="Provide liquidity. Put trading fees back to work. Own the outcome." action={<Link className="sr-text-link" href="/portfolio">Your portfolio <ArrowUpRight size={16}/></Link>}/><Stats items={[{label:'Total value locked · example',value:'$3.08M',sub:'Across 4 model strategies'},{label:'Trading volume · example / 24h',value:'$1.41M',sub:'Illustrative market activity'},{label:'Strategy focus',value:'Stock + USDC',sub:'Trading fees, not token emissions'}]}/><div className="sr-feature"><div className="sr-feature-main"><div className="sr-tag"><span className="sr-dot"/> FEATURED STRATEGY <span>01 / 04</span></div><div className="sr-feature-title"><Logo ticker="SPYx" size={52}/><div><h2>S&P 500 Liquidity</h2><span>SPYx / USDC <span className="sr-tiny-sep">·</span> Broad market exposure</span></div></div><p>A familiar market. A different way to participate.<br/>Supply liquidity and reinvest the fees from every swap.</p><div className="sr-feature-bottom"><span><ShieldCheck size={15}/> Bounded strategy rules</span><span><RefreshCw size={15}/> Optional compounding</span></div></div><div className="sr-feature-rate"><span>Illustrative net APY <Info size={13}/></span><strong>8.42<span>%</span></strong><Spark/><Link href="/vaults/spy" className="sr-primary">Explore vault <ArrowUpRight size={18}/></Link></div></div><div className="sr-section-top"><div><h2>Explore vaults <span className="sr-count">4</span></h2><p>Every strategy has a source of earnings. Know yours.</p></div><span className="sr-small">All figures below are examples</span></div><div className="sr-toolbar"><div className="sr-filter">{['All vaults','Index','Technology'].map(f=><button key={f} aria-pressed={f===filter} className={f===filter?'selected':''} onClick={()=>setFilter(f)}>{f}</button>)}</div><div className="sr-search"><Search size={16}/><input aria-label="Search vaults" placeholder="Search assets" value={query} onChange={e=>setQuery(e.target.value)}/></div><label className="sr-sort"><SlidersHorizontal size={14}/><select aria-label="Sort vaults" value={sort} onChange={e=>setSort(e.target.value)}><option value="tvl">TVL</option><option value="apy">APY</option></select></label></div><div className="sr-vault-grid">{list.map((v,i)=><Link className="sr-vault-card" href={`/vaults/${v.id}`} key={v.id}><div className="sr-card-top"><Logo ticker={v.ticker}/><span className="sr-chip">{v.category}</span><ArrowUpRight size={18}/></div><h3>{v.name} Liquidity</h3><p>{v.ticker} / USDC <span>·</span> 50 / 50 model</p><div className="sr-card-rate"><div><span>Example net APY</span><strong>{v.apy.toFixed(2)}<small>%</small></strong></div><Spark color={v.color} variant={i}/></div><div className="sr-card-stats"><div><span>Example TVL</span><b>{compact(v.tvl)}</b></div><div><span>Risk profile</span><b>{v.risk}</b></div></div><div className="sr-card-bottom"><span><RefreshCw size={13}/> Compound earned fees</span><ChevronRight size={16}/></div></Link>)}</div>{list.length===0&&<div className="sr-empty">No vaults match your search. Try an asset name or another category.</div>}<div className="sr-community-banner"><div className="sr-orbit-icon"><Users size={28}/></div><div><span className="sr-eyebrow">BUILT AROUND YOUR COMMUNITY</span><h3>Let your revenue do more.</h3><p>Explore a creator treasury with clear allocations and visible rewards.</p></div><Link href="/community" className="sr-secondary">Explore community <ArrowRight size={16}/></Link></div></>}
-function Row({label,children}:{label:string;children:ReactNode}){return <div className="sr-detail-row"><span>{label}</span><strong>{children}</strong></div>}
-function PerformanceChart(){const [period,setPeriod]=useState('30D');const short=period==='7D';return <section className="sr-panel"><div className="sr-section-top"><div><h3>Strategy performance</h3><p>Illustrative growth of $10,000 · not historical returns</p></div><div className="sr-filter">{['7D','30D'].map(p=><button key={p} className={period===p?'selected':''} onClick={()=>setPeriod(p)}>{p}</button>)}</div></div><div className="sr-chart-summary"><strong>{short?'$10,042.00':'$10,068.00'}</strong><span>Example strategy value</span></div><svg className="sr-chart" viewBox="0 0 650 210" role="img" aria-label={`Illustrative ${period} strategy versus holding chart; these are fabricated example values.`}><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#c3f58b" stopOpacity=".16"/><stop offset="1" stopColor="#c3f58b" stopOpacity="0"/></linearGradient></defs>{[35,85,135,185].map(y=><line key={y} x1="0" x2="580" y1={y} y2={y} stroke="#30382f" strokeDasharray="3 5"/>)}<path d={short?'M0 181 L50 158 L100 170 L150 126 L200 140 L250 105 L300 114 L350 90 L400 110 L450 72 L500 85 L580 56 L580 205 L0 205Z':'M0 181 L35 177 L70 186 L110 158 L150 163 L190 127 L230 146 L270 113 L310 119 L350 81 L390 105 L430 68 L470 80 L510 43 L545 57 L580 22 L580 205 L0 205Z'} fill="url(#chart-fill)"/><polyline points={short?'0,181 50,172 100,181 150,145 200,159 250,138 300,158 350,114 400,151 450,106 500,122 580,100':'0,181 35,179 70,191 110,163 150,175 190,148 230,166 270,138 310,156 350,119 390,143 430,104 470,117 510,93 545,112 580,80'} fill="none" stroke="#8493ad" strokeWidth="2" strokeDasharray="5 4"/><polyline points={short?'0,181 50,158 100,170 150,126 200,140 250,105 300,114 350,90 400,110 450,72 500,85 580,56':'0,181 35,177 70,186 110,158 150,163 190,127 230,146 270,113 310,119 350,81 390,105 430,68 470,80 510,43 545,57 580,22'} fill="none" stroke="#c3f58b" strokeWidth="2.5"/>{['$10.08k','$10.06k','$10.03k','$10.00k'].map((s,i)=><text key={s} x="595" y={40+i*50} fill="#86947d" fontSize="11">{s}</text>)}</svg><div className="sr-chart-labels"><span>Day 1</span><span>{short?'Day 3':'Day 10'}</span><span>{short?'Day 5':'Day 20'}</span><span>{short?'Day 7':'Day 30'}</span></div><div className="sr-legend"><span><i/>Vault after fees</span><span><i/>Hold initial assets</span></div></section>}
-export function VaultDetail({id}:{id:string}){const v=vaults.find(v=>v.id===id);if(!v)return <div className="sr-empty"><h3>Vault not found</h3><Link href="/">Back to vaults</Link></div>;return <VaultDetailInner key={id} v={v}/>}
-function VaultDetailInner({v}:{v:Vault}){const {state,act,ready}=useDemo();const [tab,setTab]=useState('Overview');const [mode,setMode]=useState<'deposit'|'withdraw'>('deposit');const [amount,setAmount]=useState('1000');const [review,setReview]=useState(false);const [error,setError]=useState('');const [stale,setStale]=useState(false);const p=state.positions[v.id]??{capital:0,rewards:0,earned:0};const value=Math.round(Number(amount)*100);const available=mode==='deposit'?state.cash:p.capital;const valid=ready&&Number.isSafeInteger(value)&&value>0&&value<=available&&!(stale&&mode==='deposit');
- const run=(a:Action)=>{try{act(a);setError('');}catch(e){setError((e as Error).message);}};
- return <><Link className="sr-back" href="/">← All vaults</Link><div className="sr-vault-heading"><Logo ticker={v.ticker} size={56}/><div><div className="sr-eyebrow">STOCKROOM / LIQUIDITY STRATEGY</div><h1>{v.name} Liquidity</h1><p>{v.ticker} / USDC <span>·</span> Solana <span>·</span> Mock assets</p></div><span className="sr-chip">{v.risk} risk</span></div><div className="sr-detail-layout"><div><Stats items={[{label:'Illustrative net APY',value:`${v.apy}%`,sub:'Variable · not a forecast'},{label:'Example TVL',value:compact(v.tvl+p.capital/100),sub:'Includes your demo position'},{label:'Example volume / 24h',value:compact(v.volume),sub:'Model data, not live'}]}/><div className="sr-detail-tabs" role="tablist" aria-label="Vault information">{['Overview','Strategy & risks','Activity'].map(t=><button key={t} role="tab" aria-selected={tab===t} onClick={()=>setTab(t)}>{t}</button>)}</div>{tab==='Overview'?<><PerformanceChart/><section className="sr-panel"><div className="sr-section-top"><div><h3>Where the earnings come from</h3><p>Swap fees. Transparent costs. No token emissions in this model.</p></div><CircleDollarSign size={22}/></div><div className="sr-flow"><div><span>01</span><b>Supply liquidity</b><small>Stock + USDC inventory</small></div><ArrowRight size={17}/><div><span>02</span><b>Traders swap</b><small>0.30% example fee</small></div><ArrowRight size={17}/><div><span>03</span><b>Reinvest or claim</b><small>You choose the destination</small></div></div><Row label="Protocol performance fee">10% of earned swap fees</Row><Row label="Illustrative net APY">{v.apy}% after model costs</Row><p className="sr-note">The displayed APY is a design fixture, not derived from live volume. Your simulated fees below use pool share and trading volume instead.</p></section></>:tab==='Strategy & risks'?<section className="sr-panel sr-prose"><h3>Know your position</h3><p>{v.description}</p><h4>Inventory can change</h4><p>You own a liquidity position, not a fixed number of company shares. It can underperform holding the original assets, even while collecting trading fees.</p><h4>Execution and pricing</h4><p>The production design calls for bounded execution, issuer-aware valuation and supported Pyth data. This prototype does not fetch live prices or enforce on-chain rules.</p><h4>Model limits</h4><p>Deposits and exits use fixed demo prices with zero execution costs. Price changes, pool ranges, slippage, corporate actions and issuer restrictions are not simulated. The APY chart is illustrative.</p><div className="sr-guard"><ShieldCheck size={22}/><div><strong>Price freshness scenario</strong><p>Try the intended stale-data policy. Deposits pause; the simplified demo exit stays available.</p></div><button className="sr-secondary" aria-pressed={stale} onClick={()=>setStale(!stale)}>{stale?'Restore demo price':'Simulate stale price'}</button></div></section>:<section className="sr-panel"><h3>Your vault activity</h3><EntryList vault={v.ticker}/></section>}<section className="sr-panel"><div className="sr-section-top"><div><h3>Try the earning cycle</h3><p>Generate a sample trade batch, then reinvest or claim its fees.</p></div><FlaskConical size={20}/></div><div className="sr-position-strip"><div><span>Your position</span><strong>{money(p.capital)}</strong></div><div><span>Unclaimed fees</span><strong className="sr-lime">{money(p.rewards)}</strong></div><div><span>Lifetime demo fees</span><strong>{money(p.earned)}</strong></div></div><div className="sr-actions"><button disabled={!ready||p.capital<=0||stale} className="sr-secondary" onClick={()=>run({type:'trade',vault:v.id})}><ChartNoAxesCombined size={15}/> Simulate $100k volume</button><button disabled={!ready||p.rewards<=0||stale} className="sr-primary" onClick={()=>run({type:'compound',vault:v.id})}><RefreshCw size={15}/> Compound</button><button disabled={!ready||p.rewards<=0} className="sr-secondary" onClick={()=>run({type:'claim',vault:v.id})}>Claim fees</button></div><p className="sr-note">Each click creates one fictional trade batch. No time passes and no mainnet volume is generated.</p></section></div><aside className="sr-deposit-panel"><div className="sr-filter"><button className={mode==='deposit'?'selected':''} onClick={()=>{setMode('deposit');setAmount('1000');setError('');}}>Deposit</button><button className={mode==='withdraw'?'selected':''} onClick={()=>{setMode('withdraw');setAmount('');setError('');}}>Withdraw</button></div><h3>{mode==='deposit'?'Put your capital to work':'Withdraw your position'}</h3><p>{mode==='deposit'?'Enter with demo USDC.':'Receive demo USDC at fixed example prices.'}</p><div className="sr-amount-box"><label htmlFor="vault-amount">{mode==='deposit'?'You deposit':'You withdraw'}</label><div><input id="vault-amount" inputMode="decimal" type="number" min="0" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00"/><b><span className="sr-dollar">$</span> USDC</b></div><div className="sr-balance"><span>Available {money(available)}</span><button onClick={()=>setAmount((available/100).toFixed(2))}>MAX</button></div></div><div className="sr-presets">{[25,50,75,100].map(n=><button key={n} onClick={()=>setAmount((Math.floor(available*n/100)/100).toFixed(2))}>{n}%</button>)}</div><Row label="Network">Solana · simulation</Row><Row label={mode==='deposit'?'Initial allocation':'Exit asset'}>{mode==='deposit'?'50% stock / 50% USDC':'Demo USDC'}</Row><Row label="Execution cost">$0.00 in this model</Row><Row label="Position after action">{money(p.capital+(Number.isFinite(value)?(mode==='deposit'?value:-value):0))}</Row>{stale&&<p className="sr-warning">Demo price is stale. Deposits and compounding are paused.</p>}{value>available&&<p className="sr-warning" role="alert">Amount exceeds available balance.</p>}{error&&<p className="sr-warning" role="alert">{error}</p>}<button className="sr-primary sr-full" disabled={!valid} onClick={()=>setReview(true)}>Review {mode} <ArrowRight size={16}/></button><div className="sr-deposit-foot"><ShieldCheck size={15}/><span>No real assets move. Review the strategy risks before a future live deposit.</span></div></aside></div><Dialog open={review} onOpenChange={setReview}><DialogContent className="sr-modal"><DialogTitle>Review demo {mode}</DialogTitle><DialogDescription>{v.name} Liquidity · {v.ticker} / USDC</DialogDescription><div className="sr-modal-number">{money(value)}</div><Row label="Action">{mode==='deposit'?'Create a model LP position':'Redeem model position'}</Row><Row label="Wallet balance after">{money(state.cash+(mode==='deposit'?-value:value))}</Row><p>{mode==='deposit'?'Half of your demo funds represent stock inventory and half USDC. Actual liquidity positions can lose value and underperform holding.':'This model converts the withdrawn position to USDC without slippage. Unclaimed fees remain separately claimable.'}</p><button className="sr-primary" disabled={!valid} onClick={()=>{try{act({type:mode,vault:v.id,amount:value});setReview(false);setAmount('');setError('');}catch(e){setReview(false);setError((e as Error).message);}}}>Confirm simulated {mode}</button></DialogContent></Dialog></>;
+function Heading({
+  eyebrow,
+  title,
+  description,
+  action,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="sr-heading">
+      <div>
+        <div className="sr-eyebrow">{eyebrow}</div>
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {action}
+    </div>
+  );
 }
-function EntryList({vault}:{vault?:string}){const {state}=useDemo();const [selected,setSelected]=useState<Demo['entries'][number]|null>(null);const entries=state.entries.filter(e=>!vault||e.vault===vault);return <>{entries.length===0?<div className="sr-empty"><Activity size={28} style={{margin:'0 auto 12px'}}/><h3>No activity yet</h3><p>Your deposits, earned fees and allocations will appear here.</p><Link href="/vaults/spy" className="sr-primary">Try a vault <ArrowRight size={16}/></Link></div>:<div className="sr-entry-list">{entries.map(e=><button key={e.id} className="sr-entry" onClick={()=>setSelected(e)}><span className="sr-entry-icon">{e.type==='Deposit'?<ArrowDownLeft size={18}/>:e.type==='Compound'?<RefreshCw size={17}/>:<ArrowUpRight size={18}/>}</span><span><b>{e.type}</b><small>{e.vault} · {new Date(e.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</small></span><span className="sr-entry-amount">{money(e.amount)}<small>Simulated</small></span><ChevronRight size={15}/></button>)}</div>}<Dialog open={!!selected} onOpenChange={open=>!open&&setSelected(null)}><DialogContent className="sr-modal"><DialogTitle>{selected?.type} receipt</DialogTitle><DialogDescription>Local simulation receipt · not an on-chain transaction</DialogDescription><div className="sr-modal-number">{money(selected?.amount??0)}</div><p>{selected?.note}</p><Row label="Asset / account">{selected?.vault}</Row><Row label="Recorded">{selected&&new Date(selected.at).toLocaleString()}</Row><p className="sr-receipt-id">Reference: {selected?.id}</p></DialogContent></Dialog></>}
-export function VaultPortfolio(){const {state}=useDemo();const positions=Object.entries(state.positions).filter(([,p])=>p.capital>0||p.rewards>0);const total=Object.values(state.positions).reduce((a,p)=>a+p.capital,0);const fees=Object.values(state.positions).reduce((a,p)=>a+p.rewards,0);return <><Heading eyebrow="YOUR CAPITAL" title="A clear view of what you own." description="Positions, earned fees and available capital. All in one place." action={<Link className="sr-primary" href="/">Explore vaults <ArrowUpRight size={16}/></Link>}/><Stats items={[{label:'Demo vault positions',value:money(total),sub:`${positions.length} active positions`},{label:'Unclaimed trading fees',value:money(fees),sub:'Ready to reinvest or claim'},{label:'Available demo USDC',value:money(state.cash),sub:'Local example balance'}]}/><div className="sr-section-top"><h2>Your positions</h2><span className="sr-small">Fixed-price simulation</span></div>{positions.length===0?<div className="sr-empty"><Wallet size={32} style={{margin:'0 auto 15px'}}/><h3>Your first position starts here.</h3><p>Use your $10,000 demo balance to explore a complete vault cycle.</p><Link className="sr-primary" href="/vaults/spy">Explore S&P 500 Liquidity <ArrowRight size={16}/></Link></div>:<div className="sr-panel">{positions.map(([id,p])=>{const v=vaults.find(v=>v.id===id)!;return <Link className="sr-position" key={id} href={`/vaults/${id}`}><Logo ticker={v.ticker}/><div><h3>{v.name} Liquidity</h3><small>{v.ticker} / USDC</small></div><div><small>Position value</small><strong>{money(p.capital)}</strong></div><div><small>Unclaimed fees</small><strong className="sr-lime">{money(p.rewards)}</strong></div><ArrowUpRight size={18}/></Link>})}</div>}<section className="sr-panel"><div className="sr-section-top"><h3>Recent activity</h3><Link className="sr-text-link" href="/activity">View all <ArrowRight size={14}/></Link></div><EntryList/></section></>}
-export function VaultActivity(){return <><Heading eyebrow="EVERY MOVEMENT, ACCOUNTED FOR" title="Activity" description="A readable receipt for every action in your demo workspace."/><section className="sr-panel"><EntryList/></section></>}
-export function CommunityPage(){const {state,act}=useDemo();const [allocation,setAllocation]=useState(state.split);const [error,setError]=useState('');const [review,setReview]=useState(false);useEffect(()=>setAllocation(state.split),[state.split]);const run=(a:Action)=>{try{act(a);setError('');}catch(e){setError((e as Error).message);}};return <><Heading eyebrow="COMMUNITY CAPITAL" title="Built together. Allocated clearly." description="Turn creator revenue into a transparent treasury and community rewards."/><div className="sr-community-hero"><div className="sr-community-avatar"><Users size={35}/></div><div><span className="sr-chip">EXAMPLE COMMUNITY</span><h2>Founders Collective</h2><p>A fictional creator treasury. Independent from investor vault deposits.</p></div><span className="sr-demo-pill">Local demo</span></div><Stats items={[{label:'Creator fee balance',value:money(state.creatorCash),sub:'One fictional $500 revenue batch'},{label:'Stock treasury',value:money(state.treasury),sub:'Creator-owned model stock value'},{label:'Community reserve',value:money(state.community),sub:'Allocated, not paid to holders'}]}/><div className="sr-community-layout"><section className="sr-panel"><div className="sr-section-top"><div><h3>Your revenue, with a plan.</h3><p>Choose what happens after your community earns.</p></div><SlidersHorizontal size={20}/></div><div className="sr-allocation-bar"><i style={{width:`${allocation}%`}}/><i style={{width:'20%'}}/><i style={{width:`${80-allocation}%`}}/></div><div className="sr-allocation-row"><span className="sr-allocation-icon"><Layers3 size={20}/></span><div><h4>Stock treasury</h4><p>Accumulate model SPYx exposure</p></div><strong>{allocation}%</strong></div><label className="sr-range-label" htmlFor="allocation">Treasury allocation <span>0–80%</span></label><input id="allocation" className="sr-range" type="range" min="0" max="80" step="5" value={allocation} onChange={e=>setAllocation(Number(e.target.value))}/><div className="sr-allocation-row"><span className="sr-allocation-icon purple"><Users size={20}/></span><div><h4>Community reserve</h4><p>Set aside for future reward claims</p></div><strong>20%</strong></div><div className="sr-allocation-row"><span className="sr-allocation-icon blue"><Wallet size={20}/></span><div><h4>Creator operations</h4><p>Keep your project moving</p></div><strong>{80-allocation}%</strong></div><button className="sr-secondary sr-full" disabled={allocation===state.split} onClick={()=>run({type:'policy',amount:allocation})}>Save allocation policy</button><p className="sr-note">Token holders have no claim on the creator-owned treasury. The community reserve is an accounting allocation, not an automatic payout.</p></section><div><section className="sr-panel"><span className="sr-eyebrow">NEXT ALLOCATION</span><h3>Put earned revenue to work.</h3><div className="sr-modal-number">{money(state.creatorCash)}</div><Row label={`Stock treasury · ${state.split}%`}>{money(Math.floor(state.creatorCash*state.split/100))}</Row><Row label="Community reserve · 20%">{money(Math.floor(state.creatorCash*.2))}</Row><Row label={`Operations · ${80-state.split}%`}>{money(state.creatorCash-Math.floor(state.creatorCash*state.split/100)-Math.floor(state.creatorCash*.2))}</Row><button className="sr-primary sr-full" disabled={state.creatorCash<=0||allocation!==state.split} onClick={()=>setReview(true)}>Review allocation <ArrowRight size={16}/></button>{state.creatorCash===0&&<p className="sr-note">Example batch allocated. Reset the demo wallet to try another policy.</p>}{error&&<p role="alert" className="sr-warning">{error}</p>}</section><section className="sr-panel sr-prose"><h3>Separate by design</h3><p>Creator fees fund this treasury. Your vault deposits and LP earnings are never redirected into community rewards.</p><Row label="Operations allocated">{money(state.operations)}</Row><Link href="/ecosystem" className="sr-text-link">Explore planned fee sources <ArrowUpRight size={14}/></Link></section></div></div><Dialog open={review} onOpenChange={setReview}><DialogContent className="sr-modal"><DialogTitle>Review creator allocation</DialogTitle><DialogDescription>Split the fictional creator fee batch. No external token purchases or holder payouts occur.</DialogDescription><Row label="Creator stock treasury">{state.split}%</Row><Row label="Community reserve">20%</Row><Row label="Creator operations">{80-state.split}%</Row><button className="sr-primary" onClick={()=>{run({type:'allocate'});setReview(false);}}>Confirm simulated allocation</button></DialogContent></Dialog></>}
-const integrations=[
- {name:'Pyth',category:'MARKET DATA',badge:'Scenario available',description:'Price freshness and deviation checks before a vault operation.',next:'Connect supported live feeds; verify units, confidence and market sessions.',prize:'3 months of Pyth Pro',url:'https://docs.pyth.network',icon:ShieldCheck},
- {name:'PreStocks',category:'PRE-IPO ASSETS',badge:'Planned',description:'Extend the asset registry to supported private-company exposure.',next:'Verify exact mints, ownership terms, transfers and executable liquidity.',prize:'$5,000 bounty pool',url:'https://prestocks.com/products',icon:Layers3},
- {name:'Tessera',category:'PRE-IPO ASSETS',badge:'Planned',description:'Explore strategies using OpenAI or Kalshi T-Tokens.',next:'Validate token compatibility and build a substantive asset integration.',prize:'$6,000 bounty pool',url:'https://docs.tessera.pe',icon:Compass},
- {name:'Meteora DBC',category:'MARKET CREATION',badge:'Configuration preview',description:'Configure a stock-quoted community market and its graduation path.',next:'Create and verify the DBC pool and migration. An LP vault alone is insufficient.',prize:'$5,000 bounty pool',url:'https://docs.meteora.ag/developer-guides/dbc',icon:ChartNoAxesCombined},
- {name:'Clawpump',category:'CREATOR DISTRIBUTION',badge:'Route unverified',description:'A potential creator entry point for a stock-paired community launch.',next:'Complete an actual stock-paired launch through Clawpump and Meteora.',prize:'$5,000 bounty pool',url:'https://clawpump.tech/developers',icon:Zap},
+function ProductCoverage() {
+  return (
+    <Card className="sr-panel sr-prose">
+      <span className="sr-eyebrow">THE COMPLETE PRODUCT MAP</span>
+      <h3>One lifecycle. Every layer accounted for.</h3>
+      <p>
+        Sonata connects fee-generating markets, treasury decisions and
+        community participation. The local prototype demonstrates the
+        accounting; external integrations remain individually tracked.
+      </p>
+      <div className="sr-coverage-grid">
+        {[
+          [
+            "Markets & discovery",
+            "Live on Devnet",
+            "Registered Sonata / mSPY pools, onchain fee balances and verified custody.",
+            "/",
+          ],
+          [
+            "Capital & compounding",
+            "Live on Devnet",
+            "Wallet-owned ROOM/mSPY LP positions, native fee compounding, partial withdrawals and full exits. Treasury deployment remains separate work.",
+            "/earn",
+          ],
+          [
+            "Creator & community",
+            "Live on Devnet",
+            "Creator reserve deployment into wallet-owned LP positions and funded, fixed-recipient reward claims. Automated holder snapshots remain separate work.",
+            "/rewards",
+          ],
+          [
+            "Analytics & receipts",
+            "Working simulation",
+            "Separate principal, fees, creator revenue, protocol revenue and member claims. Receipts show balance changes and funding sources. Return scenarios use explicit inputs; price movements remain outside the ledger.",
+            "/lab/activity",
+          ],
+          [
+            "Credit & collateral",
+            "Separate earlier sandbox",
+            "Borrowing work is retained. These new LP positions are not connected to it or accepted as collateral.",
+            "/devnet",
+          ],
+          [
+            "Market creation & locks",
+            "Working local model",
+            "Seed a simulated community/stock pair and test a creator liquidity lock. Live DBC pool creation is available separately; migration remains outstanding.",
+            "/lab/create",
+          ],
+        ].map(([name, status, description, url]) => (
+          <Link className="sr-coverage-card" href={url} key={name}>
+            <Badge className="sr-chip">{status}</Badge>
+            <h4>
+              {name} <ArrowUpRight size={14} />
+            </h4>
+            <p>{description}</p>
+          </Link>
+        ))}
+      </div>
+      <h4>Research retained for expansion</h4>
+      <p>
+        Beefy inspires compounding and transaction review; Superform, strategy
+        discovery; Glider, allocation controls; Fluid, productive liquidity and
+        credit; Pendle, clearer separation of principal and yield; Clanker and
+        Flaunch, creator revenue destinations. These are design references, not
+        integrated protocols or promised returns.
+      </p>
+      <p>
+        Issuer-aware baskets, recurring deposits, supported oracle feeds,
+        pre-IPO assets, launch migration, automated harvesting and future credit
+        remain in the plan. Each needs its own working integration before it can
+        be claimed in a submission.
+      </p>
+    </Card>
+  );
+}
+const integrations = [
+  {
+    name: "Pyth",
+    category: "MARKET DATA",
+    badge: "Scenario available",
+    description:
+      "Price freshness and deviation checks before a vault operation.",
+    next: "Connect supported live feeds; verify units, confidence and market sessions.",
+    prize: "3 months of Pyth Pro",
+    url: "https://docs.pyth.network",
+    icon: ShieldCheck,
+  },
+  {
+    name: "PreStocks",
+    category: "PRE-IPO ASSETS",
+    badge: "Planned",
+    description:
+      "Extend the asset registry to supported private-company exposure.",
+    next: "Verify exact mints, ownership terms, transfers and executable liquidity.",
+    prize: "$5,000 bounty pool",
+    url: "https://prestocks.com/products",
+    icon: Layers3,
+  },
+  {
+    name: "Tessera",
+    category: "PRE-IPO ASSETS",
+    badge: "Planned",
+    description: "Explore strategies using OpenAI or Kalshi T-Tokens.",
+    next: "Validate token compatibility and build a substantive asset integration.",
+    prize: "$6,000 bounty pool",
+    url: "https://docs.tessera.pe",
+    icon: Compass,
+  },
+  {
+    name: "Meteora DBC",
+    category: "MARKET CREATION",
+    badge: "Devnet fee flow verified",
+    description:
+      "Sonata’s own ROOM / mock-SPY DBC pool feeds its creator-controlled reserve.",
+    next: "Browser pool creation, graduation/migration and reinvestment remain ahead. Clawpump is not part of this verified path.",
+    prize: "$5,000 bounty pool",
+    url: "https://docs.meteora.ag/developer-guides/dbc",
+    icon: ChartNoAxesCombined,
+  },
+  {
+    name: "Clawpump",
+    category: "CREATOR DISTRIBUTION",
+    badge: "Route unverified",
+    description:
+      "A potential creator entry point for a stock-paired community launch.",
+    next: "Complete an actual stock-paired launch through Clawpump and Meteora.",
+    prize: "$5,000 bounty pool",
+    url: "https://clawpump.tech/developers",
+    icon: Zap,
+  },
 ];
-export function EcosystemPage(){const [config,setConfig]=useState(false);const [symbol,setSymbol]=useState('ROOM');const [quote,setQuote]=useState('SPYx');const [threshold,setThreshold]=useState('100');const [saved,setSaved]=useState(false);return <><Heading eyebrow="THE CONNECTIONS BEHIND THE PRODUCT" title="One workspace. Open possibilities." description="Explore the intended integrations and see exactly what is working today." action={<a className="sr-secondary" target="_blank" rel="noreferrer" href="https://hackathons.solana.com/hackathons/stocklana">Stocklana <ExternalLink size={14}/></a>}/><div className="sr-status-banner"><FlaskConical size={23}/><div><h3>Interactive prototype · integration work ahead</h3><p>Vault actions and creator allocations run locally. None of the sponsors below are connected to this demo. Bounty eligibility and award stacking are not confirmed.</p></div></div><div className="sr-issuer-preview"><div><span className="sr-eyebrow">NEXT ASSET FRONTIER</span><h2>Before the opening bell.</h2><p>Pre-IPO strategies belong here only after their rights, liquidity and valuation are understood.</p></div><div className="sr-preview-asset"><span>O</span><h3>OpenAI</h3><small>Tessera candidate</small><b>Research preview</b></div><div className="sr-preview-asset"><span>K</span><h3>Kalshi</h3><small>Tessera candidate</small><b>Research preview</b></div></div><div className="sr-section-top"><h2>Integration roadmap</h2><span className="sr-small">No partnership implied</span></div><div className="sr-integration-grid">{integrations.map(({name,category,badge,description,next,prize,url,icon:Icon})=><section className="sr-panel sr-integration" key={name}><div className="sr-card-top"><span className="sr-integration-icon"><Icon size={23}/></span><span className="sr-chip">{badge}</span></div><span className="sr-eyebrow">{category}</span><h3>{name}</h3><p>{description}</p><div className="sr-integration-next"><span>TO VERIFY</span><p>{next}</p></div><div className="sr-integration-footer"><span>{prize}</span><a href={url} target="_blank" rel="noreferrer">Docs <ArrowUpRight size={14}/></a></div>{name==='Pyth'&&<Link className="sr-text-link" href="/vaults/spy">Try the pricing scenario <ArrowRight size={14}/></Link>}{name==='Meteora DBC'&&<button className="sr-secondary sr-full" onClick={()=>setConfig(true)}>Preview launch configuration</button>}</section>)}</div><section className="sr-panel sr-prose"><h3>Built with reference, not guesswork.</h3><p>The interface draws on Superform’s strategy presentation, Beefy’s transaction previews and the explicit revenue controls explored in Clanker and Flaunch. This prototype is independently implemented; their contracts have not been ported or audited for this app.</p><div className="sr-source-links"><a target="_blank" rel="noreferrer" href="https://github.com/beefyfinance/beefy-v2">Beefy frontend <ArrowUpRight size={14}/></a><a target="_blank" rel="noreferrer" href="https://github.com/superform-xyz">Superform repositories <ArrowUpRight size={14}/></a><a target="_blank" rel="noreferrer" href="https://github.com/MeteoraAg/dynamic-bonding-curve-sdk">Meteora DBC SDK <ArrowUpRight size={14}/></a></div></section><Dialog open={config} onOpenChange={setConfig}><DialogContent className="sr-modal"><DialogTitle>Stock-paired launch configuration</DialogTitle><DialogDescription>Design preview only. This does not create a token, reserve a symbol or call Clawpump or Meteora.</DialogDescription><label className="sr-field">Community token symbol<input value={symbol} maxLength={10} onChange={e=>{setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,''));setSaved(false);}}/></label><label className="sr-field">Quote asset<select value={quote} onChange={e=>{setQuote(e.target.value);setSaved(false);}}>{vaults.map(v=><option key={v.id}>{v.ticker}</option>)}</select></label><label className="sr-field">Graduation target · quote tokens<input type="number" min="1" value={threshold} onChange={e=>{setThreshold(e.target.value);setSaved(false);}}/></label><Row label="Preview pair">{symbol||'—'} / {quote}</Row><Row label="Migration design">DBC → DAMM v2</Row><p>Pairing a community token with a stock does not make it stock-backed. Mint compatibility and the actual launch route remain unverified.</p><button className="sr-primary" disabled={!symbol||!Number.isFinite(Number(threshold))||Number(threshold)<=0} onClick={()=>setSaved(true)}>Validate preview inputs</button>{saved&&<p role="status">Preview inputs are complete. On-chain configuration validation and launch are not implemented.</p>}</DialogContent></Dialog></>}
+export function EcosystemPage() {
+  return (
+    <>
+      <Heading
+        eyebrow="THE CONNECTIONS BEHIND THE PRODUCT"
+        title="The bigger picture."
+        description="Explore the intended integrations and see exactly what is working today."
+        action={
+          <Button asChild variant="outline">
+            <a
+              className="sr-secondary"
+              target="_blank"
+              rel="noreferrer"
+              href="https://hackathons.solana.com/hackathons/stocklana"
+            >
+              Stocklana <ExternalLink size={14} />
+            </a>
+          </Button>
+        }
+      />
+      <div className="sr-status-banner">
+        <FlaskConical size={23} />
+        <div>
+          <h3>Interactive prototype · integration work ahead</h3>
+          <p>
+            The strategy model runs locally. The Devnet treasury now collects
+            actual Meteora DBC fees and executes fixed-recipient payouts. Bounty
+            eligibility and award stacking are not confirmed.
+          </p>
+        </div>
+      </div>
+      <ProductCoverage />
+      <div className="sr-issuer-preview">
+        <div>
+          <span className="sr-eyebrow">NEXT ASSET FRONTIER</span>
+          <h2>Before the opening bell.</h2>
+          <p>
+            Pre-IPO strategies belong here only after their rights, liquidity
+            and valuation are understood.
+          </p>
+        </div>
+        <div className="sr-preview-asset">
+          <span>O</span>
+          <h3>OpenAI</h3>
+          <small>Tessera candidate</small>
+          <b>Research preview</b>
+        </div>
+        <div className="sr-preview-asset">
+          <span>K</span>
+          <h3>Kalshi</h3>
+          <small>Tessera candidate</small>
+          <b>Research preview</b>
+        </div>
+      </div>
+      <div className="sr-section-top">
+        <h2>Integration roadmap</h2>
+        <span className="sr-small">No partnership implied</span>
+      </div>
+      <div className="sr-integration-grid">
+        {integrations.map(
+          ({
+            name,
+            category,
+            badge,
+            description,
+            next,
+            prize,
+            url,
+            icon: Icon,
+          }) => (
+            <Card className="sr-panel sr-integration" key={name}>
+              <div className="sr-card-top">
+                <span className="sr-integration-icon">
+                  {name === "Meteora DBC" ? (
+                    <img
+                      src="/protocol-logos/meteora.svg"
+                      width={28}
+                      height={28}
+                      alt=""
+                    />
+                  ) : (
+                    <Icon size={23} />
+                  )}
+                </span>
+                <Badge className="sr-chip">{badge}</Badge>
+              </div>
+              <span className="sr-eyebrow">{category}</span>
+              <h3>
+                {name === "Meteora DBC" ? (
+                  <MeteoraLabel>{name}</MeteoraLabel>
+                ) : (
+                  name
+                )}
+              </h3>
+              <p>{description}</p>
+              <div className="sr-integration-next">
+                <span>TO VERIFY</span>
+                <p>{next}</p>
+              </div>
+              <div className="sr-integration-footer">
+                <span>{prize}</span>
+                <a href={url} target="_blank" rel="noreferrer">
+                  Docs <ArrowUpRight size={14} />
+                </a>
+              </div>
+              {name === "Pyth" && (
+                <Link className="sr-text-link" href="/vaults/spy">
+                  Try the pricing scenario <ArrowRight size={14} />
+                </Link>
+              )}
+              {name === "Meteora DBC" && (
+                <Button asChild variant="outline">
+                  <Link className="sr-secondary sr-full" href="/onchain">
+                    Open market setup <ArrowRight size={14} />
+                  </Link>
+                </Button>
+              )}
+            </Card>
+          ),
+        )}
+      </div>
+      <Card className="sr-panel sr-prose">
+        <h3>Built with reference, not guesswork.</h3>
+        <p>
+          The interface draws on Superform’s strategy presentation, Beefy’s
+          transaction previews and the explicit revenue controls explored in
+          Clanker and Flaunch. This prototype is independently implemented;
+          their contracts have not been ported or audited for this app.
+        </p>
+        <div className="sr-source-links">
+          <a
+            target="_blank"
+            rel="noreferrer"
+            href="https://github.com/beefyfinance/beefy-v2"
+          >
+            Beefy frontend <ArrowUpRight size={14} />
+          </a>
+          <a
+            target="_blank"
+            rel="noreferrer"
+            href="https://github.com/superform-xyz"
+          >
+            Superform repositories <ArrowUpRight size={14} />
+          </a>
+          <a
+            target="_blank"
+            rel="noreferrer"
+            href="https://github.com/MeteoraAg/dynamic-bonding-curve-sdk"
+          >
+            Meteora DBC SDK <ArrowUpRight size={14} />
+          </a>
+        </div>
+      </Card>
+    </>
+  );
+}

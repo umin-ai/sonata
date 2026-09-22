@@ -1,0 +1,124 @@
+{
+  "verifiedAt": "2026-09-17T17:58:20.328Z",
+  "network": "devnet",
+  "wallet": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+  "program": "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj",
+  "pool": "BZVxHsS8DQAkigYvQAPfssFGZRVSuWSYHrYQn2QmeFSf",
+  "signatures": {
+    "buy": "3M4JovtDewj2nDwr4Ft32TDX7Ys3VbzG4ZnsEtNPHpdVC1SfjyVHRtfUqgACe5LYsxJdWYv2KT4eagYxBi99mhNB",
+    "collect": "2SdxvSZ7UBP1LvGkDNLuTLoLvpPLpHp3ynXQNhDAwnHXUEn797GJnQXaA9q3gjE1TXBqsvncZmBwwrczZufwsCj8",
+    "allocate": "2c2mZe5HoUUZFpxDX3Penb8xq8EpBrFWCZPCtbyJ2o6fgsi5kaidDzpLEAAeZ5szQA3U9TwnEC27eJLsbTJrpWBo",
+    "sell": "2i6sJUM9x5ktw42XzJ8whFqtwtbEHMaNHBGDo9SujB5kETYGydrqxhkcpfqA79TwZTbvQJtbSVnqmEr9ssXfrC1q"
+  },
+  "deltas": {
+    "buy": [
+      {
+        "account": "7etAC9hGUddET4o7jCCQ3YHgf9QptAqoqoqiQQTT7wRi",
+        "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "100000"
+      },
+      {
+        "account": "8Xm3533bLYjpaBM57jKi19noaTxAtSPjyTZmLygQR5iS",
+        "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+        "mint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+        "delta": "-279748064691"
+      },
+      {
+        "account": "GaEF3Zp7muc8NvBDbk77Cz341cxxyQmsc4WMPA1XLHVr",
+        "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "-100000"
+      },
+      {
+        "account": "BLq1uWiNDTKd3xzUpDRFb9ny7oD5YGiDHWWXuFQF8ZxC",
+        "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+        "mint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+        "delta": "279748064691"
+      }
+    ],
+    "collect": [
+      {
+        "account": "2t8LNEuNXQ9m6amguUcAsEhRhsLuLhbfHDqv6iMk3ZYn",
+        "owner": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+        "mint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+        "delta": "0"
+      },
+      {
+        "account": "6xZKeq3bEwN5X3Tz9MApDnTRRL6MNp2gLcchWeMKxF7R",
+        "owner": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "240800"
+      },
+      {
+        "account": "7etAC9hGUddET4o7jCCQ3YHgf9QptAqoqoqiQQTT7wRi",
+        "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "-240800"
+      },
+      {
+        "account": "8Xm3533bLYjpaBM57jKi19noaTxAtSPjyTZmLygQR5iS",
+        "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+        "mint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+        "delta": "0"
+      }
+    ],
+    "allocate": [
+      {
+        "account": "6iTSDhnqE51EpH2frtE3gCABpvWCstWKu5CEHrJJp7qv",
+        "owner": "FVi525b7VrxYRFg7BdEQK8BJGSao4c3xcr6Yv5kLhXJh",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "120400"
+      },
+      {
+        "account": "6xZKeq3bEwN5X3Tz9MApDnTRRL6MNp2gLcchWeMKxF7R",
+        "owner": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "-120400"
+      }
+    ],
+    "sell": [
+      {
+        "account": "7etAC9hGUddET4o7jCCQ3YHgf9QptAqoqoqiQQTT7wRi",
+        "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "-3503"
+      },
+      {
+        "account": "8Xm3533bLYjpaBM57jKi19noaTxAtSPjyTZmLygQR5iS",
+        "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+        "mint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+        "delta": "10000000000"
+      },
+      {
+        "account": "BLq1uWiNDTKd3xzUpDRFb9ny7oD5YGiDHWWXuFQF8ZxC",
+        "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+        "mint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+        "delta": "-10000000000"
+      },
+      {
+        "account": "GaEF3Zp7muc8NvBDbk77Cz341cxxyQmsc4WMPA1XLHVr",
+        "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+        "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+        "delta": "3503"
+      }
+    ]
+  },
+  "checks": [
+    "four browser-signed transactions confirmed",
+    "token conservation for both mints",
+    "claim deposited 240800 atoms",
+    "allocation paid 120400 and retained 120400 atoms",
+    "buy and sell wallet deltas verified",
+    "live quote simulation passed",
+    "unachievable minimum rejected with slippage error"
+  ],
+  "slippageFailure": {
+    "InstructionError": [
+      1,
+      {
+        "Custom": 6002
+      }
+    ]
+  }
+}

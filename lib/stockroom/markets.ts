@@ -12,6 +12,6 @@ const legacyMarket = {
 export function getMarket(id: string) {
   if (id === "legacy") return legacyMarket;
   const market = marketCatalog.find((m) => m.id === id);
-  if (!market) throw Error("Unknown Stockroom Devnet market.");
+  if (!market) throw Error("Unknown Sonata Devnet market.");
   return market;
 }

@@ -1,0 +1,18 @@
+{
+  "network": "devnet",
+  "programId": "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG",
+  "pool": "GHHFvUXdyEwVgadW7LRnrnVFPhSwWMs5qauNfcYZuH9v",
+  "seedPosition": "57d1zT3GSAc5vJDJqzC1oTuYGHqvsyhz5ZyfEi1u96zs",
+  "tokenAMint": "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js",
+  "tokenBMint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+  "symbolA": "ROOM",
+  "symbolB": "mSPY",
+  "decimalsA": 6,
+  "decimalsB": 8,
+  "tokenAProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "tokenBProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+  "sourceMarket": "BZVxHsS8DQAkigYvQAPfssFGZRVSuWSYHrYQn2QmeFSf",
+  "feeBps": 100,
+  "compoundingFeeBps": 10000,
+  "createdAt": "2026-09-17T19:09:07.300Z"
+}

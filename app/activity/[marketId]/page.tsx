@@ -22,7 +22,7 @@ export async function generateMetadata({
     marketId === "legacy" || marketCatalog.some((m) => m.id === marketId);
   return {
     title: known
-      ? `${marketId} activity — Stockroom`
-      : "Market not found — Stockroom",
+      ? `${marketId} activity — Sonata`
+      : "Market not found — Sonata",
   };
 }

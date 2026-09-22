@@ -1,0 +1,210 @@
+{
+  "verifiedAt": "2026-09-17T18:20:51.350Z",
+  "network": "devnet",
+  "wallet": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+  "program": "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj",
+  "pool": "HhyKUtF8jZoMbmKD39Qo4DadrPCAdaF8KyrXT4LAMQbp",
+  "treasury": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+  "baseMint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+  "quoteMint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+  "balances": {
+    "claimed": "800",
+    "distributed": "400",
+    "retained": "400",
+    "withdrawn": "200",
+    "custody": "200"
+  },
+  "checks": [
+    "seven browser-signed operations confirmed",
+    "creator and recipient match browser wallet",
+    "all token movements reconcile",
+    "initial supply minted only at creation",
+    "treasury custody reconciles to retained minus withdrawn",
+    "unauthorized creator withdrawal rejected by deployed program"
+  ],
+  "receipts": [
+    {
+      "action": "sell",
+      "signature": "g13E6DkVkJ7tBPFs84mHcLgYut6t3hSTdN5AKepu47aBAxrro3TCMARGK6ETNvibgg4HNP4bTpfSUmnJQrCKb9L",
+      "slot": 499940646,
+      "deltas": [
+        {
+          "account": "27tEKdKXHVUi2FnZZWL5SNvaHCHehbAzDwdUKQF3V9tp",
+          "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "-10000000000"
+        },
+        {
+          "account": "5rWAXY4uEm97fZHVtmTaRQt7EELqYW6u8Q6fahE5z4Rr",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "10000000000"
+        },
+        {
+          "account": "9P4HkmLLo4mEwFVPYKZFPNos9efEybx9kEtfhKnNkwtu",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "-1980"
+        },
+        {
+          "account": "GaEF3Zp7muc8NvBDbk77Cz341cxxyQmsc4WMPA1XLHVr",
+          "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "1980"
+        }
+      ]
+    },
+    {
+      "action": "collect",
+      "signature": "AfVVGbM4R15gCZRq9YpsJ2C3cexahfPrzsfFLZQqGwDHdDSAmXrudFiR2dFkhHPfyK93amenWn2dRUtHMV18RTe",
+      "slot": 499940089,
+      "deltas": [
+        {
+          "account": "5rWAXY4uEm97fZHVtmTaRQt7EELqYW6u8Q6fahE5z4Rr",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "0"
+        },
+        {
+          "account": "9P4HkmLLo4mEwFVPYKZFPNos9efEybx9kEtfhKnNkwtu",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "-800"
+        },
+        {
+          "account": "AL7DzqYyfmTNJFthhyDHz8VVW5qSYu9uS5xV2zdF3Gmk",
+          "owner": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "800"
+        },
+        {
+          "account": "EqkFPDphLY5p2wXtzyMGS8WwaZfYFA7U3S1QTDJXWgXt",
+          "owner": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "0"
+        }
+      ]
+    },
+    {
+      "action": "buy",
+      "signature": "3x2WogkHpM4rLsrRPYFpFHygKwR5yihM8ujYneUViLgQk4wXkeBpxHysoEc32856VeiV895QAh8FhQWHdYxQp1AF",
+      "slot": 499939759,
+      "deltas": [
+        {
+          "account": "5rWAXY4uEm97fZHVtmTaRQt7EELqYW6u8Q6fahE5z4Rr",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "-494795601663"
+        },
+        {
+          "account": "9P4HkmLLo4mEwFVPYKZFPNos9efEybx9kEtfhKnNkwtu",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "100000"
+        },
+        {
+          "account": "GaEF3Zp7muc8NvBDbk77Cz341cxxyQmsc4WMPA1XLHVr",
+          "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "-100000"
+        },
+        {
+          "account": "27tEKdKXHVUi2FnZZWL5SNvaHCHehbAzDwdUKQF3V9tp",
+          "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "494795601663"
+        }
+      ]
+    },
+    {
+      "action": "register",
+      "signature": "ZLgXMXW3ESnq5ac4MVQRvZw19MAUWsZQSn7Wg8noyBZoVL5Vokg8QF391fvM4Ta6XMgof6QRfbdp1A9Qj1qu71Q",
+      "slot": 499939450,
+      "deltas": [
+        {
+          "account": "GaEF3Zp7muc8NvBDbk77Cz341cxxyQmsc4WMPA1XLHVr",
+          "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "0"
+        },
+        {
+          "account": "AL7DzqYyfmTNJFthhyDHz8VVW5qSYu9uS5xV2zdF3Gmk",
+          "owner": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "0"
+        },
+        {
+          "account": "EqkFPDphLY5p2wXtzyMGS8WwaZfYFA7U3S1QTDJXWgXt",
+          "owner": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "0"
+        }
+      ]
+    },
+    {
+      "action": "launch",
+      "signature": "Q371a2RKgJ9hT1zGTucB2gPLsgDcXkfxCrGu5R7KzaaTDWxr3J1KTRDhQDF3TDMxeqqFMdgapPMfSaFstYvA4pZ",
+      "slot": 499939096,
+      "deltas": [
+        {
+          "account": "5rWAXY4uEm97fZHVtmTaRQt7EELqYW6u8Q6fahE5z4Rr",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "EoBKU9o5Z9znuinfJ6ZJUuHRC1RYW9yf2eNxRzyfySSh",
+          "delta": "1000000000000000"
+        },
+        {
+          "account": "9P4HkmLLo4mEwFVPYKZFPNos9efEybx9kEtfhKnNkwtu",
+          "owner": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLuM",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "0"
+        }
+      ]
+    },
+    {
+      "action": "withdraw",
+      "signature": "2Zmejg2pjX9pt1nef5jmq9rarpTFLjHpLtGbtFxYneqDw1DLpbqPoi92MC8ucXwxH2cDtQnT4e3XsYhd36PUgQgh",
+      "slot": 499940478,
+      "deltas": [
+        {
+          "account": "AL7DzqYyfmTNJFthhyDHz8VVW5qSYu9uS5xV2zdF3Gmk",
+          "owner": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "-200"
+        },
+        {
+          "account": "GaEF3Zp7muc8NvBDbk77Cz341cxxyQmsc4WMPA1XLHVr",
+          "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "200"
+        }
+      ]
+    },
+    {
+      "action": "allocate",
+      "signature": "32zux7b2QPFP3uxeEqKuTMPAwHx4YvNTavfrQNaY6p8UrEH2GTxrrKK47qs98SJnzAKvtXkjSo8wYL8WCp7XpSZE",
+      "slot": 499940194,
+      "deltas": [
+        {
+          "account": "AL7DzqYyfmTNJFthhyDHz8VVW5qSYu9uS5xV2zdF3Gmk",
+          "owner": "8fTeNQk5x3FjuxEhc26PT7QgABr28tSQUU5WkZcL4xVW",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "-400"
+        },
+        {
+          "account": "GaEF3Zp7muc8NvBDbk77Cz341cxxyQmsc4WMPA1XLHVr",
+          "owner": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "mint": "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg",
+          "delta": "400"
+        }
+      ]
+    }
+  ],
+  "unauthorizedWithdrawal": {
+    "InstructionError": [
+      0,
+      {
+        "Custom": 2001
+      }
+    ]
+  }
+}

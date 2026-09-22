@@ -1,3 +1,4 @@
-import { VaultActivity } from '../vault-workspace';
-export const metadata={title:'Activity — Stockroom'};
-export default function Page(){return <VaultActivity/>;}
+import { LiveActivity } from "@/app/onchain/live-workspace";
+export default function Page() {
+  return <LiveActivity />;
+}

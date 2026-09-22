@@ -1,0 +1,566 @@
+"use client";
+import { WalletPicker } from "./wallet-connect";
+import { TokenName } from "@/app/token-identity";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Buffer } from "buffer";
+import { Keypair, Transaction } from "@solana/web3.js";
+import bs58 from "bs58";
+import type { SolanaSignTransactionFeature } from "@solana/wallet-standard-features";
+import { useWallet } from "@/hooks/use-wallet";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ArrowUpRight, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import {
+  connection,
+  market,
+  explorer,
+  type PreparedTreasury,
+} from "@/lib/treasury/runtime";
+import { formatUnits } from "@/lib/treasury/units";
+const storagePrefix = `stockroom.session.${market.programId}`;
+const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
+const names = {
+  "reward-policy": "Configure holder rewards",
+  "reward-deliver": "Deliver holder payout",
+  "reserve-deploy": "Deploy creator reserve",
+  "reward-fund": "Fund community rewards",
+  "reward-claim": "Claim community reward",
+  "lp-buy": "Buy ROOM in liquidity pool",
+  "lp-sell": "Sell ROOM in liquidity pool",
+  "lp-deposit": "Supply liquidity",
+  "lp-withdraw": "Withdraw liquidity",
+  buy: "Buy community tokens",
+  sell: "Sell community tokens",
+  withdraw: "Withdraw creator reserve",
+  launch: "Create Devnet market",
+  register: "Activate treasury",
+  collect: "Collect trading fees",
+  allocate: "Allocate collected fees",
+};
+import { LiveContext, useLive, type Pending } from "./live-context";
+export { useLive } from "./live-context";
+export function LiveProvider({ children }: { children: ReactNode }) {
+  const wallet = useWallet("solana:devnet", true),
+    [walletOpen, setWalletOpen] = useState(false),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(""),
+    [review, setReview] = useState<PreparedTreasury | null>(null),
+    [pending, setPending] = useState<Pending | null>(null),
+    [testAddress, setTestAddress] = useState(""),
+    [labels, setLabels] = useState<Record<string, string>>({}),
+    [revision, setRevision] = useState(0);
+  const testKey = useRef<Keypair | null>(null),
+    lock = useRef(false),
+    address = wallet.account?.address ?? testAddress,
+    currentAddress = useRef(address);
+  useEffect(() => {
+    currentAddress.current = address;
+  }, [address]);
+  useEffect(() => {
+    try {
+      const savedLabels = JSON.parse(
+        localStorage.getItem(`${storagePrefix}.labels`) ?? "{}",
+      );
+      if (savedLabels && typeof savedLabels === "object")
+        setLabels(
+          Object.fromEntries(
+            Object.entries(savedLabels).filter(
+              ([key, value]) =>
+                /^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(key) &&
+                typeof value === "string" &&
+                value.length < 70,
+            ),
+          ) as Record<string, string>,
+        );
+      const saved = JSON.parse(
+        localStorage.getItem(`${storagePrefix}.pending`) ?? "null",
+      );
+      if (
+        saved &&
+        /^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(saved.signature) &&
+        Number.isSafeInteger(saved.lastValidBlockHeight)
+      )
+        setPending(saved);
+    } catch {}
+    try {
+      if (sessionStorage.getItem("stockroom.devnet.connected") === "true")
+        useTestWallet();
+    } catch {}
+  }, []);
+  const remember = (value: Pending | null) => {
+    // Persist the receipt before broadcasting. Failure must stop sending, not erase recovery.
+    if (value) {
+      try {
+        localStorage.setItem(`${storagePrefix}.pending`, JSON.stringify(value));
+      } catch {
+        throw Error(
+          "Browser storage cannot save the transaction receipt. Nothing was sent.",
+        );
+      }
+    } else {
+      try {
+        localStorage.removeItem(`${storagePrefix}.pending`);
+      } catch {}
+    }
+    setPending(value);
+  };
+  const check = async (p: Pending) => {
+    const status = (
+      await connection.getSignatureStatuses([p.signature], {
+        searchTransactionHistory: true,
+      })
+    ).value[0];
+    if (status?.err) {
+      remember(null);
+      throw Error(
+        "The transaction failed onchain. No success is being reported.",
+      );
+    }
+    if (
+      status?.confirmationStatus === "confirmed" ||
+      status?.confirmationStatus === "finalized"
+    ) {
+      remember(null);
+      if (p.action && p.action in names)
+        setLabels((previous) => {
+          const next = { ...previous, [p.signature]: names[p.action!] };
+          try {
+            localStorage.setItem(
+              `${storagePrefix}.labels`,
+              JSON.stringify(next),
+            );
+          } catch {}
+          return next;
+        });
+      toast.success("Confirmed on Solana Devnet");
+      if (p.action === "register") {
+        const draft = JSON.parse(
+          localStorage.getItem("stockroom.launch.draft") ?? "null",
+        );
+        if (draft?.pool)
+          localStorage.setItem("stockroom.last-created", draft.pool);
+        localStorage.removeItem("stockroom.launch.draft");
+      }
+      setRevision((v) => v + 1);
+      return true;
+    }
+    if (
+      !status &&
+      (await connection.getBlockHeight("confirmed")) > p.lastValidBlockHeight
+    ) {
+      remember(null);
+      throw Error(
+        "The transaction expired without confirmation. Review a new action.",
+      );
+    }
+    return false;
+  };
+  async function execute(build: () => Promise<PreparedTreasury>) {
+    if (lock.current || pending || !address) return;
+    lock.current = true;
+    setBusy("Verifying and simulating transaction…");
+    setError("");
+    try {
+      const prepared = await build();
+      if (prepared.wallet !== currentAddress.current)
+        throw Error("Wallet changed during preparation.");
+      setReview(prepared);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Unable to prepare transaction.",
+      );
+    } finally {
+      setBusy("");
+      lock.current = false;
+    }
+  }
+  async function confirm() {
+    if (!review || lock.current) return;
+    lock.current = true;
+    setBusy("Waiting for wallet signature…");
+    setError("");
+    let submitted: Pending | null = null;
+    try {
+      if (
+        review.wallet !== currentAddress.current ||
+        Date.now() > review.expiresAt
+      )
+        throw Error(
+          "Wallet changed or review expired. Prepare a fresh review.",
+        );
+      const tx = Transaction.from(Buffer.from(review.transaction, "base64")),
+        message = tx.serializeMessage();
+      let signed: Transaction;
+      if (!wallet.account && testKey.current) {
+        tx.partialSign(testKey.current);
+        signed = tx;
+      } else {
+        const feature = wallet.wallet?.features as
+          Partial<SolanaSignTransactionFeature> | undefined;
+        if (!feature?.["solana:signTransaction"] || !wallet.account)
+          throw Error("A wallet that signs Devnet transactions is required.");
+        const [result] = await feature[
+          "solana:signTransaction"
+        ].signTransaction({
+          account: wallet.account,
+          chain: "solana:devnet",
+          transaction: Uint8Array.from(
+            Buffer.from(review.transaction, "base64"),
+          ),
+        });
+        signed = Transaction.from(result.signedTransaction);
+      }
+      if (
+        review.wallet !== currentAddress.current ||
+        Date.now() > review.expiresAt ||
+        !signed.serializeMessage().equals(message) ||
+        !signed.verifySignatures()
+      )
+        throw Error(
+          "Signed transaction does not match the review. Nothing sent.",
+        );
+      submitted = {
+        signature: bs58.encode(signed.signature!),
+        lastValidBlockHeight: review.lastValidBlockHeight,
+        wallet: review.wallet,
+        action: review.action,
+      };
+      if (review.action === "launch" && review.market)
+        localStorage.setItem(
+          "stockroom.launch.draft",
+          JSON.stringify(review.market),
+        );
+      remember(submitted);
+      setReview(null);
+      setBusy("Submitting to Solana Devnet…");
+      await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        maxRetries: 2,
+      });
+      setBusy("Waiting for network confirmation…");
+      const result = await connection.confirmTransaction(
+        {
+          signature: submitted.signature,
+          blockhash: review.blockhash,
+          lastValidBlockHeight: review.lastValidBlockHeight,
+        },
+        "confirmed",
+      );
+      if (result.value.err)
+        throw Error("Transaction failed onchain. Check its receipt.");
+      await check(submitted);
+    } catch (e) {
+      setReview(null);
+      setError(
+        (e instanceof Error ? e.message : "Transaction interrupted.") +
+          (submitted
+            ? " The signature is saved below. Check its status before another action."
+            : ""),
+      );
+    } finally {
+      setBusy("");
+      lock.current = false;
+    }
+  }
+  function useTestWallet() {
+    try {
+      const stored = sessionStorage.getItem("stockroom.devnet.wallet.v1");
+      const key = stored
+        ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(stored)))
+        : Keypair.generate();
+      if (!stored)
+        sessionStorage.setItem(
+          "stockroom.devnet.wallet.v1",
+          JSON.stringify([...key.secretKey]),
+        );
+      sessionStorage.setItem("stockroom.devnet.connected", "true");
+      testKey.current = key;
+      setTestAddress(key.publicKey.toBase58());
+      setReview(null);
+    } catch {
+      setError(
+        "Browser wallet storage is unavailable. Connect an extension wallet.",
+      );
+    }
+  }
+  async function connectWallet(selected: Parameters<typeof wallet.connect>[0]) {
+    if (busy) return false;
+    const connected = await wallet.connect(selected);
+    if (connected) {
+      setTestAddress("");
+      testKey.current = null;
+      setReview(null);
+      try {
+        sessionStorage.removeItem("stockroom.devnet.connected");
+      } catch {}
+    }
+    return connected;
+  }
+  function disconnect() {
+    void wallet.disconnect();
+    setTestAddress("");
+    testKey.current = null;
+    setReview(null);
+    sessionStorage.removeItem("stockroom.devnet.connected");
+  }
+  return (
+    <LiveContext.Provider
+      value={{
+        wallet,
+        address,
+        busy,
+        pending,
+        error,
+        revision,
+        labels,
+        execute,
+        useTestWallet,
+        walletOpen,
+        setWalletOpen,
+        connectWallet,
+        disconnect,
+      }}
+    >
+      {children}
+      <WalletPicker />
+      <div className="fixed bottom-5 right-5 z-50 max-w-lg px-4">
+        {" "}
+        {pending && (
+          <Alert className="mb-6">
+            <AlertDescription>
+              <span>
+                A submitted transaction needs confirmation. Further actions are
+                paused.
+              </span>
+              <a
+                className="sr-text-link"
+                href={explorer("tx", pending.signature)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Inspect submitted transaction <ArrowUpRight size={14} />
+              </a>
+              <Button
+                variant="outline"
+                disabled={!!busy}
+                onClick={async () => {
+                  setBusy("Checking receipt…");
+                  try {
+                    if (!(await check(pending)))
+                      setError(
+                        "Still pending. Check again before submitting another action.",
+                      );
+                  } catch (e) {
+                    setError(
+                      e instanceof Error
+                        ? e.message
+                        : "Unable to check receipt.",
+                    );
+                  } finally {
+                    setBusy("");
+                  }
+                }}
+              >
+                Check receipt
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>{" "}
+      <Dialog
+        open={!!review}
+        onOpenChange={(open) => !busy && !open && setReview(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {review ? (review.title ?? names[review.action]) : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Solana Devnet · actual test-token transaction
+            </DialogDescription>
+          </DialogHeader>
+          {review && (
+            <>
+              {!review.liquidity &&
+                review.action !== "launch" &&
+                review.action !== "register" && (
+                  <p className="text-2xl">
+                    {formatUnits(review.raw, review.trade?.inputDecimals ?? 8)}{" "}
+                    <TokenName symbol={review.trade?.inputSymbol ?? "mSPY"} />
+                  </p>
+                )}
+              {review.liquidity && (
+                <div className="space-y-3">
+                  <div className="sr-detail-row">
+                    <span>
+                      {review.liquidity.kind === "deposit"
+                        ? "Estimated supply"
+                        : "Estimated receive"}
+                    </span>
+                    <strong>
+                      {formatUnits(review.liquidity.a, review.liquidity.decimalsA ?? 6)}{" "}
+                      <TokenName symbol={review.liquidity.symbolA ?? "ROOM"} />
+                      <br />
+                      {formatUnits(review.liquidity.b, review.liquidity.decimalsB ?? 8)}{" "}
+                      <TokenName symbol={review.liquidity.symbolB ?? "mSPY"} />
+                    </strong>
+                  </div>
+                  <div className="sr-detail-row">
+                    <span>
+                      {review.liquidity.kind === "deposit"
+                        ? "Maximum debit"
+                        : "Minimum receive"}
+                    </span>
+                    <strong>
+                      {formatUnits(review.liquidity.limitA, review.liquidity.decimalsA ?? 6)}{" "}
+                      <TokenName symbol={review.liquidity.symbolA ?? "ROOM"} />
+                      <br />
+                      {formatUnits(review.liquidity.limitB, review.liquidity.decimalsB ?? 8)}{" "}
+                      <TokenName symbol={review.liquidity.symbolB ?? "mSPY"} />
+                    </strong>
+                  </div>
+                  <p className="sr-note">{review.liquidity.description}</p>
+                  <p className="sr-note">
+                    0.5% slippage protection on both assets. Expires in 30
+                    seconds.
+                  </p>
+                </div>
+              )}
+              {review.rewards && (
+                <div className="space-y-3">
+                  <p className="sr-note">{review.rewards.description}</p>
+                  {review.rewards.allocations.map((a) => (
+                    <div className="sr-detail-row" key={a.recipient}>
+                      <span className="break-all">{a.recipient}</span>
+                      <strong>
+                        {formatUnits(a.amount)} <TokenName symbol="mSPY" />
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {review.trade && (
+                <div className="space-y-3">
+                  <div className="sr-detail-row">
+                    <span>Estimated receive</span>
+                    <strong>
+                      {formatUnits(
+                        review.trade.expectedOut,
+                        review.trade.outputDecimals,
+                      )}{" "}
+                      <TokenName symbol={review.trade.outputSymbol} />
+                    </strong>
+                  </div>
+                  <div className="sr-detail-row">
+                    <span>Minimum receive</span>
+                    <strong>
+                      {formatUnits(
+                        review.trade.minimumOut,
+                        review.trade.outputDecimals,
+                      )}{" "}
+                      <TokenName symbol={review.trade.outputSymbol} />
+                    </strong>
+                  </div>
+                  <div className="sr-detail-row">
+                    <span>Trading + protocol fees (included)</span>
+                    <strong>
+                      {formatUnits(
+                        BigInt(review.trade.tradingFee) +
+                          BigInt(review.trade.protocolFee),
+                      )}{" "}
+                      mSPY
+                    </strong>
+                  </div>
+                  <p className="sr-note">
+                    0.5% slippage limit. Output goes to your wallet. If the
+                    minimum cannot be met, the transaction fails rather than
+                    accepting a worse price.
+                  </p>
+                </div>
+              )}
+              <p className="sr-note">
+                {review.rewards
+                  ? "Only the named recipient can claim each fixed allocation, once. This is funded mock stock, not a promised investment return."
+                  : review.liquidity
+                    ? "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
+                    : review.action === "launch"
+                      ? "Create a permanent token and Meteora pool. 1% trading fee before protocol deductions; the treasury allocates net collected fees 50% to your fixed recipient and 50% to the creator reserve. A second signature activates the treasury. This does not purchase tokens."
+                      : review.action === "register"
+                        ? "Register the creator, immutable recipient and 50/50 allocation in Sonata, and create its custody accounts."
+                        : review.action === "withdraw"
+                          ? "Move the requested allocated reserve to the creator’s wallet. No holder balances are redeemed."
+                          : review.action === "allocate"
+                            ? "50% goes to the fixed recipient and 50% remains retained."
+                            : review.action === "collect"
+                              ? "All currently claimable partner fees move into treasury custody. The final amount may change if more trades occur."
+                              : review.action === "lp-buy" ||
+                                  review.action === "lp-sell"
+                                ? "This trade uses the DAMM pool. Net LP fees compound directly into its reserves; no creator treasury fee is charged by Sonata here."
+                                : "This trade changes your token balances and earns fees for the pool. It does not deposit into the creator reserve."}
+              </p>
+              <p className="sr-note break-all">
+                Destination: {review.recipient}
+              </p>
+              <p className="sr-note">
+                Estimated network fee: {(review.feeLamports / 1e9).toFixed(6)}{" "}
+                Devnet SOL.
+                {review.rentLamports
+                  ? ` Estimated account rent: ${formatUnits(BigInt(review.rentLamports), 9)} Devnet SOL.`
+                  : ""}
+                {review.trade || review.liquidity
+                  ? " Review expires after 30 seconds."
+                  : " Review expires after 60 seconds."}
+              </p>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() => setReview(null)}
+                >
+                  Cancel
+                </Button>
+                <Button disabled={!!busy} onClick={() => void confirm()}>
+                  {busy ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 />
+                  )}
+                  Sign Devnet transaction
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </LiveContext.Provider>
+  );
+}
+/** Inline transaction feedback only; connection belongs to the shared header. */
+export function LiveWallet() {
+  const { busy, error } = useLive();
+  return (
+    <>
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {busy && (
+        <div role="status" className="nm-wallet-progress">
+          <Loader2 className="animate-spin" size={16} />
+          {busy}
+        </div>
+      )}
+    </>
+  );
+}

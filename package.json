@@ -10,6 +10,7 @@
     "dev": "node scripts/run-framework.mjs dev",
     "build": "node scripts/run-framework.mjs build",
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
+    "test": "node --experimental-strip-types --test lib/credit.test.ts lib/finance.test.ts lib/jupiter-data.test.ts lib/liquidity/math.test.ts lib/rewards/allocations.test.ts lib/rewards/holder-math.test.ts lib/rewards/holder-scan.test.ts lib/stockroom/math.test.ts lib/treasury/identity.test.ts lib/treasury/rpc-fetch.test.ts lib/treasury/units.test.ts lib/vaults/demo.test.ts lib/vaults/forecast.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
@@ -18,6 +19,8 @@
     "@coral-xyz/anchor": "^0.32.1",
     "@hookform/resolvers": "^5.7.1",
     "@kamino-finance/klend-sdk": "^12.0.0",
+    "@meteora-ag/cp-amm-sdk": "1.4.8",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.12",
     "@shadcn/react": "^0.3.0",
     "@solana/kit": "^2.3.0",
     "@solana/spl-token": "^0.4.15",

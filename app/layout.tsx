@@ -1,12 +1,18 @@
+import { ThemeProvider } from "./theme-provider";
 import type { Metadata } from "next";
 import "./globals.css";
+import { LiveProvider } from "./onchain/live-session";
 import { AppProvider } from "./vault-workspace";
-import "./vaults.css";
+import "./credit-theme.css";
+import "./shadcn-workspace.css";
 import "./devnet/devnet.css";
+import "./neumorphic.css";
+import "./dark-mode.css";
+import "./exchange.css";
 export const metadata: Metadata = {
-  title: "Stockroom — Tokenized stock vaults",
+  title: "Sonata — Stock-powered markets",
   description:
-    "Explore tokenized-stock vaults, simulated compounding and community treasuries. Interactive prototype; no real funds.",
+    "Create and trade mock-stock paired markets on Solana Devnet. Track real fees, treasury allocations and wallet balances.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 export default function RootLayout({
@@ -15,9 +21,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
-        <AppProvider>{children}</AppProvider>
+        <ThemeProvider><LiveProvider>
+          <AppProvider>{children}</AppProvider>
+        </LiveProvider></ThemeProvider>
       </body>
     </html>
   );

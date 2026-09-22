@@ -1,3 +1,7 @@
+// Excluded from `npm test`. Under `node --experimental-strip-types` this file
+// and its import chain need explicit .ts extensions and JSON import attributes;
+// the app's build toolchain resolves them without either. Including it needs a
+// repo-wide import-hygiene pass, not an edit here.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {

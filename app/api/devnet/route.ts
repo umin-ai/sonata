@@ -7,7 +7,7 @@ export async function POST(request: Request) {
     sameOrigin(request);
     if (!(await getChatGPTUser()))
       return Response.json(
-        { error: "Sign in to Stockroom before using the Devnet demo." },
+        { error: "Sign in to Sonata before using the Devnet demo." },
         { status: 401 },
       );
     const body = await request.text();

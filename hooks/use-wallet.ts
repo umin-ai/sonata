@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getWallets } from "@wallet-standard/app";
 import type { Wallet, WalletAccount } from "@wallet-standard/base";
 import type {
@@ -10,12 +10,14 @@ import type {
 
 export function useWallet(
   chain: "solana:mainnet" | "solana:devnet" = "solana:mainnet",
+  requireSigning = false,
 ) {
   const [wallets, setWallets] = useState<readonly Wallet[]>([]),
     [wallet, setWallet] = useState<Wallet | null>(null),
     [account, setAccount] = useState<WalletAccount | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const attempt = useRef(0);
   useEffect(() => {
     const registry = getWallets();
     const update = () =>
@@ -23,7 +25,10 @@ export function useWallet(
         registry
           .get()
           .filter(
-            (w) => w.chains.includes(chain) && "standard:connect" in w.features,
+            (w) =>
+              w.chains.includes(chain) &&
+              "standard:connect" in w.features &&
+              (!requireSigning || "solana:signTransaction" in w.features),
           ),
       );
     update();
@@ -33,7 +38,7 @@ export function useWallet(
       a();
       b();
     };
-  }, [chain]);
+  }, [chain, requireSigning]);
   useEffect(() => {
     if (!wallet) return;
     const f = wallet.features as unknown as Partial<StandardEventsFeature>;
@@ -45,11 +50,13 @@ export function useWallet(
     });
   }, [wallet, chain]);
   const connect = async (selected: Wallet) => {
+    const id = ++attempt.current;
     setBusy(true);
     setError("");
     try {
       const f = selected.features as unknown as StandardConnectFeature;
       const result = await f["standard:connect"].connect();
+      if (id !== attempt.current) return false;
       const a = result.accounts.find((a) => a.chains.includes(chain));
       if (!a)
         throw new Error(
@@ -57,13 +64,18 @@ export function useWallet(
         );
       setWallet(selected);
       setAccount(a);
+      return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Connection declined");
+      if (id === attempt.current)
+        setError(e instanceof Error ? e.message : "Connection declined");
+      return false;
     } finally {
-      setBusy(false);
+      if (id === attempt.current) setBusy(false);
     }
   };
   const disconnect = async () => {
+    attempt.current++;
+    setBusy(false);
     const previous = wallet;
     setWallet(null);
     setAccount(null);

@@ -13,7 +13,7 @@ export const SCOPE = '3t4JZcueEzTbVP6kLxXrL3VpWx45jDer4eqysweBchNH';
 export const SCOPE_PROGRAM = 'HFn8GnPADiny6XqUoWE8uRPPxb29ikn4yTuPa9MF2fWJ';
 
 export async function getJSON(url:string, init:RequestInit={}):Promise<any> {
-  const res=await fetch(url,{...init,headers:{'User-Agent':'Stockroom/0.2',...init.headers},signal:AbortSignal.timeout(15000),cache:'no-store'});
+  const res=await fetch(url,{...init,headers:{'User-Agent':'Sonata/0.2',...init.headers},signal:AbortSignal.timeout(15000),cache:'no-store'});
   if(res.status===429) throw new Error('Provider rate limit reached. Wait a minute and try again.');
   if(!res.ok) throw new Error(`${new URL(url).hostname} could not complete this request (${res.status}).`);
   return res.json();

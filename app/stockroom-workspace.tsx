@@ -1,4 +1,5 @@
 "use client";
+import { BrandMark } from "./stockroom-brand";
 import {
   createContext,
   useContext,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Choice } from "./stockroom-ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -504,9 +506,9 @@ function useStockroomController() {
 const StockroomContext = createContext<ReturnType<
   typeof useStockroomController
 > | null>(null);
-function useStockroom() {
+function useSonata() {
   const value = useContext(StockroomContext);
-  if (!value) throw new Error("Stockroom workspace is unavailable.");
+  if (!value) throw new Error("Sonata workspace is unavailable.");
   return value;
 }
 export function StockroomProvider({ children }: { children: React.ReactNode }) {
@@ -530,7 +532,7 @@ function WalletPanel() {
     prepare,
     p,
     w,
-  } = useStockroom();
+  } = useSonata();
   return (
     <>
       <section className="card devnet-start">
@@ -628,7 +630,7 @@ function WalletPanel() {
 }
 
 function PositionPanel() {
-  const { deployment, disabled, prepare, p, hasLoan, ltv } = useStockroom();
+  const { deployment, disabled, prepare, p, hasLoan, ltv } = useSonata();
   return (
     <>
       <section className="outlook-card devnet-position">
@@ -706,7 +708,7 @@ function PositionPanel() {
 
 function ReceiptsPanel() {
   const { busy, setBusy, setError, activeRecords, checkReceipt } =
-    useStockroom();
+    useSonata();
   return (
     <>
       <section className="card devnet-activity">
@@ -779,7 +781,7 @@ function LendingPanel() {
     w,
     projectedLtv,
     badBorrow,
-  } = useStockroom();
+  } = useSonata();
   return (
     <>
       <section className="card devnet-action">
@@ -919,7 +921,7 @@ function LendingPanel() {
 }
 
 function ProtocolNotes() {
-  const { deployment } = useStockroom();
+  const { deployment } = useSonata();
   return (
     <>
       <section className="devnet-notes">
@@ -959,7 +961,7 @@ function ProtocolNotes() {
 }
 
 function MarketTerms() {
-  const { data } = useStockroom();
+  const { data } = useSonata();
   return (
     <>
       <section className="card market-metrics-bar" aria-label="Market terms">
@@ -989,7 +991,7 @@ function MarketTerms() {
 }
 
 function StatusBanners() {
-  const { external, pathname, error, notice, busy } = useStockroom();
+  const { external, pathname, error, notice, busy } = useSonata();
   return (
     <>
       {error && (
@@ -1043,7 +1045,7 @@ function WalletDialogs() {
     startDemo,
     connectExternal,
     confirm,
-  } = useStockroom();
+  } = useSonata();
   return (
     <>
       <Dialog open={picker} onOpenChange={setPicker}>
@@ -1096,7 +1098,7 @@ function WalletDialogs() {
             <p className="eyebrow">REVIEW / SOLANA DEVNET</p>
             <DialogTitle>{review ? labels[review.kind] : ""}</DialogTitle>
             <DialogDescription>
-              Simulation passed. Signing sends this action to Stockroom’s Devnet
+              Simulation passed. Signing sends this action to Sonata’s Devnet
               contract.
             </DialogDescription>
           </DialogHeader>
@@ -1218,12 +1220,12 @@ function AppLink({
 
 function StockroomShell({ children }: { children: React.ReactNode }) {
   const { pathname, address, disabled, busy, review, setPicker, data } =
-    useStockroom();
+    useSonata();
   const active = pathname.startsWith("/credit/portfolio")
     ? "/credit/portfolio"
     : (pathname.startsWith("/activity") || pathname.startsWith("/credit/activity"))
       ? "/credit/activity"
-      : "/";
+      : "/devnet";
   return (
     <>
       <header className="topbar">
@@ -1235,8 +1237,8 @@ function StockroomShell({ children }: { children: React.ReactNode }) {
             if (busy || review) e.preventDefault();
           }}
         >
-          <Layers3 size={25} />
-          stockroom<span>/</span>
+          <BrandMark />
+          stockroom
         </AppLink>
         <nav className="primary-nav" aria-label="Main navigation">
           {[
@@ -1287,7 +1289,7 @@ function StockroomShell({ children }: { children: React.ReactNode }) {
         <StatusBanners />
         {children}
         <footer>
-          <span>Stockroom credit · Test assets only</span>
+          <span>Sonata credit · Test assets only</span>
           <span>
             {data
               ? "Read at slot " + data.slot.toLocaleString()
@@ -1307,11 +1309,11 @@ function PageHeading({
   title: string;
   children: React.ReactNode;
 }) {
-  const { refresh, busy, loading } = useStockroom();
+  const { refresh, busy, loading } = useSonata();
   return (
     <div className="workspace-heading">
       <div>
-        <p className="eyebrow">STOCKROOM CREDIT</p>
+        <p className="eyebrow">SONATA CREDIT</p>
         <h1>{title}</h1>
         <p>{children}</p>
       </div>
@@ -1328,7 +1330,7 @@ function PageHeading({
 }
 
 export function MarketsPage() {
-  const { markets, selectMarket, disabled, marketError } = useStockroom();
+  const { markets, selectMarket, disabled, marketError } = useSonata();
   return (
     <>
       <PageHeading title="Markets">
@@ -1353,18 +1355,18 @@ export function MarketPage() {
     disabled,
     busy,
     review,
-  } = useStockroom();
+  } = useSonata();
   return (
     <>
       <div className="market-route-nav">
-        <AppLink href="/">← All markets</AppLink>
+        <AppLink href="/devnet">← All markets</AppLink>
         <label>
           Market
-          <select
-            aria-label="Choose market"
+          <Choice
+            label="Choose market"
             value={marketId}
             disabled={disabled || !!review}
-            onChange={(e) => selectMarket(e.target.value)}
+            onValueChange={(value) => selectMarket(value)}
           >
             {[...marketCatalog, { id: "legacy", symbol: "Original demo" }].map(
               (m) => (
@@ -1373,7 +1375,7 @@ export function MarketPage() {
                 </option>
               ),
             )}
-          </select>
+          </Choice>
         </label>
       </div>
       <div className="market-page-heading">
@@ -1411,7 +1413,7 @@ export function MarketPage() {
 }
 
 export function ActivityPage() {
-  const { marketId, selectMarket, disabled, review, data } = useStockroom();
+  const { marketId, selectMarket, disabled, review, data } = useSonata();
   return (
     <>
       <PageHeading title="Activity">
@@ -1419,11 +1421,11 @@ export function ActivityPage() {
       </PageHeading>
       <div className="activity-filter">
         <label htmlFor="activity-market">Market</label>
-        <select
+        <Choice
           id="activity-market"
           value={marketId}
           disabled={disabled || !!review}
-          onChange={(e) => selectMarket(e.target.value, "activity")}
+          onValueChange={(value) => selectMarket(value, "activity")}
         >
           {[...marketCatalog, { id: "legacy", symbol: "Original demo" }].map(
             (m) => (
@@ -1432,7 +1434,7 @@ export function ActivityPage() {
               </option>
             ),
           )}
-        </select>
+        </Choice>
       </div>
       <ReceiptsPanel />
       <MarketLedger
@@ -1445,7 +1447,7 @@ export function ActivityPage() {
 }
 
 export function PortfolioPage() {
-  const { address, setPicker, data, disabled, selectMarket } = useStockroom();
+  const { address, setPicker, data, disabled, selectMarket } = useSonata();
   const [positions, setPositions] = useState<
     Record<string, { snapshot?: Snapshot; error?: string }>
   >({});
@@ -1499,7 +1501,7 @@ export function PortfolioPage() {
   return (
     <>
       <PageHeading title="Portfolio">
-        Your collateral, loans and supplied liquidity across Stockroom’s
+        Your collateral, loans and supplied liquidity across Sonata’s
         markets.
       </PageHeading>
       {!address ? (

@@ -1,12 +1,26 @@
-# Stockroom
+# Sonata
 
-## Current vault prototype — September 17, 2026
+## Current local app — 18 September 2026
 
-The homepage now presents community-distributed stock liquidity vaults using explicitly simulated actions and data. Start with $10,000 demo USDC; deposit, generate a sample fee batch, compound or claim, and withdraw. Portfolio and Activity reflect your browser-local ledger. Community has separate creator funds and allocation controls. Ecosystem records sponsor integration gaps and reference repositories. No new vault transactions are sent to Solana.
+Open http://localhost:5173/ . Sonata's connected Devnet core supports market creation, trading, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, and funded member reward claims. One signing wallet connects Portfolio and Activity. All assets are valueless test tokens.
 
-See [prototype documentation](docs/vault-prototype-2026-09-17.md) for formulas, boundaries, references and bounty status. The earlier credit application remains at `/devnet`, with `/credit/portfolio` and `/credit/activity`.
+- `/create` and `/onchain?pool=…`: Meteora DBC launch and Sonata treasury operations.
+- `/capital`: atomically deploy a creator reserve into the supported ROOM/mSPY strategy, with matching ROOM from the creator wallet.
+- `/earn`: native Meteora LP positions, swaps, compounding and partial/full withdrawal.
+- `/rewards` (also `/community`): funded fixed-recipient campaigns and one-time claims.
+- `/portfolio` and `/activity`: chain balances, positions and receipts.
 
-## Earlier credit implementation
+See [connected implementation and boundaries](docs/stockroom-live-capital-rewards-2026-09-18.md), [reconciled transactions](evidence/connected-journey.json), [liquidity evidence](docs/stockroom-live-liquidity-2026-09-18.md) and [submission draft](docs/stocklana-submission-draft-2026-09-18.md).
+
+The connected Devnet demonstration is verified. Production issuer integration, user-demand validation, public submission materials and bounty eligibility remain outstanding. LP positions are creator-owned; reward recipients are explicitly chosen, not automatically snapshotted token holders. No real-dollar TVL, guaranteed APY or mainnet readiness is claimed.
+
+Separate simulations remain at `/lab`, `/lab/create`, `/lab/portfolio`, `/lab/activity`, `/lab/community` and `/vaults/...`; the earlier credit sandbox remains at `/devnet`. Do not combine those features with the live implementation claims.
+
+Current checks: 57 frontend tests (`npm test`), TypeScript checking and production build pass. The protocol suite passes 24 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
+
+## Historical credit implementation
+
+The documentation below describes the earlier credit application, not the current homepage or treasury signing flow.
 
 A stock-backed credit workspace for tokenized-stock holders on Solana. Start with a cash request, understand the debt and downside, and follow the position through repayment and collateral release.
 
@@ -59,12 +73,12 @@ Read APIs: `/api/jupiter/markets`, `/api/jupiter/positions?address=…`, `/api/m
 ## Validation
 
 ```sh
-node --experimental-strip-types --test lib/finance.test.ts lib/credit.test.ts lib/jupiter-data.test.ts
+npm test
 npx tsc --noEmit
 git diff --check
 ```
 
-The 16 calculation, ledger and adapter tests cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
+`npm test` runs 57 tests across 13 files. `lib/server/stockroom.test.ts` is excluded and the file says why. The 16 calculation, ledger and adapter tests in `finance`, `credit` and `jupiter-data` cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
 
 ## Unreleased execution work
 

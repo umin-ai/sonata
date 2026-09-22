@@ -4,7 +4,7 @@
   gap: 7px;
   background: #294a44;
   color: #d5efb1;
-  font-size: 12px;
+  font-size: 13px;
   padding: 5px 9px;
   border-radius: 5px;
   white-space: nowrap;
@@ -42,7 +42,7 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
 }
 .devnet-grid {
   display: grid;
@@ -91,7 +91,7 @@
   font-size: 25px;
 }
 .devnet-wallet-grid small {
-  font-size: 11px;
+  font-size: 13px;
 }
 .devnet-wallet-footer {
   display: flex;
@@ -106,7 +106,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: #587147;
 }
 .devnet-wallet-footer > a {
@@ -116,7 +116,7 @@
   font-size: 13px;
 }
 .devnet-start .fine-print {
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 17px;
 }
 .devnet-position-metrics {
@@ -129,12 +129,12 @@
   font-size: 25px;
 }
 .devnet-position .metric > small {
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .devnet-position .fine-print {
   color: #9fb6c9;
-  font-size: 12px;
+  font-size: 13px;
   margin-top: 20px;
 }
 .devnet-position button {
@@ -177,7 +177,7 @@
 .devnet-health-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: 13px;
   color: #9eb6ca;
   margin-top: 10px;
 }
@@ -201,7 +201,7 @@
   margin-top: 22px;
 }
 .devnet-action .field-label > span {
-  font-size: 11px;
+  font-size: 13px;
 }
 .devnet-action .amount-input {
   background: #f7f9fc;
@@ -214,7 +214,7 @@
   margin: 22px 0;
 }
 .devnet-terms .detail-row {
-  font-size: 12px;
+  font-size: 13px;
   padding: 10px 0;
 }
 .devnet-full {
@@ -225,10 +225,10 @@
   padding: 0 8px;
 }
 .devnet-notes .eyebrow {
-  font-size: 10px;
+  font-size: 13px;
 }
 .devnet-notes p:not(.eyebrow) {
-  font-size: 12px;
+  font-size: 13px;
   color: #677e91;
   line-height: 1.85;
   margin-top: 12px;
@@ -243,7 +243,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: 13px;
   color: #3158b5;
 }
 .devnet-activity .section-title {
@@ -270,7 +270,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 13px;
   color: #648099;
   margin-top: 5px;
 }
@@ -281,7 +281,7 @@
   display: inline-block;
   background: #edf2f7;
   color: #64758a;
-  font-size: 11px;
+  font-size: 13px;
   border-radius: 5px;
   padding: 4px 7px;
   text-transform: capitalize;
@@ -298,7 +298,7 @@
 }
 .devnet-receipt button {
   display: block;
-  font-size: 11px;
+  font-size: 13px;
   height: 26px;
   margin-top: 5px;
   padding: 0;
@@ -374,13 +374,13 @@
   }
   .devnet-banner {
     display: block;
-    font-size: 12px;
+    font-size: 13px;
   }
   .devnet-banner > a {
     margin: 10px 0 0 24px;
   }
   .devnet-chip {
-    font-size: 10px;
+    font-size: 13px;
     padding: 4px 6px;
   }
   .devnet-wallet-grid {
@@ -402,7 +402,7 @@
     font-size: 23px;
   }
   .devnet-shell .market-metrics-bar .metric > small {
-    font-size: 11px;
+    font-size: 13px;
   }
   .primary-nav > a {
     font-size: 13px;
@@ -583,7 +583,7 @@
   display: block;
   margin-top: 15px;
   color: #61778b;
-  font-size: 12px;
+  font-size: 13px;
 }
 @media (max-width: 800px) {
   .market-flow {
@@ -672,7 +672,7 @@
   }
 }
 
-/* Separate routes share the existing Stockroom workspace styling. */
+/* Separate routes share the existing Sonata workspace styling. */
 .market-route-nav,
 .activity-filter {
   display: flex;
@@ -806,7 +806,7 @@
 }
 .portfolio-row dd small {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: #61778b;
   margin-top: 3px;
 }

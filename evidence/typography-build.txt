@@ -1,0 +1,98 @@
+
+> site-creator-vinext-starter@0.1.0 build
+> node scripts/run-framework.mjs build
+
+
+  vinext build  (Vite 8.0.13)
+
+(node:27057) ExperimentalWarning: glob is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[1/5] analyze client references...
+[2Ktransforming...✓ 500 modules transformed.
+rendering chunks...
+✓ built in 1.21s
+[2/5] analyze server references...
+[2Ktransforming...✓ 1252 modules transformed.
+rendering chunks...
+✓ built in 993ms
+[3/5] build rsc environment...
+[2Ktransforming...✓ 643 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 723ms
+[4/5] build client environment...
+[2Ktransforming...[plugin rolldown:vite-resolve] Module "util" has been externalized for browser compatibility, imported by "/Users/morganlee/Documents/ChatGPT/solana-forward/cash-access/node_modules/@meteora-ag/cp-amm-sdk/node_modules/@coral-xyz/anchor/dist/cjs/utils/bytes/utf8.js". See https://vite.dev/guide/troubleshooting.html#module-externalized-for-browser-compatibility for more details.
+✓ 2987 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 1.63s
+[5/5] build ssr environment...
+[2Ktransforming...✓ 1311 modules transformed.
+rendering chunks...
+computing gzip size...
+[33m[COMMONJS_VARIABLE_IN_ESM] [0mThe CommonJS `exports` variable is treated as a global variable in an ECMAScript module and may not work as expected
+    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m node_modules/@meteora-ag/cp-amm-sdk/node_modules/@coral-xyz/anchor/dist/esm/index.js:11:5 [38;5;246m][0m
+    [38;5;246m│[0m
+ [38;5;246m 2 │[0m export[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249md[0m[38;5;249me[0m[38;5;249mf[0m[38;5;249ma[0m[38;5;249mu[0m[38;5;249ml[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249ma[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249mB[0m[38;5;249mN[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m[38;5;249m"[0m[38;5;249mb[0m[38;5;249mn[0m[38;5;249m.[0m[38;5;249mj[0m[38;5;249ms[0m[38;5;249m"[0m[38;5;249m;[0m
+ [38;5;240m   │[0m ───┬──  
+ [38;5;240m   │[0m    ╰──── This file is considered to be an ECMAScript module because of the `export` keyword here:
+ [38;5;240m   │[0m 
+ [38;5;246m11 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0mexports[38;5;249m.[0m[38;5;249mw[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mk[0m[38;5;249ms[0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249me[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m[38;5;249m"[0m[38;5;249m.[0m[38;5;249m/[0m[38;5;249mw[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mk[0m[38;5;249ms[0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249me[0m[38;5;249m.[0m[38;5;249mj[0m[38;5;249ms[0m[38;5;249m"[0m[38;5;249m)[0m[38;5;249m.[0m[38;5;249md[0m[38;5;249me[0m[38;5;249mf[0m[38;5;249ma[0m[38;5;249mu[0m[38;5;249ml[0m[38;5;249mt[0m[38;5;249m;[0m
+ [38;5;240m   │[0m     ───┬───  
+ [38;5;240m   │[0m        ╰───── 
+[38;5;246m────╯[0m
+
+[33m[COMMONJS_VARIABLE_IN_ESM] [0mThe CommonJS `exports` variable is treated as a global variable in an ECMAScript module and may not work as expected
+    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m node_modules/@meteora-ag/dynamic-bonding-curve-sdk/node_modules/@coral-xyz/anchor/dist/esm/index.js:11:5 [38;5;246m][0m
+    [38;5;246m│[0m
+ [38;5;246m 2 │[0m export[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249md[0m[38;5;249me[0m[38;5;249mf[0m[38;5;249ma[0m[38;5;249mu[0m[38;5;249ml[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249ma[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249mB[0m[38;5;249mN[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m[38;5;249m"[0m[38;5;249mb[0m[38;5;249mn[0m[38;5;249m.[0m[38;5;249mj[0m[38;5;249ms[0m[38;5;249m"[0m[38;5;249m;[0m
+ [38;5;240m   │[0m ───┬──  
+ [38;5;240m   │[0m    ╰──── This file is considered to be an ECMAScript module because of the `export` keyword here:
+ [38;5;240m   │[0m 
+ [38;5;246m11 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0mexports[38;5;249m.[0m[38;5;249mw[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mk[0m[38;5;249ms[0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249me[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m[38;5;249m"[0m[38;5;249m.[0m[38;5;249m/[0m[38;5;249mw[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mk[0m[38;5;249ms[0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249me[0m[38;5;249m.[0m[38;5;249mj[0m[38;5;249ms[0m[38;5;249m"[0m[38;5;249m)[0m[38;5;249m.[0m[38;5;249md[0m[38;5;249me[0m[38;5;249mf[0m[38;5;249ma[0m[38;5;249mu[0m[38;5;249ml[0m[38;5;249mt[0m[38;5;249m;[0m
+ [38;5;240m   │[0m     ───┬───  
+ [38;5;240m   │[0m        ╰───── 
+[38;5;246m────╯[0m
+
+✓ built in 853ms
+[0m
+  Route (app)
+  ┌ ? /                     
+  ├ ? /activity             
+  ├ ƒ /activity/:marketId   
+  ├ λ /api/compare          
+  ├ λ /api/devnet           
+  ├ λ /api/jupiter/markets  
+  ├ λ /api/jupiter/positions
+  ├ λ /api/market           
+  ├ λ /api/position         
+  ├ λ /api/prepare          
+  ├ λ /api/receipt          
+  ├ λ /api/wallet           
+  ├ ? /capital              
+  ├ ? /community            
+  ├ ? /create               
+  ├ ? /credit/activity      
+  ├ ? /credit/portfolio     
+  ├ ? /devnet               
+  ├ ? /earn                 
+  ├ ? /ecosystem            
+  ├ ? /lab                  
+  ├ ? /lab/activity         
+  ├ ? /lab/community        
+  ├ ? /lab/create           
+  ├ ? /lab/portfolio        
+  ├ ƒ /markets/:marketId    
+  ├ ? /onchain              
+  ├ ? /portfolio            
+  ├ ? /rewards              
+  └ ƒ /vaults/:id           
+
+  λ API  ƒ Dynamic  ? Unknown
+
+  ? Some routes could not be classified. vinext currently uses static analysis
+    and cannot detect dynamic API usage (headers(), cookies(), etc.) at build time.
+    Automatic classification will be improved in a future release.
+
+  Build complete. Run `vinext start` to start the production server.
+

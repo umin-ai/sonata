@@ -21,6 +21,6 @@ export async function generateMetadata({
   const known =
     marketId === "legacy" || marketCatalog.some((m) => m.id === marketId);
   return {
-    title: known ? `${marketId} — Stockroom` : "Market not found — Stockroom",
+    title: known ? `${marketId} — Sonata` : "Market not found — Sonata",
   };
 }

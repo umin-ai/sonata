@@ -32,3 +32,7 @@ Current event page: https://hackathons.solana.com/hackathons/stocklana . The mai
 ## Validation
 
 Ledger tests cover deposit/compound/exit conservation, separate claims, invalid amounts, creator fund separation and prevention of allocating the same creator batch twice. Browser review covers desktop/mobile layouts and core action flows. No production financial assurance is implied by prototype tests.
+
+## Connected lifecycle update
+
+The disconnected creator allocation example has been extended into treasury vault positions and member rewards. See [the complete coverage register](stockroom-complete-coverage-2026-09-17.md) for the current implementation, simulation assumptions, preserved research, bounty conditions and remaining integration work. This update stays local.

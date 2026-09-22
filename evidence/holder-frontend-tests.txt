@@ -1,0 +1,88 @@
+TAP version 13
+# (node:40364) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: member allocations preserve mock-stock atoms and accept explicit rows
+ok 1 - member allocations preserve mock-stock atoms and accept explicit rows
+  ---
+  duration_ms: 2.071542
+  ...
+# Subtest: duplicate, ambiguous, empty, zero and over-precision promises are rejected
+ok 2 - duplicate, ambiguous, empty, zero and over-precision promises are rejected
+  ---
+  duration_ms: 0.694291
+  ...
+# Subtest: a PDA with no signing key cannot receive an irreversible grant
+ok 3 - a PDA with no signing key cannot receive an irreversible grant
+  ---
+  duration_ms: 1.660416
+  ...
+# (node:40365) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: aggregates all accounts, excludes creator and allocates proportionally
+ok 4 - aggregates all accounts, excludes creator and allocates proportionally
+  ---
+  duration_ms: 1.505375
+  ...
+# Subtest: dust is deterministic and no atom is lost
+ok 5 - dust is deterministic and no atom is lost
+  ---
+  duration_ms: 0.998166
+  ...
+# Subtest: zero holders and zero budget cannot manufacture rewards
+ok 6 - zero holders and zero budget cannot manufacture rewards
+  ---
+  duration_ms: 0.950417
+  ...
+# Subtest: new revenue only; retained leftovers do not get rewarded again
+ok 7 - new revenue only; retained leftovers do not get rewarded again
+  ---
+  duration_ms: 0.331667
+  ...
+# (node:40366) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: history-derived candidates accepted only when same-response supply reconciles
+ok 8 - history-derived candidates accepted only when same-response supply reconciles
+  ---
+  duration_ms: 1.528458
+  ...
+# Subtest: missing holders cause a hard failure, never a partial payout
+ok 9 - missing holders cause a hard failure, never a partial payout
+  ---
+  duration_ms: 0.376
+  ...
+# (node:40367) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: concurrent identical reads share a request and preserve each caller's ID
+ok 10 - concurrent identical reads share a request and preserve each caller's ID
+  ---
+  duration_ms: 16.953334
+  ...
+# Subtest: rate-limited reads back off once and recover
+ok 11 - rate-limited reads back off once and recover
+  ---
+  duration_ms: 2.747209
+  ...
+# Subtest: persistent JSON-RPC limits become a readable error and release the queue
+ok 12 - persistent JSON-RPC limits become a readable error and release the queue
+  ---
+  duration_ms: 2.213875
+  ...
+# Subtest: writes are never retried or deduplicated
+ok 13 - writes are never retried or deduplicated
+  ---
+  duration_ms: 0.43425
+  ...
+# Subtest: different accounts remain distinct and non-rate-limit errors remain intact
+ok 14 - different accounts remain distinct and non-rate-limit errors remain intact
+  ---
+  duration_ms: 0.63375
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 319.612917
