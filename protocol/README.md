@@ -1,8 +1,23 @@
-# Stockroom Protocol
+# Sonata protocol
 
-Stockroom's own Solana credit program for a tokenized-stock borrowing prototype. Lenders supply demo quote tokens; borrowers lock demo Token-2022 stock collateral and receive that liquidity through program-authorized transfers. Debt, interest, health checks, repayment, liquidation and losses are enforced by the Rust program.
+Anchor programs behind Sonata, a Solana launchpad where community tokens trade against a tokenized stock on Meteora's Dynamic Bonding Curve. Devnet only; mock tokens have no monetary value.
 
-**Status: deployed and exercised on Solana Devnet.** Twelve compiled-program integration tests and six math tests pass. The Devnet demonstration completed 24 transactions, all independently checked as finalized and successful. Both deployed programs match the tested binaries byte for byte. [Deployment and transaction receipts](docs/devnet-deployment.md). This code has not received an independent audit. The currently published Stockroom website has not yet been wired to these program instructions.
+- `programs/stockroom-treasury` registers a treasury for a DBC pool whose config names the Sonata vault PDA as `fee_claimer`, claims partner trading fees into program-owned custody, and splits them between a fixed payout recipient and a creator reserve.
+- `programs/stockroom-rewards` holds holder-reward policies and funded reward campaigns paid from a treasury's retained fees.
+- `scripts/verify-configurable-launch.mjs` deploys a per-launch DBC config, registers a treasury against it, and reads the resulting state back.
+- `scripts/verify-deployed-bytes.mjs` compares each deployed program with its local build. It is read-only and needs no keys.
+
+**Read [HANDOFF.md](HANDOFF.md) for status, on-chain evidence, the security model and Meteora references.** In short: the deployed `stockroom_treasury` does not match the source in this repository, while the other three programs do; all four programs are upgradeable by one key; and no program has been audited. Program crates keep the working name "stockroom"; HANDOFF.md §11 explains why.
+
+Tests: `node --test tests/*.test.mjs` runs 29 compiled-program tests (credit 12, rewards 11, treasury 5, treasury registration 1), and `cargo test -p credit-math` runs 6.
+
+## Historical credit prototype
+
+The sections below were written for the earlier credit prototype (`stockroom-credit` and `demo-oracle`). The toolchain notes apply to every program here; the deployment receipts and source map cover only the credit prototype.
+
+A Solana credit program for a tokenized-stock borrowing prototype. Lenders supply demo quote tokens; borrowers lock demo Token-2022 stock collateral and receive that liquidity through program-authorized transfers. Debt, interest, health checks, repayment, liquidation and losses are enforced by the Rust program.
+
+**Status: deployed and exercised on Solana Devnet.** The twelve compiled-program integration tests in `tests/credit.test.mjs` and six math tests pass. The Devnet demonstration completed 24 transactions, all independently checked as finalized and successful. Both credit-prototype programs, `stockroom_credit` and `demo_oracle`, match the tested binaries byte for byte. [Deployment and transaction receipts](docs/devnet-deployment.md). This code has not received an independent audit.
 
 ## Run locally
 
