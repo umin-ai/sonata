@@ -36,8 +36,15 @@ async function fetchPrice(symbol: string, key: string): Promise<StockPrice> {
       signal: AbortSignal.timeout(10_000),
       cache: "no-store",
     });
-    if (response.status === 401 || response.status === 403)
-      throw Error("Pyth rejected the API key.");
+    if (response.status === 401 || response.status === 403) {
+      // Pyth answers 403 "Not entitled" when a valid key's plan excludes a feed; free keys exclude equities.
+      const text = await response.text();
+      throw Error(
+        /not entitled/i.test(text)
+          ? "This Pyth API key's plan does not include US stock prices."
+          : "Pyth rejected the API key.",
+      );
+    }
     if (!response.ok) {
       lastError = `Pyth returned ${response.status}: ${(await response.text()).slice(0, 160)}`;
       continue;
