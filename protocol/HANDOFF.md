@@ -4,7 +4,7 @@ Updated 23 September 2026 (Asia/Kuching). Supersedes the 18 September handoff. S
 
 **How to read this document.** Every factual statement points to one of three things: a source line (pinned permalink or `path:line`), a Devnet transaction or account on Solana Explorer, or an external page. Where a statement cannot be checked that way it is labelled as a limitation or a hypothesis. If a citation here does not support its claim, treat that as a defect in this document.
 
-Source line numbers refer to these commits. The cited files have not changed since.
+Source line links are pinned to these commits, so each keeps pointing at the code it cites even where the file has changed since.
 
 - [`umin-ai/sonata-protocol` @ `019c688`](https://github.com/umin-ai/sonata-protocol/tree/019c688e4083cfc877fb8a8cb78c8519b92efd8e) — programs, scripts, artifacts
 - [`umin-ai/sonata` @ `130b5e2`](https://github.com/umin-ai/sonata/tree/130b5e206e60800ac721b1dd59cd718d6cc5ab4e) — frontend
@@ -44,6 +44,7 @@ Product flow: **Launch → Trade → Earn.** Demand and sustainable returns are 
 | | Separate DAMM v2 pool: creation, deposits, an independent swap, partial and full exits |
 | | **Post-upgrade:** a second per-launch config and registration, and the full fee path on the 3% pool — a buy charged at exactly 3%, Meteora's 20% protocol share, claim into custody, 50/50 allocation and a creator withdrawal |
 | | **Graduation:** a per-launch pool's curve completed, its fees collected, then migrated to DAMM v2 with 100% of LP permanently locked under the Sonata vault; the graduated pool then accepted a trade |
+| | **Graduation progress in the app:** each market card and market page reads its pool's quote reserve against its own config's threshold, from accounts `readTreasury` already fetches (flagship 23.0% of 3.47877538 mSPY; the 2 → 18 pools against 4.5 mSPY). Graduated markets show their DAMM v2 pool and replace the curve swap with a notice. Logic in `lib/treasury/graduation.ts`, tested in `graduation.test.ts` |
 | **Implemented, not yet exercised on-chain** | A wallet-signed launch **through the UI** using a per-launch config. The UI path ([`runtime.ts:656`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/lib/treasury/runtime.ts#L656)) typechecks and builds. The on-chain proof used the same SDK call from a script, not from the browser. |
 | **Blocked by design** | Choosing holder rewards or liquidity allocation *at launch*. `canDeploy` requires the treasury policy ([`launch-settings.tsx:10`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/launch-settings.tsx#L10)). Holder policies can be enabled *after* registration on any market (§6.5); liquidity allocation to a new market is not wired. |
 | | mNVDA, mQQQ and mTSLA as quote assets. No Devnet mint exists; the UI shows "No Devnet mint yet". |
@@ -51,7 +52,7 @@ Product flow: **Launch → Trade → Earn.** Demand and sustainable returns are 
 | | Indexed per-market metrics and price history |
 | | Mainnet deployment, and the Meteora token-badge path that real stock tokens require (§7) |
 
-Tests, run on 23 September: frontend `npm test` 57/57; protocol `node --test tests/*.test.mjs` 29/29 (credit 12, rewards 11, treasury 5, treasury registration 1); `cargo test -p credit-math` 6/6. Neither repository has CI; these run locally.
+Tests, run on 23 September: frontend `npm test` 61/61; protocol `node --test tests/*.test.mjs` 29/29 (credit 12, rewards 11, treasury 5, treasury registration 1); `cargo test -p credit-math` 6/6. Neither repository has CI; these run locally.
 
 ---
 
@@ -268,7 +269,7 @@ What Sonata does differently: the quote asset is a stock token, and each launch 
 ## 10. Next steps, in order
 
 1. Record one wallet-signed launch through the UI with a per-launch config.
-2. Show graduation progress per market, reading each config's own threshold rather than a hard-coded value.
+2. Trading a graduated market from its page. The page links to the DAMM v2 pool; swapping on it from the app is not connected.
 
 Do not spend mainnet funds. Do not deploy the frontend publicly until §6.8 is fixed.
 
