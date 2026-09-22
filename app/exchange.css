@@ -58,3 +58,13 @@
 .sr-app .graduation[data-stage=complete] [data-slot=progress-indicator]{background:#f5b94d}
 .sr-app .graduation[data-stage=graduated] [data-slot=progress-indicator]{background:#3fcf8e}
 .sr-app .graduation-note{margin:0;font-size:13px;line-height:1.5;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+/* Pyth price strip on the curve step: the price that converts dollar targets. */
+.sr-app .pyth-price{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid var(--exchange-border);border-radius:12px;background:color-mix(in srgb,var(--foreground) 3%,transparent);margin-bottom:12px}
+.sr-app .pyth-price>div{display:grid;gap:2px;min-width:0}
+.sr-app .pyth-price span{font-size:13px;color:var(--muted-foreground)}
+.sr-app .pyth-price strong{font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}
+.sr-app .pyth-price small{font-size:13px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.sr-app .pyth-price[data-live=true] small::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#3fcf8e;margin-right:6px;vertical-align:1px}
+.sr-app .pyth-refresh{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;padding:8px 12px;border:1px solid var(--exchange-border);border-radius:9px;font-size:13px;color:var(--foreground);background:transparent}
+.sr-app .pyth-refresh:hover{border-color:var(--exchange-accent)}
+.sr-app .curve-presets button:disabled{opacity:.5;cursor:not-allowed}
