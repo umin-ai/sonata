@@ -8,14 +8,14 @@ import {OPEN_USD,GRADUATION_USD,usdToQuote,formatUsd,formatPriceTime,type StockP
 // A dollar target converted to quote units at a Pyth price. The converted
 // initial/target are what the on-chain config uses; the snapshot records the
 // price that produced them and does not move afterwards.
-export type Pricing={openUsd:number;targetUsd:number;price:number;confidenceRatio:number;publishTimeMs:number;label:string;live:boolean;feed:string};
+export type Pricing={source:'pyth'|'jupiter';openUsd:number;targetUsd:number;price:number;confidenceRatio:number;publishTimeMs:number;label:string;live:boolean;feed:string};
 export type LaunchSettings={quote:string;initial:number;target:number;fee:number;rewards:string;pricing?:Pricing};
 export type PythState=
  |{status:'loading'}
  |{status:'unconfigured'}
  |{status:'error';message:string}
  |{status:'unusable';message:string;data:StockPrice}
- |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number};
+ |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number;crossCheck?:{price:number;divergence:number}};
 export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fee:100,rewards:'treasury'};
 // Every curve and fee combination now deploys as its own DBC config. What still
 // gates a launch is a quote mint that exists onchain and a reward policy the
@@ -23,7 +23,7 @@ export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fe
 export function canDeploy(s:LaunchSettings){return isDeployableQuote(s.quote)&&s.rewards==='treasury'&&Number.isFinite(s.initial)&&Number.isFinite(s.target)&&s.target>s.initial&&[25,50,100,200,300].includes(s.fee);}
 export function priceLaunch(value:LaunchSettings,targetUsd:number,pyth:Extract<PythState,{status:'ok'}>):LaunchSettings{
  const {data}=pyth;
- return {...value,initial:usdToQuote(OPEN_USD,data.price),target:usdToQuote(targetUsd,data.price),pricing:{openUsd:OPEN_USD,targetUsd,price:data.price,confidenceRatio:pyth.confidenceRatio,publishTimeMs:data.publishTimeMs,label:pyth.label,live:pyth.live,feed:data.feed}};
+ return {...value,initial:usdToQuote(OPEN_USD,data.price),target:usdToQuote(targetUsd,data.price),pricing:{source:data.source,openUsd:OPEN_USD,targetUsd,price:data.price,confidenceRatio:pyth.confidenceRatio,publishTimeMs:data.publishTimeMs,label:pyth.label,live:pyth.live,feed:data.feed}};
 }
 const GRADUATION_LABELS=['Quick','Standard','Deep'];
 export function LaunchSettingsStep({step,value,onChange,price,pyth,onRefreshPrice}:{step:number;value:LaunchSettings;onChange:(s:LaunchSettings)=>void;price:number|null;pyth:PythState;onRefreshPrice:()=>void}){
@@ -46,20 +46,20 @@ export function LaunchSettingsStep({step,value,onChange,price,pyth,onRefreshPric
   const livePrice=pyth.status==='ok'?pyth:null;
   return <div className="curve-choices">
    <div className="pyth-price" data-live={p?.live?'true':'false'}>
-    <div><span>{value.quote.slice(1)} price</span><strong>{p?formatUsd(p.price):'—'}</strong><small>{p?`Pyth · ${p.label} · ${formatPriceTime(p.publishTimeMs)} · ±${(p.confidenceRatio*100).toFixed(2)}%`:'Loading Pyth price…'}</small></div>
-    <button type="button" className="pyth-refresh" onClick={onRefreshPrice} aria-label="Refresh Pyth price"><RefreshCw size={15}/>Refresh</button>
+    <div><span>{value.quote.slice(1)} price</span><strong>{p?formatUsd(p.price):'—'}</strong><small>{p?`${p.source==='pyth'?'Pyth':'Jupiter'} · ${p.label} · ${formatPriceTime(p.publishTimeMs)} · ±${(p.confidenceRatio*100).toFixed(2)}%`:'Loading price…'}</small></div>
+    <button type="button" className="pyth-refresh" onClick={onRefreshPrice} aria-label="Refresh price"><RefreshCw size={15}/>Refresh</button>
    </div>
    {!livePrice&&pyth.status!=='loading'&&<p className="sr-note" role="status">Could not refresh the price{pyth.status==='error'||pyth.status==='unusable'?`: ${pyth.message}`:''}. The targets below stay at the price shown.</p>}
-   {p&&!p.live&&<p className="sr-note" role="status">The US market is closed, so this is the last traded price, not a live one.</p>}
+   {p&&p.source==='pyth'&&!p.live&&<p className="sr-note" role="status">The US market is closed, so this is the last traded price, not a live one.</p>}{p&&p.source==='jupiter'&&<p className="sr-note">Priced from {value.quote.slice(1)}x, the real tokenized stock, across Solana markets via Jupiter. It trades around the clock, so outside US market hours this reflects Solana trading rather than the stock exchange.</p>}{livePrice?.crossCheck&&<p className="sr-note">Cross-checked: Solana market {formatUsd(livePrice.crossCheck.price)}, {(livePrice.crossCheck.divergence*100).toFixed(2)}% from Pyth.</p>}
    <p className="sr-note">Opens at <strong>{formatUsd(OPEN_USD)}</strong> market cap. Choose where it graduates and the trading fee.</p>
    <fieldset><legend>Graduation market cap</legend><div className="curve-presets">{GRADUATION_USD.map((target,i)=><button type="button" key={target} disabled={!livePrice} aria-pressed={p?.targetUsd===target} onClick={()=>livePrice&&onChange(priceLaunch(value,target,livePrice))}><strong>{formatUsd(target)}</strong><small>{p?`≈ ${usdToQuote(target,p.price).toLocaleString(undefined,{maximumFractionDigits:2})} ${value.quote}`:value.quote}</small><span>{GRADUATION_LABELS[i]}</span><span className="preset-check" aria-hidden="true">{p?.targetUsd===target?'✓':'○'}</span></button>)}</div></fieldset>
    {feeChoices}{route}
-   <p className="sr-note">Targets are set in US dollars and converted to {value.quote} at the Pyth price above when you choose them. The converted amounts are what the on-chain curve uses; they do not change with the price afterwards. Mock tokens have no monetary value.</p>
+   <p className="sr-note">Targets are set in US dollars and converted to {value.quote} at the price above when you choose them. The converted amounts are what the on-chain curve uses; they do not change with the price afterwards. Mock tokens have no monetary value.</p>
    <details className="launch-disclosure"><summary>Liquidity settings</summary><p className="sr-note">Opening market cap fixed at {formatUsd(OPEN_USD)}{p?` (${value.initial} ${value.quote} at the converted price)`:''}. 100% of partner LP is permanently locked after migration.</p></details>
   </div>;
  }
  if(step===2){
-  const why=pyth.status==='unconfigured'?'Dollar targets need a Pyth API key on the server, so these targets are set in mSPY.':pyth.status==='loading'?'Loading the Pyth price…':pyth.status==='error'||pyth.status==='unusable'?`Dollar targets are unavailable: ${pyth.message} These targets are set in mSPY.`:'';
+  const why=pyth.status==='unconfigured'?'Dollar targets are unavailable, so these targets are set in mSPY.':pyth.status==='loading'?'Loading the stock price…':pyth.status==='error'||pyth.status==='unusable'?`Dollar targets are unavailable: ${pyth.message} These targets are set in mSPY.`:'';
   return <div className="curve-choices">{why&&<p className="sr-note" role="status">{why}</p>}<p className="sr-note">Opens at <strong>{usd(2)}</strong> estimated market cap. Choose the graduation target and trading fee.</p><fieldset><legend>Graduation market cap</legend><div className="curve-presets">{[[8,'Lower target'],[12,'Default'],[18,'Higher target']].map(([target,label])=><button type="button" key={target} aria-pressed={value.target===target} onClick={()=>update({initial:2,target:Number(target),pricing:undefined})}><strong>{usd(Number(target))}</strong><small>{target} {value.quote} · market cap</small><span>{label}</span><span className="preset-check" aria-hidden="true">{value.target===target?'✓':'○'}</span></button>)}</div></fieldset>{feeChoices}{route}<p className="sr-note">USD estimates use the corresponding mainnet stock-token price. Mock tokens have no monetary value. The quote-token target stays fixed; its USD estimate moves with price.</p><details className="launch-disclosure"><summary>Liquidity settings</summary><p className="sr-note">Fixed starting market cap of 2 quote tokens. 100% of partner LP is permanently locked after migration. These presets do not change the fee schedule or LP allocation.</p></details></div>;
  }
  return <><p className="sr-note">Choose how the collected creator revenue should be used. This does not change the protocol’s own fee deductions.</p><div className="launch-options rewards-options">{[['treasury','Creator fees','50% to the fixed recipient; 50% retained in the creator treasury.','Available now'],['holders','Holder rewards',`Distribute a share of ${value.quote} fees to eligible token holders.`,'Not at launch · enable from Rewards afterwards'],['liquidity','Liquidity','Allocate collected fees to a liquidity position.','Preview · launch integration pending']].map(([id,title,copy,status])=><button type="button" key={id} aria-pressed={value.rewards===id} onClick={()=>update({rewards:id})}><strong>{title}</strong><span>{copy}</span><small>{status}</small></button>)}</div></>;

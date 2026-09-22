@@ -18,7 +18,7 @@ The connected Devnet demonstration is verified. Production issuer integration, u
 
 Separate simulations remain at `/lab`, `/lab/create`, `/lab/portfolio`, `/lab/activity`, `/lab/community` and `/vaults/...`; the earlier credit sandbox remains at `/devnet`. Do not combine those features with the live implementation claims.
 
-Current checks: 69 frontend tests (`npm test`), TypeScript checking and production build pass. The protocol suite passes 29 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
+Current checks: 72 frontend tests (`npm test`), TypeScript checking and production build pass. The protocol suite passes 29 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
 
 ## Historical credit implementation
 
@@ -66,7 +66,7 @@ Optional server environment variables:
 
 - `SOLANA_RPC_URL`: a production Solana mainnet RPC for reserve, oracle, position and wallet reads.
 - `SOLANA_WALLET_RPC_URL`: a separate mainnet RPC supporting `getTokenAccountsByOwner`; otherwise the configured RPC above is used. Without either variable, the app reads associated token accounts through PublicNode.
-- `PYTH_PRO_API_KEY`: server-only Pyth Pro key for dollar-denominated launch targets. Free at https://pythdata.app ("View your API key"). Without it, launches use mSPY targets.
+- `PYTH_PRO_API_KEY`: optional server-only Pyth Pro key. Dollar launch targets are priced from the real xStock on Solana via Jupiter by default; with a key entitled to the stock feed, Pyth is used instead, but only if it is within 1% of the Solana market. Free keys from https://pythdata.app include some US stocks (QQQ, TSLA) but not all (SPY, NVDA).
 - `JUPITER_API_KEY`: server-only Jupiter key for Lend, Price and quote API access. Public reads worked during testing; production access is not guaranteed.
 
 Never put wallet private keys or signing seeds in this application. Hosted credentials belong in server environment configuration, not source files. Public provider access is best effort and can be rate limited.
@@ -81,7 +81,7 @@ npx tsc --noEmit
 git diff --check
 ```
 
-`npm test` runs 69 tests across 15 files. `lib/server/stockroom.test.ts` is excluded and the file says why. The 16 calculation, ledger and adapter tests in `finance`, `credit` and `jupiter-data` cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
+`npm test` runs 72 tests across 15 files. `lib/server/stockroom.test.ts` is excluded and the file says why. The 16 calculation, ledger and adapter tests in `finance`, `credit` and `jupiter-data` cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
 
 ## Unreleased execution work
 

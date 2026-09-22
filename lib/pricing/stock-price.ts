@@ -20,9 +20,14 @@ export type MarketSession =
   | "preMarket"
   | "postMarket"
   | "overNight"
-  | "closed";
+  | "closed"
+  // Priced from Solana DEX liquidity, which trades around the clock.
+  | "onchain";
+
+export type PriceSource = "pyth" | "jupiter";
 
 export type StockPrice = {
+  source: PriceSource;
   symbol: string;
   feed: string;
   price: number;
@@ -41,6 +46,7 @@ const MAX_AGE_MS: Record<MarketSession, number> = {
   overNight: 5 * 60_000,
   // Covers a weekend plus a Monday holiday; anything older suggests a broken feed.
   closed: 96 * 3_600_000,
+  onchain: 60_000,
 };
 const SESSION_LABEL: Record<MarketSession, string> = {
   regular: "US regular session",
@@ -48,6 +54,7 @@ const SESSION_LABEL: Record<MarketSession, string> = {
   postMarket: "US after-hours",
   overNight: "US overnight session",
   closed: "US market closed",
+  onchain: "Solana market, 24/7",
 };
 
 export function assessPrice(p: StockPrice, nowMs: number) {
@@ -106,4 +113,51 @@ export function formatPriceTime(ms: number, nowMs = Date.now()) {
   return nowMs - ms < 12 * 3_600_000
     ? d.toLocaleTimeString()
     : d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+/** The real tokenized stock on Solana that each mock quote token stands in for. */
+export const XSTOCK_MINTS: Record<string, { symbol: string; mint: string }> = {
+  mSPY: { symbol: "SPYx", mint: "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W" },
+  mNVDA: { symbol: "NVDAx", mint: "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh" },
+  mQQQ: { symbol: "QQQx", mint: "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ" },
+  mTSLA: { symbol: "TSLAx", mint: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB" },
+};
+
+// Checks that stand in for a confidence interval when pricing from DEX liquidity.
+export const MIN_LIQUIDITY_USD = 250_000;
+export const MAX_PRICE_IMPACT = 0.01;
+/** Largest allowed gap between Jupiter's price and an executable quote, or between Pyth and Solana. */
+export const MAX_DIVERGENCE = 0.01;
+
+/**
+ * xStocks carry a Token-2022 scaled-UI multiplier that grows as dividends are
+ * reinvested, so one raw token is worth slightly more than one share. Jupiter
+ * prices per UI unit (per share); swap quotes are in raw units.
+ */
+export function effectiveMultiplier(
+  cfg: { multiplier?: number; newMultiplier?: number; newMultiplierEffectiveAt?: string } | undefined,
+  nowMs: number,
+) {
+  if (!cfg?.multiplier) return 1;
+  const at = cfg.newMultiplierEffectiveAt ? Date.parse(cfg.newMultiplierEffectiveAt) : NaN;
+  return cfg.newMultiplier && Number.isFinite(at) && nowMs >= at ? cfg.newMultiplier : cfg.multiplier;
+}
+
+/** Relative gap between two prices. */
+export const divergence = (a: number, b: number) => Math.abs(a - b) / b;
+
+/** Whether a Jupiter-derived price is fit to price a launch. */
+export function assessMarket(m: { usdPrice: number; liquidity: number; quotePrice: number; priceImpact: number }) {
+  if (!(m.usdPrice > 0)) return { usable: false as const, reason: "Jupiter returned no price." };
+  if (!(m.liquidity >= MIN_LIQUIDITY_USD))
+    return { usable: false as const, reason: `Too little liquidity on Solana (${formatUsd(m.liquidity)}).` };
+  if (!(m.priceImpact <= MAX_PRICE_IMPACT))
+    return { usable: false as const, reason: "A $1,000 trade would move the price too much." };
+  const gap = divergence(m.quotePrice, m.usdPrice);
+  if (!(gap <= MAX_DIVERGENCE))
+    return {
+      usable: false as const,
+      reason: `Jupiter's price and an executable quote disagree by ${(gap * 100).toFixed(2)}%.`,
+    };
+  return { usable: true as const, divergence: gap };
 }
