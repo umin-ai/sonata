@@ -34,11 +34,18 @@ import {
 } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import assert from "node:assert/strict";
 
-const INITIAL_MARKET_CAP = 2,
-  MIGRATION_MARKET_CAP = 18,
-  FEE_BPS = 300,
+// Defaults reproduce the original 2 -> 18 mSPY proof. verify-dollar-launch.mjs
+// overrides them with a quote token and amounts converted from dollars.
+const env = process.env;
+const INITIAL_MARKET_CAP = Number(env.SONATA_INITIAL ?? 2),
+  MIGRATION_MARKET_CAP = Number(env.SONATA_TARGET ?? 18),
+  FEE_BPS = Number(env.SONATA_FEE_BPS ?? 300),
+  QUOTE_SYMBOL = env.SONATA_QUOTE_SYMBOL ?? "mSPY",
+  TOKEN_NAME = env.SONATA_TOKEN_NAME ?? "Configurable Launch Proof",
+  TOKEN_SYMBOL = env.SONATA_TOKEN_SYMBOL ?? "CFGX",
+  PRICING = env.SONATA_PRICING ? JSON.parse(env.SONATA_PRICING) : undefined,
   SHARED_CONFIG = "CUeJ6fgsw6wGXPCBchj9jxpkGVWzanXxYJFMiAPJea5J",
-  MSPY = new PublicKey("6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg");
+  QUOTE_MINT = new PublicKey(env.SONATA_QUOTE_MINT ?? "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg");
 
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
 assert.equal(
@@ -119,7 +126,7 @@ const curveParams = buildCurveWithMarketCap({
 });
 const expectedThreshold = curveParams.migrationQuoteThreshold.toString();
 console.log(
-  `Curve: ${INITIAL_MARKET_CAP} -> ${MIGRATION_MARKET_CAP} mSPY at ${FEE_BPS / 100}% ; quote reserve to graduate ${expectedThreshold}`,
+  `Curve: ${INITIAL_MARKET_CAP} -> ${MIGRATION_MARKET_CAP} ${QUOTE_SYMBOL} at ${FEE_BPS / 100}% ; quote reserve to graduate ${expectedThreshold}`,
 );
 
 const config = Keypair.generate(),
@@ -129,7 +136,7 @@ assert.notEqual(
   SHARED_CONFIG,
   "Must not reuse the shared config.",
 );
-const pool = deriveDbcPoolAddress(MSPY, baseMint.publicKey, config.publicKey);
+const pool = deriveDbcPoolAddress(QUOTE_MINT, baseMint.publicKey, config.publicKey);
 const [treasury] = PublicKey.findProgramAddressSync(
   [Buffer.from("treasury"), pool.toBuffer()],
   programId,
@@ -139,12 +146,12 @@ const createTx = await dbc.partner.createConfigAndPool({
   config: config.publicKey,
   feeClaimer: vault,
   leftoverReceiver: vault,
-  quoteMint: MSPY,
+  quoteMint: QUOTE_MINT,
   payer: admin.publicKey,
   ...curveParams,
   preCreatePoolParam: {
-    name: "Configurable Launch Proof",
-    symbol: "CFGX",
+    name: TOKEN_NAME,
+    symbol: TOKEN_SYMBOL,
     uri: "",
     poolCreator: admin.publicKey,
     baseMint: baseMint.publicKey,
@@ -166,7 +173,7 @@ const registerTx = await program.methods
     treasury,
     pool,
     config: config.publicKey,
-    quoteMint: MSPY,
+    quoteMint: QUOTE_MINT,
     baseMint: baseMint.publicKey,
     creator: admin.publicKey,
     payer: admin.publicKey,
@@ -175,8 +182,8 @@ const registerTx = await program.methods
   .transaction();
 for (const [authority, mint, tokenProgram] of [
   [treasury, baseMint.publicKey, TOKEN_PROGRAM_ID],
-  [treasury, MSPY, TOKEN_2022_PROGRAM_ID],
-  [admin.publicKey, MSPY, TOKEN_2022_PROGRAM_ID],
+  [treasury, QUOTE_MINT, TOKEN_2022_PROGRAM_ID],
+  [admin.publicKey, QUOTE_MINT, TOKEN_2022_PROGRAM_ID],
 ])
   registerTx.add(
     createAssociatedTokenAccountIdempotentInstruction(
@@ -201,7 +208,7 @@ const checks = {
   configIsNew: config.publicKey.toBase58() !== SHARED_CONFIG,
   feeClaimerIsVault: onchainConfig.feeClaimer.equals(vault),
   leftoverReceiverIsVault: onchainConfig.leftoverReceiver.equals(vault),
-  quoteMintMatches: onchainConfig.quoteMint.equals(MSPY),
+  quoteMintMatches: onchainConfig.quoteMint.equals(QUOTE_MINT),
   thresholdMatchesPreview:
     onchainConfig.migrationQuoteThreshold.toString() === expectedThreshold,
   feeIsChosenRate:
@@ -223,14 +230,15 @@ const evidence = {
     initialMarketCap: INITIAL_MARKET_CAP,
     migrationMarketCap: MIGRATION_MARKET_CAP,
     feeBps: FEE_BPS,
-    quote: "mSPY",
+    quote: QUOTE_SYMBOL,
   },
+  ...(PRICING ? { pricing: PRICING } : {}),
   sharedConfig: SHARED_CONFIG,
   config: config.publicKey.toBase58(),
   pool: pool.toBase58(),
   treasury: treasury.toBase58(),
   baseMint: baseMint.publicKey.toBase58(),
-  quoteMint: MSPY.toBase58(),
+  quoteMint: QUOTE_MINT.toBase58(),
   vault: vault.toBase58(),
   expectedThreshold,
   onchainThreshold: onchainConfig.migrationQuoteThreshold.toString(),
