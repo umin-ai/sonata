@@ -15,7 +15,7 @@ Explorer links use `?cluster=devnet`.
 
 ## 1. Three things a reviewer should know first
 
-**1. The deployed treasury program does not match the source in this repository.** `stockroom_treasury` was deployed on 17 September. Its source was later restored and rebuilt with a reconciled lockfile, and the rebuild does not reproduce the deployed bytes. This was recorded at the time in [`artifacts/stockroom-treasury-deployment.json`](https://github.com/umin-ai/sonata-protocol/blob/019c688e4083cfc877fb8a8cb78c8519b92efd8e/artifacts/stockroom-treasury-deployment.json) (`"rebuiltMatchesDeployment": false`) and re-checked on 23 September with `scripts/verify-deployed-bytes.mjs`. The other three programs match their builds byte for byte. Treasury *behaviour* described below has been exercised against the deployed program by the transactions in §4; treasury *source-line* citations describe the restored source and are not byte-verified. See §6.1.
+**1. The deployed treasury program now matches this repository's source, but did not until 23 September.** `stockroom_treasury` was deployed on 17 September; its source was later restored and rebuilt with a reconciled lockfile, and the rebuild did not reproduce the deployed bytes. This was recorded at the time in [`artifacts/stockroom-treasury-deployment.json`](https://github.com/umin-ai/sonata-protocol/blob/019c688e4083cfc877fb8a8cb78c8519b92efd8e/artifacts/stockroom-treasury-deployment.json) (`"rebuiltMatchesDeployment": false`). On 23 September the program was upgraded to the tested rebuild in [`673Yrm9r…cf5w5qpY`](https://explorer.solana.com/tx/673Yrm9r9Hf7LfwZMmb1oRxf49D1cjpwEUgKB8LbZZmAoDkZzvHWwH4MXXXDaA3cyQREGZA8UfXaKc8Tcf5w5qpY?cluster=devnet). `scripts/verify-deployed-bytes.mjs` now reports all four programs matching their builds byte for byte. Every transaction in §4 dated before that upgrade ran against the earlier binary; the launch and fee-path transactions marked "post-upgrade" ran against the current one. See §6.1.
 
 **2. All four programs are upgradeable by one key.** Anything this document calls immutable is immutable only in the sense that no instruction in the current program changes it. See §6.2.
 
@@ -42,8 +42,8 @@ Product flow: **Launch → Trade → Earn.** Demand and sustainable returns are 
 | | Holder-reward policy, funded round and deliveries to holders (flagship market) |
 | | Reserve-funded reward campaign with recipient self-claim |
 | | Separate DAMM v2 pool: creation, deposits, an independent swap, partial and full exits |
+| | **Post-upgrade:** a second per-launch config and registration, and the full fee path on the 3% pool — a buy charged at exactly 3%, Meteora's 20% protocol share, claim into custody, 50/50 allocation and a creator withdrawal |
 | **Implemented, not yet exercised on-chain** | A wallet-signed launch **through the UI** using a per-launch config. The UI path ([`runtime.ts:656`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/lib/treasury/runtime.ts#L656)) typechecks and builds. The on-chain proof used the same SDK call from a script, not from the browser. |
-| | Swaps, fee collection and allocation on the new 3% pool. It has had no trades, so its chosen fee rate has not yet been charged on a swap. |
 | **Blocked by design** | Choosing holder rewards or liquidity allocation *at launch*. `canDeploy` requires the treasury policy ([`launch-settings.tsx:10`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/launch-settings.tsx#L10)). Holder policies can be enabled *after* registration on any market (§6.5); liquidity allocation to a new market is not wired. |
 | | mNVDA, mQQQ and mTSLA as quote assets. No Devnet mint exists; the UI shows "No Devnet mint yet". |
 | **Not built** | DBC → DAMM v2 migration execution. No migration code exists in either repository. |
@@ -77,7 +77,14 @@ Every signature below was queried on 23 September with `getSignatureStatuses` an
 | LP deposit | [`2HjdML6Q…MmSDEPLz`](https://explorer.solana.com/tx/2HjdML6QozfP6kMgjShURt5jMNitpbRtdG7r27MnCmdQyp38GWA8zwudrDbZHSmYcEqLMKEDLhdbVAu3MmSDEPLz?cluster=devnet) | |
 | Independent swap through that pool | [`2BVoYvi5…KfNYKAsN`](https://explorer.solana.com/tx/2BVoYvi5X6Jc5FANRT2xQQxBRPCamD1mq483YsQj7akaWj9mNotR1rZJqAw2uW3r4FEnz2E6m2eTrBbWKfNYKAsN?cluster=devnet) | |
 | LP partial and full exit | [`5YazqMQr…uvhTx5cE`](https://explorer.solana.com/tx/5YazqMQr6tERtnhCAmajWi12tV35hG7RYd3iJZmdrhfUwmNLTLtu8XEFRgFTp7KgxnEUhhnx3dvwLWUmuvhTx5cE?cluster=devnet), [`2r2k9nwU…hdan2qy6`](https://explorer.solana.com/tx/2r2k9nwUT7kTfzDqnBjH2ThdSgBPEkXpdXiGFMJYTxB7brzwfRRhtXEHekk1zWLiR5qv3MYH5SqqsSRWhdan2qy6?cluster=devnet) | |
-| Deployed bytes vs builds, upgrade authority | read-only | `scripts/verify-deployed-bytes.mjs` → `artifacts/deployed-bytes-check.json` |
+| Treasury program upgraded to the published build | [`673Yrm9r…cf5w5qpY`](https://explorer.solana.com/tx/673Yrm9r9Hf7LfwZMmb1oRxf49D1cjpwEUgKB8LbZZmAoDkZzvHWwH4MXXXDaA3cyQREGZA8UfXaKc8Tcf5w5qpY?cluster=devnet) | `artifacts/deployed-bytes-check.json` |
+| Post-upgrade: second per-launch config and pool (2 → 18, 3%) | [`5uowYWec…4ctzRjta`](https://explorer.solana.com/tx/5uowYWec2RdhocXWnaWHLxaEsyo2gAeZ4Jf2vSHPnQydDFtC2bGATSUj3UMExLaCMtTfdE41KbP5z1kV4ctzRjta?cluster=devnet) | `artifacts/configurable-launch-proof-post-upgrade.json`; pool [`3HL7AdmR…cap9JNUq`](https://explorer.solana.com/address/3HL7AdmRt8J4p25v61GSkBmkFX7i1SKN5xWbcap9JNUq?cluster=devnet) |
+| Post-upgrade: treasury registered against it | [`2eeR8ASt…b85uCc9Q`](https://explorer.solana.com/tx/2eeR8AStzus18m7Lnus5x4PEM6spMxXk2q1Nb1Sg5ssUSjoGrKeseJAWfYfLH4wD8TJ8F61LhZCzmPVdb85uCc9Q?cluster=devnet) | same artifact |
+| Post-upgrade: buy of 0.05 mSPY on the 3% pool `EhFL…` | [`5pVHQqds…ynuTt2ek`](https://explorer.solana.com/tx/5pVHQqdsqBdrFvCMrkYngrVi3GS8iQtEfHjDDfgGhrLgKXsZGSGQL2xQqAcbicjYAoNX5HD6txCsFFahynuTt2ek?cluster=devnet) | `artifacts/fee-path-proof.json`: fee 150,000 atoms = 3.00% of 5,000,000 in; Meteora protocol 30,000; partner 120,000 |
+| Post-upgrade: claim into treasury custody | [`56h8GCW5…6DwaBUV6`](https://explorer.solana.com/tx/56h8GCW527wH1o9b3uj8439ViMiemiv2iDv5dWip8YQL4Fq61nqGfKkSNq6GDRyJEjFCf9b5r6Cerywb6DwaBUV6?cluster=devnet) | 120,000 claimed = the partner fee accrued on the pool |
+| Post-upgrade: 50/50 allocation | [`2aDSaWaE…jx7gPH7C`](https://explorer.solana.com/tx/2aDSaWaEdJGBfRMjLLSPgxePY53drcdKzyayirGYPBwXEd9MFaaTdmmHPRFysD2GWMYqmYSUaXdn2LKWjx7gPH7C?cluster=devnet) | 60,000 paid out, 60,000 retained |
+| Post-upgrade: creator withdraws half the retained share | [`KSxQrpaT…XVn6Ln6f`](https://explorer.solana.com/tx/KSxQrpaTejzuQhe1MxefwrFNbs7B7uEpwbPHmX6AiVrfU6679gpNsPzNPUnCdSor7QXW9gkjesuKNouXVn6Ln6f?cluster=devnet) | 30,000 withdrawn; recorded in the treasury ledger |
+| Deployed bytes vs builds, upgrade authority | read-only | `scripts/verify-deployed-bytes.mjs` → `artifacts/deployed-bytes-check.json` (all four match) |
 
 The separate DAMM v2 pool is directly seeded. It is **not** the graduated form of any DBC pool.
 
@@ -91,7 +98,7 @@ Meteora documents that configs are permissionless and that the config, not the p
 
 Until 22 September every Sonata launch reused the legacy config `CUeJ6fgs…`. Now `prepareLaunch` generates a fresh config keypair per launch ([`runtime.ts:693`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/lib/treasury/runtime.ts#L693)) and sends Meteora's `partner.createConfigAndPool` in one transaction ([`runtime.ts:741`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/lib/treasury/runtime.ts#L741)), naming the Sonata vault PDA as both `fee_claimer` and `leftover_receiver`. This uses a documented Meteora path; it is not a capability Sonata unlocked.
 
-No program redeploy was needed. At registration the treasury program validates the config it is handed rather than pinning an address: `pool.creator == creator`, `pool.config == config`, `pool.base_mint == base_mint`, `config.quote_mint == quote_mint`, `config.fee_claimer == vault` ([`stockroom-treasury/src/lib.rs:83-107`](https://github.com/umin-ai/sonata-protocol/blob/019c688e4083cfc877fb8a8cb78c8519b92efd8e/programs/stockroom-treasury/src/lib.rs#L83-L107)). The only hard-coded public key in that file is `declare_id!` at line 7. Because that source is not byte-verified (§6.1), the stronger evidence is behavioural: the deployed program accepted registration against the new config in [`2gvdw2GR…`](https://explorer.solana.com/tx/2gvdw2GRUHHEHt1rYK2Q1AgqtTsMsCtfp5JTbkR5ZGiQnN6ZjcrYKCtkKTUBYRyuTA41QMPLW3Mw5ZoNxL6NZMGZ?cluster=devnet).
+No program redeploy was needed. At registration the treasury program validates the config it is handed rather than pinning an address: `pool.creator == creator`, `pool.config == config`, `pool.base_mint == base_mint`, `config.quote_mint == quote_mint`, `config.fee_claimer == vault` ([`stockroom-treasury/src/lib.rs:83-107`](https://github.com/umin-ai/sonata-protocol/blob/019c688e4083cfc877fb8a8cb78c8519b92efd8e/programs/stockroom-treasury/src/lib.rs#L83-L107)). The only hard-coded public key in that file is `declare_id!` at line 7. Since 23 September those lines are byte-verified against the deployed program (§6.1). The behavioural evidence agrees: the program accepted registration against a new config both before the upgrade, in [`2gvdw2GR…`](https://explorer.solana.com/tx/2gvdw2GRUHHEHt1rYK2Q1AgqtTsMsCtfp5JTbkR5ZGiQnN6ZjcrYKCtkKTUBYRyuTA41QMPLW3Mw5ZoNxL6NZMGZ?cluster=devnet), and after it, in [`2eeR8ASt…b85uCc9Q`](https://explorer.solana.com/tx/2eeR8AStzus18m7Lnus5x4PEM6spMxXk2q1Nb1Sg5ssUSjoGrKeseJAWfYfLH4wD8TJ8F61LhZCzmPVdb85uCc9Q?cluster=devnet).
 
 `initialMarketCap` and `migrationMarketCap` are SDK inputs, not on-chain fields. Meteora's SDK reference describes `buildCurveWithMarketCap` as building a "config from market-cap targets" ([Meteora — TypeScript SDK reference](https://docs.meteora.ag/developer-guides/dbc/typescript-sdk/reference)). The quantity a reviewer can check on-chain is `migrationQuoteThreshold`, recorded in §4.
 
@@ -112,6 +119,8 @@ No program redeploy was needed. At registration the treasury program validates t
 
 For a 3% fee that is 0.6% to Meteora's protocol and 2.4% to the Sonata vault, then 1.2% paid out and 1.2% retained.
 
+Observed on the 3% pool after the upgrade (§4): a buy of 5,000,000 atoms (0.05 mSPY) was charged 150,000 in fees, exactly 3%. Meteora's protocol took 30,000 (20%) and 120,000 accrued to the vault. The treasury claimed all 120,000, paid 60,000 to the payout owner and retained 60,000, of which the creator then withdrew 30,000. `scripts/verify-fee-path.mjs` asserts each of these against on-chain state.
+
 The program defines three payout ratios — 100%, 50% and 0% ([`lib.rs:14-32`](https://github.com/umin-ai/sonata-protocol/blob/019c688e4083cfc877fb8a8cb78c8519b92efd8e/programs/stockroom-treasury/src/lib.rs#L14-L32)). The app registers and discovers only the 50/50 mode.
 
 ### 5.4 Graduation to DAMM v2
@@ -126,20 +135,20 @@ Sonata configs lock 100% of partner LP permanently, well above that floor. Conse
 
 ## 6. Security model
 
-### 6.1 Deployed treasury vs. published source
+### 6.1 Deployed programs vs. published source
 
 | Program | Deployed matches local build | Upgrade authority |
 |---|---|---|
-| `stockroom_treasury` `GPANv5z…` | **No** — on-chain `b4111fe7…`, rebuild `8d7ad9a3…` | `vb4pmin…` |
+| `stockroom_treasury` `GPANv5z…` | Yes, since 23 September — `8d7ad9a3…` (previously `b4111fe7…`) | `vb4pmin…` |
 | `stockroom_rewards` `6u1nXj1…` | Yes — `6195ac38…` | `vb4pmin…` |
 | `stockroom_credit` `4sS8MrfT…` | Yes — `fea21c47…` | `vb4pmin…` |
 | `demo_oracle` `E45Bq8CU…` | Yes — `50d5e020…` | `vb4pmin…` |
 
 Method: SHA-256 of the ProgramData bytes after the 45-byte header, over a window equal to the local build's length, with the remainder required to be zero. Reproduce with `node scripts/verify-deployed-bytes.mjs` after building.
 
-The treasury's source was restored after deployment, reformatted, and rebuilt with a reconciled lockfile. The rebuild passes the repository's tests but has never been deployed. Nobody can currently prove which source produced the deployed bytes.
+History: the treasury's source was restored after its 17 September deployment, reformatted, and rebuilt with a reconciled lockfile. The rebuild passed the repository's tests but was not deployed, so the published source could not be shown to produce the deployed bytes, and no one can now prove which source produced the original binary.
 
-The rebuild's IDL is identical to the IDL the frontend uses to decode the live treasury accounts (same instructions, discriminators and account types), so the account layout is compatible. **Remediation, not yet done:** upgrade the deployed program to the tested rebuild using the upgrade authority, then re-run the checker and the verification scripts. Program ID and existing accounts are unaffected by an upgrade.
+The rebuild's IDL is identical to the IDL the frontend uses to decode the live treasury accounts (same instructions, discriminators and account types), so the account layout is compatible. **Remediated on 23 September.** The program was upgraded to the tested rebuild (treasury tests 6/6 on that binary) in [`673Yrm9r…cf5w5qpY`](https://explorer.solana.com/tx/673Yrm9r9Hf7LfwZMmb1oRxf49D1cjpwEUgKB8LbZZmAoDkZzvHWwH4MXXXDaA3cyQREGZA8UfXaKc8Tcf5w5qpY?cluster=devnet), at slot 502,628,696. Program ID and accounts were unchanged: all three existing treasuries decode under the upgraded program with their ledgers intact (the flagship still reads 648,829 claimed and 324,415 retained). The checker was re-run, followed by a fresh launch and the full fee path (§4).
 
 ### 6.2 Upgrade authority: what "immutable" means here
 
@@ -182,7 +191,7 @@ The 18 September handoff called the snapshot "creator-attested/offchain". That u
 - The per-recipient split is never checked on-chain. The program stores `snapshot_hash` as given and never recomputes it from the allocations. The hash makes a later substitution detectable; it does not make one impossible.
 - The operator that computes rounds runs locally. It is not an always-on service.
 
-The rewards program's deployed bytes match its source (§6.1), so these citations are byte-verified.
+Both the rewards and treasury programs' deployed bytes match their source (§6.1), so these citations are byte-verified.
 
 Holder policies are keyed per market (`["holder-policy", treasury]`, [`holders.ts:30-33`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/lib/rewards/holders.ts#L30-L33)), so a creator can enable one on any market they created, after registration. Liquidity allocation is not generalised: the liquidity runtime is bound to the single pool `GHHFvUXd…`.
 
@@ -229,9 +238,7 @@ What Sonata does differently: the quote asset is a stock token, and each launch 
 ## 9. Not done
 
 - DBC → DAMM v2 migration execution, and the claim path for the locked post-migration position
-- Trades and fee collection on the per-launch 3% pool
 - A wallet-signed launch through the UI with a per-launch config
-- Upgrading the deployed treasury so it matches published source (§6.1)
 - Moving or revoking the upgrade authority (§6.2)
 - mNVDA, mQQQ and mTSLA Devnet mints
 - Launch-time holder or liquidity policy; liquidity allocation for any market other than `GHHFvUXd…`
@@ -244,11 +251,9 @@ What Sonata does differently: the quote asset is a stock token, and each launch 
 
 ## 10. Next steps, in order
 
-1. Decide whether to upgrade the deployed treasury to the tested rebuild. It is the most falsifiable gap in the project. Re-run `scripts/verify-deployed-bytes.mjs` and `scripts/verify-configurable-launch.mjs` afterwards.
-2. Trade on the 3% pool, then collect and allocate, so the chosen fee rate is shown charged on a swap.
-3. Record one wallet-signed launch through the UI with a per-launch config.
-4. Attempt migration on a pool that is **not** the flagship `BZVxHsS8…`. Filling the flagship's curve would permanently end the live trading demo. Order matters: collect and allocate before migrating. Stop and document the result if it does not land within the time available.
-5. Show graduation progress per market, reading each config's own threshold rather than a hard-coded value.
+1. Record one wallet-signed launch through the UI with a per-launch config.
+2. Attempt migration on a pool that is **not** the flagship `BZVxHsS8…`. Filling the flagship's curve would permanently end the live trading demo. Order matters: collect and allocate before migrating. Stop and document the result if it does not land within the time available.
+3. Show graduation progress per market, reading each config's own threshold rather than a hard-coded value.
 
 Do not spend mainnet funds. Do not deploy the frontend publicly until §6.8 is fixed.
 
@@ -263,7 +268,7 @@ The product is **Sonata**, renamed from the working name Stockroom on 22 Septemb
 ## 12. Reproduce, files and identities
 
 **Frontend** (`umin-ai/sonata`): `npm ci`, `npm run dev`, `npm test`, `npx tsc --noEmit`, `npm run build`.
-**Protocol** (`umin-ai/sonata-protocol`): `node --test tests/*.test.mjs`, `cargo test -p credit-math`, `node scripts/verify-deployed-bytes.mjs`, `node scripts/verify-configurable-launch.mjs` (the last one sends Devnet transactions and needs a funded key).
+**Protocol** (`umin-ai/sonata-protocol`): `node --test tests/*.test.mjs`, `cargo test -p credit-math`, `node scripts/verify-deployed-bytes.mjs`, `node scripts/verify-configurable-launch.mjs [out.json]` and `node scripts/verify-fee-path.mjs [proof.json] [out.json]` (these two send Devnet transactions and need the pool creator's funded key).
 
 Key frontend files: `lib/treasury/runtime.ts` (launch, registration, discovery, on-chain reads), `lib/treasury/dbc-preview.ts` (curve parameters shared by preview and launch), `lib/treasury/quote-assets.json` (quote-mint registry), `app/launch-settings.tsx` (launch options and `canDeploy`), `lib/rewards/` (holder scan and rewards), `lib/liquidity/runtime.ts` (DAMM v2 pool).
 

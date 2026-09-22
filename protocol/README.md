@@ -7,7 +7,7 @@ Anchor programs behind Sonata, a Solana launchpad where community tokens trade a
 - `scripts/verify-configurable-launch.mjs` deploys a per-launch DBC config, registers a treasury against it, and reads the resulting state back.
 - `scripts/verify-deployed-bytes.mjs` compares each deployed program with its local build. It is read-only and needs no keys.
 
-**Read [HANDOFF.md](HANDOFF.md) for status, on-chain evidence, the security model and Meteora references.** In short: the deployed `stockroom_treasury` does not match the source in this repository, while the other three programs do; all four programs are upgradeable by one key; and no program has been audited. Program crates keep the working name "stockroom"; HANDOFF.md §11 explains why.
+**Read [HANDOFF.md](HANDOFF.md) for status, on-chain evidence, the security model and Meteora references.** In short: all four deployed programs match the source in this repository byte for byte (the treasury only since its 23 September upgrade; run `scripts/verify-deployed-bytes.mjs` to check); all four are upgradeable by one key; and no program has been audited. Program crates keep the working name "stockroom"; HANDOFF.md §11 explains why.
 
 Tests: `node --test tests/*.test.mjs` runs 29 compiled-program tests (credit 12, rewards 11, treasury 5, treasury registration 1), and `cargo test -p credit-math` runs 6.
 

@@ -1,6 +1,6 @@
 {
   "network": "solana:devnet",
-  "checkedAt": "2026-09-22T18:16:22.892Z",
+  "checkedAt": "2026-09-22T21:53:19.652Z",
   "method": "sha256 of ProgramData bytes [45, 45 + local length), remainder required to be zero",
   "results": [
     {
@@ -12,9 +12,9 @@
         "path": "target/deploy/stockroom_treasury.so",
         "bytes": 280392,
         "sha256": "8d7ad9a3abd5c29387cc9678a518cae5bc6b9027e25ce1d9e1bd33bfc10a7da0",
-        "deployedWindowSha256": "b4111fe76f5f5004628bf04dbc868e68d2d8b55afe0df5e12fb45772bedb2a62",
+        "deployedWindowSha256": "8d7ad9a3abd5c29387cc9678a518cae5bc6b9027e25ce1d9e1bd33bfc10a7da0",
         "tailIsZero": true,
-        "matches": false
+        "matches": true
       }
     },
     {

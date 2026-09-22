@@ -237,8 +237,7 @@ const evidence = {
   checks,
   traces,
 };
-writeFileSync(
-  "artifacts/configurable-launch-proof.json",
-  JSON.stringify(evidence, null, 2),
-);
-console.log("\nAll checks passed. artifacts/configurable-launch-proof.json");
+// Optional output path, so a re-run does not overwrite earlier evidence.
+const out = process.argv[2] ?? "artifacts/configurable-launch-proof.json";
+writeFileSync(out, JSON.stringify(evidence, null, 2));
+console.log(`\nAll checks passed. ${out}`);
