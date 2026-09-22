@@ -1,0 +1,63 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-22T23:25:58.855Z",
+  "note": "Mock stock quote tokens, no monetary value. Same profile as mSPY; permissionless DBC quote assets.",
+  "tokens": [
+    {
+      "symbol": "mQQQ",
+      "name": "Mock Nasdaq-100 (Sonata devnet)",
+      "mint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mQQQ mint with metadata",
+          "signature": "39Mvt2hYXm4EXwQf6GV98LViVanV1aMaKydLz651HAYUTb3Hpq9MUdAJCUjHujCRErF1CvXvTk7bw2yRarY2zDB4"
+        },
+        {
+          "label": "Mint 10000 mQQQ to the deployer",
+          "signature": "3Lvg31bB79ihPN4VfBEs4TFDxA5Lxw1uEmAZcuHR7wypuuJKCdJidheW4dx8etyzd4qJLHEN5umPK2gjW4CMvFnz"
+        }
+      ]
+    },
+    {
+      "symbol": "mTSLA",
+      "name": "Mock Tesla (Sonata devnet)",
+      "mint": "4UK6qbvzW4zuUfK7mXeJbkVh7ByrPcJMmHB4Ff8MTBaH",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mTSLA mint with metadata",
+          "signature": "3n26HoKWXwPVMHLKPaAG5H4sKwpYvaaZxGweBm9L7ReegwMuAMHFrrvtizCqbxAgxzGKaiXZWUXeTFmmi8ZyeNjC"
+        },
+        {
+          "label": "Mint 10000 mTSLA to the deployer",
+          "signature": "2zoB9WBrUYrovrJ2qd6Kyad54m1RzSE6rU1V8d6jMZGVwSRvCs9RB4jgfegHDqxBBwBBMSQr86SB4p7TzZ4GYZZb"
+        }
+      ]
+    }
+  ]
+}
