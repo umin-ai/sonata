@@ -1,22 +1,24 @@
 # Sonata
 
-## Current local app — 18 September 2026
+## Current local app — 23 September 2026
 
-Open http://localhost:5173/ . Sonata's connected Devnet core supports market creation, trading, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, and funded member reward claims. One signing wallet connects Portfolio and Activity. All assets are valueless test tokens.
+**Current status, on-chain evidence, security model and Meteora references are in the protocol repository's [HANDOFF.md](https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md).** Read it before relying on anything below.
 
-- `/create` and `/onchain?pool=…`: Meteora DBC launch and Sonata treasury operations.
+Open http://localhost:5173/ . Sonata's connected Devnet core supports market creation, trading, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, holder-reward rounds and funded reward claims. One signing wallet connects Portfolio and Activity. All assets are valueless test tokens.
+
+- `/create` and `/onchain?pool=…`: Meteora DBC launch and Sonata treasury operations. Each launch creates its own DBC config.
 - `/capital`: atomically deploy a creator reserve into the supported ROOM/mSPY strategy, with matching ROOM from the creator wallet.
 - `/earn`: native Meteora LP positions, swaps, compounding and partial/full withdrawal.
-- `/rewards` (also `/community`): funded fixed-recipient campaigns and one-time claims.
+- `/rewards` (also `/community`): holder-reward policies and rounds, and funded fixed-recipient campaigns with one-time claims.
 - `/portfolio` and `/activity`: chain balances, positions and receipts.
 
-See [connected implementation and boundaries](docs/stockroom-live-capital-rewards-2026-09-18.md), [reconciled transactions](evidence/connected-journey.json), [liquidity evidence](docs/stockroom-live-liquidity-2026-09-18.md) and [submission draft](docs/stocklana-submission-draft-2026-09-18.md).
+Earlier notes, kept for history: [connected implementation and boundaries](docs/stockroom-live-capital-rewards-2026-09-18.md), [reconciled transactions](evidence/connected-journey.json), [liquidity evidence](docs/stockroom-live-liquidity-2026-09-18.md), [configurable launches](docs/configurable-dbc-launch-2026-09-22.md).
 
-The connected Devnet demonstration is verified. Production issuer integration, user-demand validation, public submission materials and bounty eligibility remain outstanding. LP positions are creator-owned; reward recipients are explicitly chosen, not automatically snapshotted token holders. No real-dollar TVL, guaranteed APY or mainnet readiness is claimed.
+The connected Devnet demonstration is verified. Production issuer integration, user-demand validation and bounty eligibility remain outstanding. LP positions are creator-owned. Reserve-funded campaigns pay explicitly chosen recipients; holder-reward rounds pay up to eight holders from a complete token-account snapshot, with the per-recipient split computed off-chain rather than checked by the program. No real-dollar TVL, guaranteed APY or mainnet readiness is claimed.
 
 Separate simulations remain at `/lab`, `/lab/create`, `/lab/portfolio`, `/lab/activity`, `/lab/community` and `/vaults/...`; the earlier credit sandbox remains at `/devnet`. Do not combine those features with the live implementation claims.
 
-Current checks: 57 frontend tests (`npm test`), TypeScript checking and production build pass. The protocol suite passes 24 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
+Current checks: 57 frontend tests (`npm test`), TypeScript checking and production build pass. The protocol suite passes 29 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
 
 ## Historical credit implementation
 
