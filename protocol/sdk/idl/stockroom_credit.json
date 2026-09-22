@@ -331,6 +331,16 @@
       "accounts": [
         {
           "name": "owner",
+          "docs": [
+            "The position owner. May be a program-derived address signing by CPI, so rent is paid by `payer`."
+          ],
+          "signer": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Pays rent for the position account. Usually the owner; must be a system-owned account."
+          ],
           "writable": true,
           "signer": true
         },

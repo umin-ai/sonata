@@ -25,7 +25,17 @@ const checks = [
     ],
   ],
   ["math", "cargo", ["test", "--locked", "-p", "credit-math"]],
-  ["sbf", "node", ["--test", "tests/credit.test.mjs"]],
+  [
+    "sbf",
+    "node",
+    [
+      "--test",
+      "tests/credit.test.mjs",
+      "tests/treasury.test.mjs",
+      "tests/treasury-registration.test.mjs",
+      "tests/rewards.test.mjs",
+    ],
+  ],
 ];
 const evidence = {
   checkedAt: new Date().toISOString(),
@@ -54,10 +64,12 @@ for (const [name, command, args] of checks) {
 const hash = (file) =>
   createHash("sha256").update(readFileSync(file)).digest("hex");
 evidence.binaries = Object.fromEntries(
-  ["stockroom_credit", "demo_oracle"].map((name) => [
-    name,
-    hash(`target/deploy/${name}.so`),
-  ]),
+  [
+    "stockroom_credit",
+    "demo_oracle",
+    "stockroom_treasury",
+    "stockroom_rewards",
+  ].map((name) => [name, hash(`target/deploy/${name}.so`)]),
 );
 const sourceFiles = [
   "Cargo.toml",
@@ -70,6 +82,10 @@ const sourceFiles = [
   "programs/demo-oracle/src/lib.rs",
   "programs/stockroom-credit/Cargo.toml",
   "programs/stockroom-credit/src/lib.rs",
+  "programs/stockroom-treasury/Cargo.toml",
+  "programs/stockroom-treasury/src/lib.rs",
+  "programs/stockroom-rewards/Cargo.toml",
+  "programs/stockroom-rewards/src/lib.rs",
   "sdk/client.mjs",
   "tests/credit.test.mjs",
   "tests/fixture.mjs",

@@ -16,6 +16,9 @@ export const CREDIT_ID = new PublicKey(
 export const ORACLE_ID = new PublicKey(
   "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
 );
+export const TREASURY_ID = new PublicKey(
+  "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj",
+);
 export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 export function marketAddresses(admin, collateralMint, debtMint) {
   const [market] = PublicKey.findProgramAddressSync(
@@ -110,6 +113,7 @@ export function createClient(creditIdl, oracleIdl, provider, config) {
         .initializePosition()
         .accountsStrict({
           owner,
+          payer: owner,
           market,
           position: positionAddress(market, owner),
           systemProgram: SystemProgram.programId,

@@ -4,7 +4,12 @@ import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { Connection, Keypair } from "@solana/web3.js";
-import { DEVNET_GENESIS, CREDIT_ID, ORACLE_ID } from "../sdk/client.mjs";
+import {
+  DEVNET_GENESIS,
+  CREDIT_ID,
+  ORACLE_ID,
+  TREASURY_ID,
+} from "../sdk/client.mjs";
 import { proveProgram } from "./program-proof.mjs";
 const rpc = "https://api.devnet.solana.com";
 // QUIC sends upload chunks directly to validators instead of opening hundreds
@@ -22,7 +27,7 @@ for (const [file, expected] of Object.entries(verification.sources))
     createHash("sha256").update(readFileSync(file)).digest("hex") !== expected
   )
     throw new Error(`Source changed after verification: ${file}`);
-for (const name of ["stockroom_credit", "demo_oracle"])
+for (const name of ["stockroom_credit", "demo_oracle", "stockroom_treasury"])
   if (
     createHash("sha256")
       .update(readFileSync(`target/deploy/${name}.so`))
@@ -52,6 +57,7 @@ const evidence = {
 for (const [name, id, keyFile] of [
   ["demo_oracle", ORACLE_ID, ".keys/oracle-program.json"],
   ["stockroom_credit", CREDIT_ID, ".keys/credit-program.json"],
+  ["stockroom_treasury", TREASURY_ID, ".keys/stockroom-treasury-program.json"],
 ]) {
   const programKey = Keypair.fromSecretKey(
     Uint8Array.from(JSON.parse(readFileSync(keyFile))),

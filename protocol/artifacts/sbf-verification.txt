@@ -2,69 +2,129 @@ TAP version 13
 # Subtest: lender → collateral → loan → accrued repayment → collateral release → lender redemption
 ok 1 - lender → collateral → loan → accrued repayment → collateral release → lender redemption
   ---
-  duration_ms: 145.316875
+  duration_ms: 222.385125
   ...
 # Subtest: opening LTV and cash availability reject unsafe actions atomically
 ok 2 - opening LTV and cash availability reject unsafe actions atomically
   ---
-  duration_ms: 120.886541
+  duration_ms: 132.386875
   ...
 # Subtest: position owner, vault, mint and oracle bindings reject substitution
 ok 3 - position owner, vault, mint and oracle bindings reject substitution
   ---
-  duration_ms: 119.707417
+  duration_ms: 112.886958
   ...
 # Subtest: stale, uncertain and closed-market prices stop new risk; repayment and top-up remain available
 ok 4 - stale, uncertain and closed-market prices stop new risk; repayment and top-up remain available
   ---
-  duration_ms: 122.35025
+  duration_ms: 129.764375
   ...
 # Subtest: pause authority is constrained; a pause cannot block repayment or debt-free collateral release
 ok 5 - pause authority is constrained; a pause cannot block repayment or debt-free collateral release
   ---
-  duration_ms: 69.967584
+  duration_ms: 139.994083
   ...
 # Subtest: slippage bounds and insufficient token funds roll back accounting
 ok 6 - slippage bounds and insufficient token funds roll back accounting
   ---
-  duration_ms: 110.465375
+  duration_ms: 134.472083
   ...
 # Subtest: partial liquidation transfers paid collateral with the bounded bonus
 ok 7 - partial liquidation transfers paid collateral with the bounded bonus
   ---
-  duration_ms: 83.0275
+  duration_ms: 92.051708
   ...
 # Subtest: exhausted collateral writes residual bad debt down against lender NAV
 ok 8 - exhausted collateral writes residual bad debt down against lender NAV
   ---
-  duration_ms: 58.751584
+  duration_ms: 78.562125
   ...
 # Subtest: raw-unit valuation is unaffected by a Scaled UI Amount display change
 ok 9 - raw-unit valuation is unaffected by a Scaled UI Amount display change
   ---
-  duration_ms: 63.701459
+  duration_ms: 86.617
   ...
 # Subtest: unsolicited vault donations cannot inflate accounted NAV or dilute depositors
 ok 10 - unsolicited vault donations cannot inflate accounted NAV or dilute depositors
   ---
-  duration_ms: 58.675125
+  duration_ms: 66.174542
   ...
 # Subtest: freeze authority and permanent delegate collateral mints are refused
 ok 11 - freeze authority and permanent delegate collateral mints are refused
   ---
-  duration_ms: 72.319167
+  duration_ms: 84.036791
   ...
 # Subtest: multiple debt holders and partial repayments close without phantom debt
 ok 12 - multiple debt holders and partial repayments close without phantom debt
   ---
-  duration_ms: 68.712041
+  duration_ms: 120.452667
   ...
-1..12
-# tests 12
+# Subtest: reserve funds escrow atomically; two independent recipients claim exact amounts once
+ok 13 - reserve funds escrow atomically; two independent recipients claim exact amounts once
+  ---
+  duration_ms: 148.550625
+  ...
+# Subtest: wrong recipient, redirected destination and invalid index cannot take funds
+ok 14 - wrong recipient, redirected destination and invalid index cannot take funds
+  ---
+  duration_ms: 40.668417
+  ...
+# Subtest: overfunding rolls back account creation and reserve withdrawal
+ok 15 - overfunding rolls back account creation and reserve withdrawal
+  ---
+  duration_ms: 20.623625
+  ...
+# Subtest: creator identity, unique recipients, positive amounts and maximum membership enforced
+ok 16 - creator identity, unique recipients, positive amounts and maximum membership enforced
+  ---
+  duration_ms: 41.588791
+  ...
+# Subtest: failed token transfer cannot mark a grant claimed
+ok 17 - failed token transfer cannot mark a grant claimed
+  ---
+  duration_ms: 19.705083
+  ...
+# Subtest: a failure after escrow funding rolls back the CPI reserve debit, ledger and new accounts
+ok 18 - a failure after escrow funding rolls back the CPI reserve debit, ledger and new accounts
+  ---
+  duration_ms: 15.350625
+  ...
+# Subtest: registration binds the DBC creator, config, mints and fee authority before custody exists
+ok 19 - registration binds the DBC creator, config, mints and fee authority before custody exists
+  ---
+  duration_ms: 242.963834
+  ...
+# Subtest: fixed payout + retained custody conserve tokens; only creator can recover retained assets
+ok 20 - fixed payout + retained custody conserve tokens; only creator can recover retained assets
+  ---
+  duration_ms: 129.142125
+  ...
+# Subtest: an attacker cannot redirect the payout, impersonate the creator, redirect withdrawals, or replay distribution
+ok 21 - an attacker cannot redirect the payout, impersonate the creator, redirect withdrawals, or replay distribution
+  ---
+  duration_ms: 32.949167
+  ...
+# Subtest: unallocated funds cannot be withdrawn and retained capital cannot be overdrawn
+ok 22 - unallocated funds cannot be withdrawn and retained capital cannot be overdrawn
+  ---
+  duration_ms: 21.747667
+  ...
+# Subtest: refrain distribution follows its immutable split
+ok 23 - refrain distribution follows its immutable split
+  ---
+  duration_ms: 18.457375
+  ...
+# Subtest: sustain distribution follows its immutable split
+ok 24 - sustain distribution follows its immutable split
+  ---
+  duration_ms: 22.041084
+  ...
+1..24
+# tests 24
 # suites 0
-# pass 12
+# pass 24
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1545.415542
+# duration_ms 1969.243375

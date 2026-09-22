@@ -1,0 +1,12 @@
+{
+  "network": "devnet",
+  "checkedAt": "2026-09-17T17:58:56.307Z",
+  "program": "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj",
+  "programData": "5oVbGAHm5uGjgJMkAeBeBRHLGwFCtFihLQNX4Dxh3mr9",
+  "deployedBytes": 280392,
+  "deployedSha256": "b4111fe76f5f5004628bf04dbc868e68d2d8b55afe0df5e12fb45772bedb2a62",
+  "originalDeploymentHashVerified": true,
+  "rebuiltLocalSha256": "8d7ad9a3abd5c29387cc9678a518cae5bc6b9027e25ce1d9e1bd33bfc10a7da0",
+  "rebuiltMatchesDeployment": false,
+  "note": "Original Stockroom deployment is unchanged. Restored source was reformatted and lockfile reconciled; the rebuilt binary is separately tested, not deployed."
+}

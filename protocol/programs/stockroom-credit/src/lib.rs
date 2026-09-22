@@ -541,10 +541,13 @@ pub struct InitializeMarket<'info> {
 }
 #[derive(Accounts)]
 pub struct InitializePosition<'info> {
-    #[account(mut)]
+    /// The position owner. May be a program-derived address signing by CPI, so rent is paid by `payer`.
     pub owner: Signer<'info>,
+    /// Pays rent for the position account. Usually the owner; must be a system-owned account.
+    #[account(mut)]
+    pub payer: Signer<'info>,
     pub market: Account<'info, Market>,
-    #[account(init,payer=owner,space=8+Position::INIT_SPACE,seeds=[b"position",market.key().as_ref(),owner.key().as_ref()],bump)]
+    #[account(init,payer=payer,space=8+Position::INIT_SPACE,seeds=[b"position",market.key().as_ref(),owner.key().as_ref()],bump)]
     pub position: Account<'info, Position>,
     pub system_program: Program<'info, System>,
 }

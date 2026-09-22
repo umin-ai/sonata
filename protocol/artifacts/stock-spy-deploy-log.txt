@@ -1,0 +1,8 @@
+file:///Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/scripts/stock-liquidity-lifecycle.mjs:45
+    throw Error("RPC rate limited; rerun to resume confirmed steps.");
+          ^
+
+Error: RPC rate limited; rerun to resume confirmed steps.
+    at file:///Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/scripts/stock-liquidity-lifecycle.mjs:45:11
+
+Node.js v22.14.0

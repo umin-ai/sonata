@@ -41,7 +41,12 @@ mkdirSync("sdk/idl", { recursive: true });
 mkdirSync("target/types", { recursive: true });
 mkdirSync("artifacts", { recursive: true });
 const binaries = {};
-for (const name of ["stockroom_credit", "demo_oracle"]) {
+for (const name of [
+  "stockroom_credit",
+  "demo_oracle",
+  "stockroom_treasury",
+  "stockroom_rewards",
+]) {
   run([
     "idl",
     "build",
@@ -73,6 +78,10 @@ const sourceFiles = [
   "programs/demo-oracle/src/lib.rs",
   "programs/stockroom-credit/Cargo.toml",
   "programs/stockroom-credit/src/lib.rs",
+  "programs/stockroom-treasury/Cargo.toml",
+  "programs/stockroom-treasury/src/lib.rs",
+  "programs/stockroom-rewards/Cargo.toml",
+  "programs/stockroom-rewards/src/lib.rs",
 ];
 const sources = Object.fromEntries(
   sourceFiles.map((file) => [

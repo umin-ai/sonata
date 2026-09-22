@@ -22,6 +22,8 @@
   "description": "Stockroom isolated credit protocol for Solana Devnet",
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",
+    "@meteora-ag/cp-amm-sdk": "1.4.8",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.12",
     "@solana/spl-token": "0.4.15",
     "@solana/spl-token-metadata": "0.1.6",
     "@solana/web3.js": "1.99.0"

@@ -1,0 +1,19 @@
+(node:38389) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Enable 50% holder rewards / 60-second Devnet interval 5hetD5fC1u6RmGCtr3Yx5F8y2uFd9AineafP8zzeXe9Md22W3VJxQvjCVrpiQV8QXboTxP4hk21iRAkCRBJA867u
+Collect market fees 4WQ7KGEbWkG7tMmq25PDPAm6CSNooafnKqkyHsfxLx6AYynT3NoKm67gJ8vFuvBgCh3uGBkvjnVkCzApD28o8WsB
+Allocate collected fees 5Q1Bmmu1nrSiq7joXC9DE3c4hainPmxef3VwkVvyE8KYQUmXCt4s2KYQFC1Adm18L3c9V2eFJFiU1gdXEUUpyzPx
+/Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/node_modules/@solana/web3.js/lib/index.cjs.js:6673
+      throw new SolanaJSONRPCError(res.error, `failed to get accounts owned by program ${programId.toBase58()}`);
+            ^
+
+SolanaJSONRPCError: failed to get accounts owned by program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA excluded from account secondary indexes; this RPC method unavailable for key. If you're trying to query the Token Program, please refer to: https://docs.triton.one/chains/solana/token-program
+    at Connection.getProgramAccounts (/Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/node_modules/@solana/web3.js/lib/index.cjs.js:6673:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async tick (file:///Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/scripts/holder-operator.mjs:66:13)
+    at async file:///Users/morganlee/Documents/ChatGPT/solana-forward/stockroom-protocol/scripts/holder-operator.mjs:77:8 {
+  code: -32010,
+  data: undefined
+}
+
+Node.js v22.14.0

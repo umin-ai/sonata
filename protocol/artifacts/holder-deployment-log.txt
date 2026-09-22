@@ -1,0 +1,22 @@
+{
+  "programId": "6u1nXj1iXNxCGThKetW45MSpXeEdn5GFw6NaZa4Mpn1L",
+  "signature": "3W7K9rUp5gtUjU6Lr9VnkyR6gnAJDJUkrdsGtpXLTCT1esChsoyU37dUtY9XRTZDQDPd4zNThYCesStZ6d9q2NZp"
+}
+
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 1000ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 2000ms delay...
+{
+  network: 'devnet',
+  verifiedAt: '2026-09-17T22:25:23.612Z',
+  tests: '9/9 SBF tests passed',
+  proof: {
+    name: 'stockroom_rewards',
+    program: '6u1nXj1iXNxCGThKetW45MSpXeEdn5GFw6NaZa4Mpn1L',
+    loader: 'BPFLoaderUpgradeab1e11111111111111111111111',
+    programData: '4gYCFhK4HHKxk9zSweBKKjjj5pCMw8V7bB9WpPEPXHwu',
+    bytes: 329536,
+    sha256: '6195ac388f9539c63c8ee08fc245a86e1264b0c2af1bb9dd0bee85522206cb81',
+    exactBinaryMatch: true
+  }
+}
