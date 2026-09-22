@@ -25,7 +25,7 @@ Explorer links use `?cluster=devnet`.
 
 ## 2. What Sonata is
 
-A Solana launchpad where a creator launches a community token that trades against a tokenized stock rather than against SOL or USDC. It uses Meteora's Dynamic Bonding Curve (DBC) for launch and price discovery, and is designed to graduate liquidity into a Meteora DAMM v2 pool. Trading fees accrue in the stock token. The target user is a memecoin-literate trader, not an issuer or enterprise.
+A Solana launchpad where a creator launches a community token that trades against a tokenized stock rather than against SOL or USDC. It uses Meteora's Dynamic Bonding Curve (DBC) for launch and price discovery, and graduates liquidity into a Meteora DAMM v2 pool when a curve completes. Trading fees accrue in the stock token. The target user is a memecoin-literate trader, not an issuer or enterprise.
 
 A community token paired with a stock token is not backed equity and conveys no claim on the stock.
 
@@ -43,10 +43,11 @@ Product flow: **Launch → Trade → Earn.** Demand and sustainable returns are 
 | | Reserve-funded reward campaign with recipient self-claim |
 | | Separate DAMM v2 pool: creation, deposits, an independent swap, partial and full exits |
 | | **Post-upgrade:** a second per-launch config and registration, and the full fee path on the 3% pool — a buy charged at exactly 3%, Meteora's 20% protocol share, claim into custody, 50/50 allocation and a creator withdrawal |
+| | **Graduation:** a per-launch pool's curve completed, its fees collected, then migrated to DAMM v2 with 100% of LP permanently locked under the Sonata vault; the graduated pool then accepted a trade |
 | **Implemented, not yet exercised on-chain** | A wallet-signed launch **through the UI** using a per-launch config. The UI path ([`runtime.ts:656`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/lib/treasury/runtime.ts#L656)) typechecks and builds. The on-chain proof used the same SDK call from a script, not from the browser. |
 | **Blocked by design** | Choosing holder rewards or liquidity allocation *at launch*. `canDeploy` requires the treasury policy ([`launch-settings.tsx:10`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/launch-settings.tsx#L10)). Holder policies can be enabled *after* registration on any market (§6.5); liquidity allocation to a new market is not wired. |
 | | mNVDA, mQQQ and mTSLA as quote assets. No Devnet mint exists; the UI shows "No Devnet mint yet". |
-| **Not built** | DBC → DAMM v2 migration execution. No migration code exists in either repository. |
+| **Not built** | A claim path for fees earned by the locked post-graduation LP position (§5.4) |
 | | Indexed per-market metrics and price history |
 | | Mainnet deployment, and the Meteora token-badge path that real stock tokens require (§7) |
 
@@ -84,6 +85,11 @@ Every signature below was queried on 23 September with `getSignatureStatuses` an
 | Post-upgrade: claim into treasury custody | [`56h8GCW5…6DwaBUV6`](https://explorer.solana.com/tx/56h8GCW527wH1o9b3uj8439ViMiemiv2iDv5dWip8YQL4Fq61nqGfKkSNq6GDRyJEjFCf9b5r6Cerywb6DwaBUV6?cluster=devnet) | 120,000 claimed = the partner fee accrued on the pool |
 | Post-upgrade: 50/50 allocation | [`2aDSaWaE…jx7gPH7C`](https://explorer.solana.com/tx/2aDSaWaEdJGBfRMjLLSPgxePY53drcdKzyayirGYPBwXEd9MFaaTdmmHPRFysD2GWMYqmYSUaXdn2LKWjx7gPH7C?cluster=devnet) | 60,000 paid out, 60,000 retained |
 | Post-upgrade: creator withdraws half the retained share | [`KSxQrpaT…XVn6Ln6f`](https://explorer.solana.com/tx/KSxQrpaTejzuQhe1MxefwrFNbs7B7uEpwbPHmX6AiVrfU6679gpNsPzNPUnCdSor7QXW9gkjesuKNouXVn6Ln6f?cluster=devnet) | 30,000 withdrawn; recorded in the treasury ledger |
+| Graduation: curve completed on pool [`3HL7AdmR…cap9JNUq`](https://explorer.solana.com/address/3HL7AdmRt8J4p25v61GSkBmkFX7i1SKN5xWbcap9JNUq?cluster=devnet) | [`67Em6AuL…fAvja4wx`](https://explorer.solana.com/tx/67Em6AuLwHT7YvGRMoWEgKZt7cPdBAdUVS7k5m3PbaV7oRDRDQnNvQnRuBkvtMzgJJKqpVZqdWPXVFdMfAvja4wx?cluster=devnet) | `artifacts/graduation-proof.json`: quote reserve 450,000,000 = threshold |
+| Graduation: fees claimed before migration | [`37gU5ext…63kXodXy`](https://explorer.solana.com/tx/37gU5extw4qr6NknUgJ5kBVVmeATY6HNgkCiaADuKBxjaxYpS3b9rdRDaAErM6KE7Y175mFYykYgy4wW63kXodXy?cluster=devnet) | 11,134,021 claimed |
+| Graduation: 50/50 allocation before migration | [`4ZHtEE2f…6KyTshzC`](https://explorer.solana.com/tx/4ZHtEE2fhuRnhNqPfDXxPvUGr89Vc7NbKDw7FECqDs2XqyTBDmXmMs5e8ogzYrc2HesZ3adMErZz9aVN6KyTshzC?cluster=devnet) | 5,567,010 paid out, 5,567,011 retained |
+| Graduation: migrated to DAMM v2 | [`evacEVfU…mhNwjtN5`](https://explorer.solana.com/tx/evacEVfULVpH3hJLX4EaJZwJB6FLeayeZEZfWw9ECSwPhYcvf1P1RAr6wSZxWiUxcwjWQDc1YaxQvgEmhNwjtN5?cluster=devnet) | DAMM v2 pool [`2w3DJLxu…uhe7MSyq`](https://explorer.solana.com/address/2w3DJLxuRaDe75wV3wzdvGg5gdopoMFm7hQ1uhe7MSyq?cluster=devnet); position [`FkrcTbDj…Unoowp1H`](https://explorer.solana.com/address/FkrcTbDj8ysHjc81Fu1i3AdpxEJPn8eyTfBYUnoowp1H?cluster=devnet) |
+| Trade on the graduated pool | [`A9LYT61x…j1cenjNj`](https://explorer.solana.com/tx/A9LYT61xXTYbGAtRbBeVhNkxNYrm7uVA3kbwmEuGC6soDPtMTNJfBFU9MFTbMH9yaWanx8CCpCfCw4Pj1cenjNj?cluster=devnet) | `artifacts/graduated-trade-proof.json` |
 | Deployed bytes vs builds, upgrade authority | read-only | `scripts/verify-deployed-bytes.mjs` → `artifacts/deployed-bytes-check.json` (all four match) |
 
 The separate DAMM v2 pool is directly seeded. It is **not** the graduated form of any DBC pool.
@@ -129,7 +135,17 @@ Meteora specifies that "New DBC configs and new pools must use DAMM v2", that "D
 
 Sonata configs lock 100% of partner LP permanently, well above that floor. Consequently no party, including the Sonata vault, can withdraw migrated LP principal.
 
-**Migration has not been executed.** No migration code exists in either repository, and the fee accrual and claim path for the locked post-migration position are unbuilt. Solana Compass reports that Meteora confirmed its mainnet Migration Keepers for stock-token pairs on 16 September ([Solana Compass](https://solanacompass.com/news/meteora-opens-token-launches-paired-with-backpack-issued-stocks-via-stocklaunch)); that concerns mainnet and is not demonstrated here.
+**Migration has been executed once, on Devnet** (§4), on per-launch pool [`3HL7AdmR…cap9JNUq`](https://explorer.solana.com/address/3HL7AdmRt8J4p25v61GSkBmkFX7i1SKN5xWbcap9JNUq?cluster=devnet) rather than the flagship, whose curve stays open for the live trading demo. `scripts/verify-graduation.mjs` runs it in the order that matters:
+
+1. A `PartialFill` buy completes the curve. Of 480,000,000 atoms offered, 463,917,526 were used: 450,000,000 into the curve, exactly the migration threshold, plus the 3% fee. The rest was returned. With no vesting configured, the completing swap moves the pool straight to the migration-ready state; there is no locker step ([Meteora DBC `process_swap.rs` at `f552f20`](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/f552f20aa3c1c7631427c3827aeea7c58b902813/programs/dynamic-bonding-curve/src/instructions/swap/process_swap.rs)).
+2. Partner fees are claimed and allocated while the pool is still a DBC pool.
+3. `migrateToDammV2` is called with the DAMM v2 config for the pool's migration fee option, `FixedBps100`: [`Hv8Lmzmn…Xz8RXcjp`](https://explorer.solana.com/address/Hv8Lmzmnju6m7kcokVKvwqz7QPmdX9XfKjJsXz8RXcjp?cluster=devnet), whose pool-creator authority is the DBC pool authority, as migration requires. Meteora's separate `migration_damm_v2_create_metadata` instruction is deprecated and does nothing at this revision, so it is not called ([source](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/f552f20aa3c1c7631427c3827aeea7c58b902813/programs/dynamic-bonding-curve/src/instructions/migration/dynamic_amm_v2/migration_damm_v2_create_metadata.rs)).
+
+`scripts/read-graduation.mjs` then verifies from chain, without keys: the DBC pool is marked migrated; the DAMM v2 pool [`2w3DJLxu…uhe7MSyq`](https://explorer.solana.com/address/2w3DJLxuRaDe75wV3wzdvGg5gdopoMFm7hQ1uhe7MSyq?cluster=devnet) exists under Meteora's DAMM v2 program and holds both mints; and exactly one LP position was created, owned by the Sonata vault PDA, with all of its liquidity permanently locked and none unlocked. Meteora creates the larger distribution's position first and assigns it to the config's `fee_claimer`; with a 0% creator share, no creator position is created ([source](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/f552f20aa3c1c7631427c3827aeea7c58b902813/programs/dynamic-bonding-curve/src/instructions/migration/dynamic_amm_v2/migrate_damm_v2_initialize_pool.rs)). A later buy on the graduated pool, [`A9LYT61x…j1cenjNj`](https://explorer.solana.com/tx/A9LYT61xXTYbGAtRbBeVhNkxNYrm7uVA3kbwmEuGC6soDPtMTNJfBFU9MFTbMH9yaWanx8CCpCfCw4Pj1cenjNj?cluster=devnet), confirms it trades.
+
+**Limit, stated plainly:** the locked position earns DAMM v2 trading fees, but it is owned by the vault PDA and `stockroom_treasury` has no instruction to claim DAMM v2 position fees. Measured after the one trade above, the position already held 7,999 atoms of unclaimed mSPY fees — 0.8% of the 1,000,000-atom input, consistent with the 1% `FixedBps100` pool fee less the protocol share — read with the DAMM v2 SDK's `getUnClaimLpFee`. Those fees accrue and cannot currently be collected. Closing that needs a treasury program change.
+
+Solana Compass reports that Meteora confirmed its mainnet Migration Keepers for stock-token pairs on 16 September ([Solana Compass](https://solanacompass.com/news/meteora-opens-token-launches-paired-with-backpack-issued-stocks-via-stocklaunch)). Sonata's Devnet migration was triggered by our own script, not by a keeper.
 
 ---
 
@@ -237,7 +253,7 @@ What Sonata does differently: the quote asset is a stock token, and each launch 
 
 ## 9. Not done
 
-- DBC → DAMM v2 migration execution, and the claim path for the locked post-migration position
+- A claim path for fees earned by the locked post-graduation position (§5.4)
 - A wallet-signed launch through the UI with a per-launch config
 - Moving or revoking the upgrade authority (§6.2)
 - mNVDA, mQQQ and mTSLA Devnet mints
@@ -252,8 +268,7 @@ What Sonata does differently: the quote asset is a stock token, and each launch 
 ## 10. Next steps, in order
 
 1. Record one wallet-signed launch through the UI with a per-launch config.
-2. Attempt migration on a pool that is **not** the flagship `BZVxHsS8…`. Filling the flagship's curve would permanently end the live trading demo. Order matters: collect and allocate before migrating. Stop and document the result if it does not land within the time available.
-3. Show graduation progress per market, reading each config's own threshold rather than a hard-coded value.
+2. Show graduation progress per market, reading each config's own threshold rather than a hard-coded value.
 
 Do not spend mainnet funds. Do not deploy the frontend publicly until §6.8 is fixed.
 
@@ -268,7 +283,7 @@ The product is **Sonata**, renamed from the working name Stockroom on 22 Septemb
 ## 12. Reproduce, files and identities
 
 **Frontend** (`umin-ai/sonata`): `npm ci`, `npm run dev`, `npm test`, `npx tsc --noEmit`, `npm run build`.
-**Protocol** (`umin-ai/sonata-protocol`): `node --test tests/*.test.mjs`, `cargo test -p credit-math`, `node scripts/verify-deployed-bytes.mjs`, `node scripts/verify-configurable-launch.mjs [out.json]` and `node scripts/verify-fee-path.mjs [proof.json] [out.json]` (these two send Devnet transactions and need the pool creator's funded key).
+**Protocol** (`umin-ai/sonata-protocol`): `node --test tests/*.test.mjs`, `cargo test -p credit-math`, `node scripts/verify-deployed-bytes.mjs`, `node scripts/verify-configurable-launch.mjs [out.json]` and `node scripts/verify-fee-path.mjs [proof.json] [out.json]`, `node scripts/verify-graduation.mjs [proof.json] [out.json]` and `node scripts/verify-graduated-trade.mjs` (these send Devnet transactions and need the pool creator's funded key); `node scripts/read-graduation.mjs <proof.json> <out.json> <four signatures>` is read-only. Never run the graduation script against the flagship; it refuses to.
 
 Key frontend files: `lib/treasury/runtime.ts` (launch, registration, discovery, on-chain reads), `lib/treasury/dbc-preview.ts` (curve parameters shared by preview and launch), `lib/treasury/quote-assets.json` (quote-mint registry), `app/launch-settings.tsx` (launch options and `canDeploy`), `lib/rewards/` (holder scan and rewards), `lib/liquidity/runtime.ts` (DAMM v2 pool).
 
@@ -286,6 +301,7 @@ Key protocol files: `programs/stockroom-treasury/src/lib.rs`, `programs/stockroo
 | Legacy shared config | `CUeJ6fgsw6wGXPCBchj9jxpkGVWzanXxYJFMiAPJea5J` |
 | Flagship ROOM/mSPY DBC pool / treasury | `BZVxHsS8DQAkigYvQAPfssFGZRVSuWSYHrYQn2QmeFSf` / `QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr` |
 | Separate ROOM/mSPY DAMM v2 pool | `GHHFvUXdyEwVgadW7LRnrnVFPhSwWMs5qauNfcYZuH9v` |
+| Graduated per-launch DBC pool / its DAMM v2 pool | `3HL7AdmRt8J4p25v61GSkBmkFX7i1SKN5xWbcap9JNUq` / `2w3DJLxuRaDe75wV3wzdvGg5gdopoMFm7hQ1uhe7MSyq` |
 
 Never copy private key files or credentials into logs. `.keys/` and `.env*` are git-ignored in both repositories.
 

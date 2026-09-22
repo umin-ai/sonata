@@ -6,6 +6,7 @@ Anchor programs behind Sonata, a Solana launchpad where community tokens trade a
 - `programs/stockroom-rewards` holds holder-reward policies and funded reward campaigns paid from a treasury's retained fees.
 - `scripts/verify-configurable-launch.mjs` deploys a per-launch DBC config, registers a treasury against it, and reads the resulting state back.
 - `scripts/verify-deployed-bytes.mjs` compares each deployed program with its local build. It is read-only and needs no keys.
+- `scripts/verify-fee-path.mjs` and `scripts/verify-graduation.mjs` exercise the fee path and DBC → DAMM v2 graduation on a per-launch pool; `scripts/read-graduation.mjs` re-verifies a graduation read-only.
 
 **Read [HANDOFF.md](HANDOFF.md) for status, on-chain evidence, the security model and Meteora references.** In short: all four deployed programs match the source in this repository byte for byte (the treasury only since its 23 September upgrade; run `scripts/verify-deployed-bytes.mjs` to check); all four are upgradeable by one key; and no program has been audited. Program crates keep the working name "stockroom"; HANDOFF.md §11 explains why.
 
