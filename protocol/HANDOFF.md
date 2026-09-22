@@ -46,13 +46,14 @@ Product flow: **Launch → Trade → Earn.** Demand and sustainable returns are 
 | | **Graduation:** a per-launch pool's curve completed, its fees collected, then migrated to DAMM v2 with 100% of LP permanently locked under the Sonata vault; the graduated pool then accepted a trade |
 | | **Graduation progress in the app:** each market card and market page reads its pool's quote reserve against its own config's threshold, from accounts `readTreasury` already fetches (flagship 23.0% of 3.47877538 mSPY; the 2 → 18 pools against 4.5 mSPY). Graduated markets show their DAMM v2 pool and replace the curve swap with a notice. Logic in `lib/treasury/graduation.ts`, tested in `graduation.test.ts` |
 | **Implemented, not yet exercised on-chain** | A wallet-signed launch **through the UI** using a per-launch config. The UI path ([`runtime.ts:656`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/lib/treasury/runtime.ts#L656)) typechecks and builds. The on-chain proof used the same SDK call from a script, not from the browser. |
+| | **Dollar launch targets priced by Pyth Pro.** Presets are set in US dollars ($5,000 opening; $25K / $50K / $100K graduation) and converted to the quote token at a Pyth Pro price (`Equity.US.SPY/USD`, feed 1398) when chosen; the converted amounts are the on-chain curve inputs and do not move afterwards. A price is refused if its confidence interval exceeds ±1% or it is stale for its market session, and a closed-market price is labelled with its date. Logic in `lib/pricing/stock-price.ts` (tested); server route `app/api/stock-price/route.ts` keeps the key server-side. The screen was verified with a stand-in Pyth response in the browser; **the live Pyth call has not been exercised**, because it needs a `PYTH_PRO_API_KEY`. Without one, launches fall back to mSPY targets. |
 | **Blocked by design** | Choosing holder rewards or liquidity allocation *at launch*. `canDeploy` requires the treasury policy ([`launch-settings.tsx:10`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/launch-settings.tsx#L10)). Holder policies can be enabled *after* registration on any market (§6.5); liquidity allocation to a new market is not wired. |
 | | mNVDA, mQQQ and mTSLA as quote assets. No Devnet mint exists; the UI shows "No Devnet mint yet". |
 | **Not built** | A claim path for fees earned by the locked post-graduation LP position (§5.4) |
 | | Indexed per-market metrics and price history |
 | | Mainnet deployment, and the Meteora token-badge path that real stock tokens require (§7) |
 
-Tests, run on 23 September: frontend `npm test` 61/61; protocol `node --test tests/*.test.mjs` 29/29 (credit 12, rewards 11, treasury 5, treasury registration 1); `cargo test -p credit-math` 6/6. Neither repository has CI; these run locally.
+Tests, run on 23 September: frontend `npm test` 69/69; protocol `node --test tests/*.test.mjs` 29/29 (credit 12, rewards 11, treasury 5, treasury registration 1); `cargo test -p credit-math` 6/6. Neither repository has CI; these run locally.
 
 ---
 
@@ -324,6 +325,9 @@ Every external page below returned HTTP 200 on 23 September, and each quotation 
 - [Program instructions](https://docs.meteora.ag/developer-guides/dbc/program/instructions)
 - [DBC SDK](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk) — version 1.5.12 used by the frontend
 - [DBC program source at `f552f20`](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/f552f20aa3c1c7631427c3827aeea7c58b902813/programs/dynamic-bonding-curve/src/access_control.rs) — the revision the treasury pins
+
+**Pyth**
+- [Pyth Pro: acquire an API key](https://docs.pyth.network/price-feeds/pro/acquire-api-key), [REST API](https://docs.pyth.network/price-feeds/pro/api/rest), [payload reference](https://docs.pyth.network/price-feeds/pro/payload-reference) — `POST /v1/latest_price`, bearer key kept server-side, `marketSession` values
 
 **Other products**
 - [Solana Compass — StockLaunch on Meteora DBC](https://solanacompass.com/news/meteora-opens-token-launches-paired-with-backpack-issued-stocks-via-stocklaunch)
