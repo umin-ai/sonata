@@ -5,7 +5,7 @@ import {TokenName} from './token-identity';
 import {Label} from '@/components/ui/label';
 import {isDeployableQuote} from '@/lib/treasury/quote-assets';
 import {OPEN_USD,GRADUATION_USD,usdToQuote,formatUsd,formatPriceTime,type StockPrice} from '@/lib/pricing/stock-price';
-// A dollar target converted to quote units at a Pyth price. The converted
+// A dollar target converted to quote units at the Solana market price. The converted
 // initial/target are what the on-chain config uses; the snapshot records the
 // price that produced them and does not move afterwards.
 export type Pricing={source:'pyth'|'jupiter';openUsd:number;targetUsd:number;price:number;confidenceRatio:number;publishTimeMs:number;label:string;live:boolean;feed:string};
@@ -15,7 +15,7 @@ export type PythState=
  |{status:'unconfigured'}
  |{status:'error';message:string}
  |{status:'unusable';message:string;data:StockPrice}
- |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number;crossCheck?:{price:number;divergence:number}};
+ |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number;guard?:{feed:string;price:number;divergence:number}};
 export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fee:100,rewards:'treasury'};
 // Every curve and fee combination now deploys as its own DBC config. What still
 // gates a launch is a quote mint that exists onchain and a reward policy the
@@ -50,7 +50,7 @@ export function LaunchSettingsStep({step,value,onChange,price,pyth,onRefreshPric
     <button type="button" className="pyth-refresh" onClick={onRefreshPrice} aria-label="Refresh price"><RefreshCw size={15}/>Refresh</button>
    </div>
    {!livePrice&&pyth.status!=='loading'&&<p className="sr-note" role="status">Could not refresh the price{pyth.status==='error'||pyth.status==='unusable'?`: ${pyth.message}`:''}. The targets below stay at the price shown.</p>}
-   {p&&p.source==='pyth'&&!p.live&&<p className="sr-note" role="status">The US market is closed, so this is the last traded price, not a live one.</p>}{p&&p.source==='jupiter'&&<p className="sr-note">Priced from {value.quote.slice(1)}x, the real tokenized stock, across Solana markets via Jupiter. It trades around the clock, so outside US market hours this reflects Solana trading rather than the stock exchange.</p>}{livePrice?.crossCheck&&<p className="sr-note">Cross-checked: Solana market {formatUsd(livePrice.crossCheck.price)}, {(livePrice.crossCheck.divergence*100).toFixed(2)}% from Pyth.</p>}
+   {p&&p.source==='pyth'&&!p.live&&<p className="sr-note" role="status">The US market is closed, so this is the last traded price, not a live one.</p>}{p&&p.source==='jupiter'&&<p className="sr-note">Priced from {value.quote.slice(1)}x, the real tokenized stock, across Solana markets via Jupiter. It trades around the clock, so outside US market hours this reflects Solana trading rather than the stock exchange.</p>}{livePrice?.guard&&<p className="sr-note">Checked against Pyth ({livePrice.guard.feed}): {formatUsd(livePrice.guard.price)}, {(livePrice.guard.divergence*100).toFixed(2)}% apart. Pyth guards the price but does not set it; a gap above 1% would block the launch.</p>}
    <p className="sr-note">Opens at <strong>{formatUsd(OPEN_USD)}</strong> market cap. Choose where it graduates and the trading fee.</p>
    <fieldset><legend>Graduation market cap</legend><div className="curve-presets">{GRADUATION_USD.map((target,i)=><button type="button" key={target} disabled={!livePrice} aria-pressed={p?.targetUsd===target} onClick={()=>livePrice&&onChange(priceLaunch(value,target,livePrice))}><strong>{formatUsd(target)}</strong><small>{p?`≈ ${usdToQuote(target,p.price).toLocaleString(undefined,{maximumFractionDigits:2})} ${value.quote}`:value.quote}</small><span>{GRADUATION_LABELS[i]}</span><span className="preset-check" aria-hidden="true">{p?.targetUsd===target?'✓':'○'}</span></button>)}</div></fieldset>
    {feeChoices}{route}

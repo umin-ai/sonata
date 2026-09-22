@@ -36,6 +36,7 @@ import {
 import { prepareRewardClaim } from "@/lib/rewards/runtime";
 import { rewardBudget } from "@/lib/rewards/holder-math";
 import { formatUnits } from "@/lib/treasury/units";
+import { REWARDS_MINT } from "@/lib/treasury/quote-assets";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-4)}`;
 const time = (n: number) => new Date(n * 1000).toLocaleString();
 export default function RewardsPage() {
@@ -45,6 +46,8 @@ export default function RewardsPage() {
       { market: Market; state: TreasurySnapshot }[]
     >([]),
     [loading, setLoading] = useState(true),
+    // Markets hidden because the rewards program funds only mSPY.
+    [excluded, setExcluded] = useState(0),
     [error, setError] = useState(""),
     [selected, setSelected] = useState(""),
     [share, setShare] = useState("50"),
@@ -61,8 +64,11 @@ export default function RewardsPage() {
     try {
       const rewards = await readHolderRewards();
       const rows = [];
-      for (const market of await discoverMarkets())
+      const all = await discoverMarkets();
+      // Only mSPY markets can be funded by the rewards program.
+      for (const market of all.filter((m) => m.quoteMint === REWARDS_MINT))
         rows.push({ market, state: await readTreasury(market) });
+      if (id === request.current) setExcluded(all.length - rows.length);
       if (id === request.current) {
         setData(rewards);
         setMarkets(rows);
@@ -229,6 +235,11 @@ export default function RewardsPage() {
           <TabsTrigger value="creator">Creator settings</TabsTrigger>
         </TabsList>
         <TabsContent value="holders" className="space-y-5 mt-5">
+          {excluded > 0 && (
+            <p className="sr-note" role="status">
+              {excluded} market{excluded === 1 ? " is" : "s are"} not shown: holder rewards are paid by a program that currently funds only mSPY markets.
+            </p>
+          )}
           <div className="grid gap-5 lg:grid-cols-2">
             {markets.map(({ market: m }) => {
               const p = data?.policies.find((p) => p.treasury === m.treasury),

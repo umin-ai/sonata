@@ -251,7 +251,7 @@ function MarketCard({ market: m }: { market: Market }) {
       <div className="sr-section-top">
         <div>
           <h3>
-            <TokenPair base={m.symbol} size={32} />
+            <TokenPair base={m.symbol} quote={quoteSymbolOf(m.quoteMint)} size={32} />
           </h3>
           <p className="sr-note font-bold">{m.name}</p>
         </div>
@@ -263,7 +263,7 @@ function MarketCard({ market: m }: { market: Market }) {
           )}
         </Badge>
       </div>
-      <GraduationProgress data={data} compact />
+      <GraduationProgress data={data} quote={quoteSymbolOf(m.quoteMint)} compact />
       <div className="sr-detail-row">
         <span>Creator reserve</span>
         <strong>
@@ -324,7 +324,7 @@ export function LiveLaunch() {
   // Pyth Pro price for dollar targets. Fetched when the quote asset changes or the creator refreshes.
   const [pyth,setPyth]=useState<PythState>({status:'loading'});
   const [pythRefresh,setPythRefresh]=useState(0);
-  useEffect(()=>{let active=true;const controller=new AbortController();setPyth({status:'loading'});fetch(`/api/stock-price?symbol=${settings.quote}`,{signal:controller.signal}).then(async r=>{const d=await r.json() as ({configured:false}|({configured:true;error?:string}&Partial<StockPrice>));if(!active)return;if(!d.configured){setPyth({status:'unconfigured'});return}if(!r.ok||d.error||typeof d.price!=='number'){setPyth({status:'error',message:d.error??'Price unavailable.'});return}const data=d as StockPrice;const a=assessPrice(data,Date.now());const cross=(d as {crossCheck?:{price:number;divergence:number}}).crossCheck;setPyth(a.usable?{status:'ok',data,label:a.label,live:a.live,confidenceRatio:a.confidenceRatio,crossCheck:cross}:{status:'unusable',message:a.reason,data})}).catch(()=>{if(active)setPyth({status:'error',message:'Price unavailable.'})});return()=>{active=false;controller.abort()}},[settings.quote,pythRefresh]);
+  useEffect(()=>{let active=true;const controller=new AbortController();setPyth({status:'loading'});fetch(`/api/stock-price?symbol=${settings.quote}`,{signal:controller.signal}).then(async r=>{const d=await r.json() as ({configured:false}|({configured:true;error?:string}&Partial<StockPrice>));if(!active)return;if(!d.configured){setPyth({status:'unconfigured'});return}if(!r.ok||d.error||typeof d.price!=='number'){setPyth({status:'error',message:d.error??'Price unavailable.'});return}const data=d as StockPrice;const a=assessPrice(data,Date.now());const guard=(d as {guard?:{feed:string;price:number;divergence:number}}).guard;setPyth(a.usable?{status:'ok',data,label:a.label,live:a.live,confidenceRatio:a.confidenceRatio,guard}:{status:'unusable',message:a.reason,data})}).catch(()=>{if(active)setPyth({status:'error',message:'Price unavailable.'})});return()=>{active=false;controller.abort()}},[settings.quote,pythRefresh]);
   const usdEstimate=(n:number)=>price===null?'USD unavailable':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n*price);
 
   const [curve,setCurve]=useState<Awaited<ReturnType<typeof previewDbc>>|null>(null);
@@ -398,7 +398,7 @@ export function LiveLaunch() {
             </span>
           </div>
           <h3>
-            {draft ? <TokenPair base={draft.symbol} /> : ["Token details","Choose a pair","Curve & fees","Rewards","Review your launch"][step]}
+            {draft ? <TokenPair base={draft.symbol} quote={quoteSymbolOf(draft.quoteMint)} /> : ["Token details","Choose a pair","Curve & fees","Rewards","Review your launch"][step]}
           </h3>
           {draft ? (
             <div className="space-y-4">
@@ -643,7 +643,7 @@ export function LivePortfolio() {
                 {positions.map((p) => (
                   <TableRow key={p.market.pool}>
                     <TableCell>
-                      <TokenPair base={p.market.symbol} size={24} />
+                      <TokenPair base={p.market.symbol} quote={quoteSymbolOf(p.market.quoteMint)} size={24} />
                     </TableCell>
                     <TableCell>{formatUnits(p.balance.base, 6)}</TableCell>
                     <TableCell>

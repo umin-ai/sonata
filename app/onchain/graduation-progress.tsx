@@ -11,9 +11,11 @@ import { formatUnits } from "@/lib/treasury/units";
 // migrated, and graduated to a DAMM v2 pool.
 export function GraduationProgress({
   data,
+  quote,
   compact = false,
 }: {
   data: TreasurySnapshot | null;
+  quote: string;
   compact?: boolean;
 }) {
   if (!data)
@@ -46,11 +48,11 @@ export function GraduationProgress({
       {data.graduationStage === "curve" && (
         <p className="graduation-note">
           {formatUnits(data.quoteReserve)} of{" "}
-          {formatUnits(data.migrationQuoteThreshold)} <TokenName symbol="mSPY" />{" "}
+          {formatUnits(data.migrationQuoteThreshold)} <TokenName symbol={quote} />{" "}
           in the curve
           {!compact && (
             <>
-              {" "}· {formatUnits(data.remainingToGraduate)} mSPY more graduates it
+              {" "}· {formatUnits(data.remainingToGraduate)} {quote} more graduates it
               to a DAMM v2 pool
             </>
           )}

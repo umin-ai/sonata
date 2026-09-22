@@ -9,12 +9,12 @@ import {
   type StockPrice,
 } from "@/lib/pricing/stock-price";
 
-// Price for dollar-denominated launch targets.
-//   1. The Solana market: the real xStock (e.g. SPYx) priced by Jupiter, which
-//      aggregates Solana DEX liquidity, checked against an executable quote.
-//   2. Pyth Pro, when a server-side key with equity access is configured. It is
-//      used only if it agrees with the Solana market to within 1%.
-// Keys stay server-side; neither source needs to reach the browser.
+// Price for dollar-denominated launch targets. The price always comes from the
+// Solana market: the real xStock (e.g. SPYx) priced by Jupiter, which aggregates
+// Solana DEX liquidity, checked against an executable quote. Pyth Pro, when a
+// server-side key covers the feed, is a guard only: it never sets the price, but
+// a gap of more than 1% blocks the launch, since one of the two is wrong or
+// being manipulated. Keys stay server-side.
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const QUOTE_USD = 1_000;
 const cache = new Map<string, { until: number; data: unknown }>();
@@ -29,7 +29,7 @@ type JupiterPrices = Record<string, {
 type JupiterQuote = { outAmount: string; priceImpactPct?: string; routePlan?: { swapInfo?: { label?: string } }[] };
 
 type Result = StockPrice & {
-  crossCheck?: { source: "jupiter"; price: number; divergence: number };
+  guard?: { source: "pyth"; feed: string; price: number; divergence: number; session: string };
   pythStatus?: string;
 };
 
@@ -113,22 +113,19 @@ async function pythPrice(symbol: string, key: string): Promise<StockPrice> {
 }
 
 async function resolve(symbol: string): Promise<Result> {
-  const market = await jupiterPrice(symbol).catch((e: Error) => e);
+  const market = await jupiterPrice(symbol);
   const key = process.env.PYTH_PRO_API_KEY;
-  if (!key) {
-    if (market instanceof Error) throw market;
-    return { ...market, pythStatus: "No Pyth key configured" };
-  }
+  if (!key) return { ...market, pythStatus: "No Pyth key configured" };
   const pyth = await pythPrice(symbol, key).catch((e: Error) => e);
-  if (pyth instanceof Error) {
-    if (market instanceof Error) throw Error(`${pyth.message}; ${market.message}`);
-    return { ...market, pythStatus: pyth.message };
-  }
-  if (market instanceof Error) return { ...pyth, pythStatus: "ok" };
-  const gap = divergence(pyth.price, market.price);
+  if (pyth instanceof Error) return { ...market, pythStatus: pyth.message };
+  const gap = divergence(market.price, pyth.price);
   if (gap > MAX_DIVERGENCE)
-    throw Error(`Pyth and the Solana market disagree by ${(gap * 100).toFixed(2)}%, so neither is used.`);
-  return { ...pyth, pythStatus: "ok", crossCheck: { source: "jupiter", price: market.price, divergence: gap } };
+    throw Error(`The Solana market and Pyth disagree by ${(gap * 100).toFixed(2)}%, so the launch is blocked.`);
+  return {
+    ...market,
+    pythStatus: "ok",
+    guard: { source: "pyth", feed: pyth.feed, price: pyth.price, divergence: gap, session: pyth.marketSession },
+  };
 }
 
 export async function GET(request: Request) {

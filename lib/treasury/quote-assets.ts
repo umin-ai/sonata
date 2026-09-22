@@ -11,3 +11,9 @@ export const isDeployableQuote = (symbol: string) =>
 /** Display symbol for a market's quote mint. Markets differ, so never assume mSPY. */
 export const quoteSymbolOf = (mint: string) =>
   quoteAssetList.find((a) => a.mint === mint)?.symbol ?? "quote";
+/**
+ * The rewards program pins its funding mint to mSPY
+ * (stockroom-rewards/src/lib.rs: MOCK_MINT, enforced on Fund), so holder and
+ * funded rewards work only for mSPY markets.
+ */
+export const REWARDS_MINT = "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg";

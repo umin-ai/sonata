@@ -98,7 +98,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
         <div>
           <span className="sr-eyebrow">SONATA / TRADE</span>
           <h1>
-            <TokenPair base={market.symbol} size={36} />
+            <TokenPair base={market.symbol} quote={q} size={36} />
           </h1>
           <p>
             Trade, view fees and manage your market.
@@ -153,7 +153,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       </div>
       <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
       <LiveWallet />
-      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} /><div className="sr-detail-row"><span>Network</span><strong>Solana Devnet</strong></div><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><div className="terminal-chart-empty"><strong>Price history unavailable</strong><p>Historical candles are not indexed for this test market. No simulated prices are shown.</p></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} /><div className="sr-detail-row"><span>Network</span><strong>Solana Devnet</strong></div><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><div className="terminal-chart-empty"><strong>Price history unavailable</strong><p>Historical candles are not indexed for this test market. No simulated prices are shown.</p></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {data?.migrated ? (
         // A graduated pool no longer trades on its DBC curve; the runtime refuses
         // such a swap. Say so here rather than after the user fills in the form.
