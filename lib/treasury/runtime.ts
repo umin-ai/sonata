@@ -26,6 +26,7 @@ import dbcIdl from "./dbc.json";
 import initialMarket from "./market.json";
 import { buildCurveParams } from "./dbc-preview";
 import { quoteAssetList, quoteAssetBySymbol } from "./quote-assets";
+import { graduationProgress } from "./graduation";
 export type Market = typeof initialMarket & { symbol: string; name: string };
 export const market: Market = {
   ...initialMarket,
@@ -76,6 +77,7 @@ type Pool = {
   baseVault: PublicKey;
   quoteVault: PublicKey;
   partnerQuoteFee: BN;
+  quoteReserve: BN;
   isMigrated: number;
 };
 export async function readTreasury(market: Market = exportsMarket) {
@@ -105,10 +107,12 @@ export async function readTreasury(market: Market = exportsMarket) {
   const treasury = program.coder.accounts.decode<Treasury>("treasury", ta.data);
   const decoded = coder.decode<Pool>("virtualPool", pa.data),
     pool = decoded.poolState ?? decoded;
-  const config = coder.decode<{ quoteMint: PublicKey; feeClaimer: PublicKey }>(
-    "poolConfig",
-    ca.data,
-  );
+  const config = coder.decode<{
+    quoteMint: PublicKey;
+    feeClaimer: PublicKey;
+    migrationQuoteThreshold: BN;
+    migrationFeeOption: number;
+  }>("poolConfig", ca.data);
   for (const key of [
     "pool",
     "config",
@@ -173,6 +177,39 @@ export async function readTreasury(market: Market = exportsMarket) {
     recipientBalance: payout.amount.toString(),
     uncollected: pool.partnerQuoteFee.toString(),
     migrated: pool.isMigrated !== 0,
+    ...(await readGraduation(pool, config, market)),
+  };
+}
+// Graduation state from the pool and config already fetched above: no extra RPC.
+async function readGraduation(
+  pool: Pool,
+  config: { migrationQuoteThreshold: BN; migrationFeeOption: number },
+  market: Market,
+) {
+  const migrated = pool.isMigrated !== 0;
+  const quoteReserve = BigInt(pool.quoteReserve.toString()),
+    threshold = BigInt(config.migrationQuoteThreshold.toString());
+  const progress = graduationProgress(quoteReserve, threshold, migrated);
+  let dammPool: string | null = null;
+  if (migrated) {
+    // DBC creates the DAMM v2 pool under the config matching the migration fee option.
+    const { deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS } =
+      await import("@meteora-ag/dynamic-bonding-curve-sdk");
+    const dammConfig = DAMM_V2_MIGRATION_FEE_ADDRESS[config.migrationFeeOption];
+    if (dammConfig)
+      dammPool = deriveDammV2PoolAddress(
+        dammConfig,
+        pk(market.baseMint),
+        pk(market.quoteMint),
+      ).toBase58();
+  }
+  return {
+    quoteReserve: quoteReserve.toString(),
+    migrationQuoteThreshold: threshold.toString(),
+    graduationBps: progress.bps,
+    graduationStage: progress.stage,
+    remainingToGraduate: progress.remaining.toString(),
+    dammPool,
   };
 }
 export type TreasurySnapshot = Awaited<ReturnType<typeof readTreasury>>;

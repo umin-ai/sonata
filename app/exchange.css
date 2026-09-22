@@ -49,3 +49,12 @@
 @media(max-width:1100px){.sr-app .launch-workspace{grid-template-columns:minmax(0,1.3fr) minmax(250px,1fr)}.launch-steps{grid-column:1/-1;display:flex}}
 @media(max-width:700px){.sr-app .launch-workspace{grid-template-columns:1fr;gap:14px}.sr-app .launch-form,.sr-app .launch-summary{padding:18px}.curve-presets button{padding:16px 10px 12px}.curve-presets button strong{font-size:22px}.launch-steps button{min-width:58px;padding:8px 4px}.curve-presets button small{display:block}}
 .launch-quote-equivalent{display:block;font-size:13px;color:var(--muted-foreground);font-weight:400;margin-top:4px}.curve-presets button>strong{font-size:clamp(18px,2vw,24px)}
+/* Graduation progress: per-market quote reserve against its own threshold. */
+.sr-app .graduation{margin:14px 0 6px;display:grid;gap:8px}
+.sr-app .graduation-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:13px;color:var(--muted-foreground)}
+.sr-app .graduation-head strong{color:var(--foreground);font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.sr-app .graduation [data-slot=progress]{height:8px;background:color-mix(in srgb,var(--exchange-accent) 16%,transparent)}
+.sr-app .graduation [data-slot=progress-indicator]{background:var(--exchange-accent)}
+.sr-app .graduation[data-stage=complete] [data-slot=progress-indicator]{background:#f5b94d}
+.sr-app .graduation[data-stage=graduated] [data-slot=progress-indicator]{background:#3fcf8e}
+.sr-app .graduation-note{margin:0;font-size:13px;line-height:1.5;color:var(--muted-foreground);font-variant-numeric:tabular-nums}

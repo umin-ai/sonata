@@ -49,6 +49,7 @@ import { formatUnits } from "@/lib/treasury/units";
 import { LiveWallet, useLive } from "./live-session";
 import { OnchainTreasury } from "./treasury-workspace";
 import { LiquidityPortfolio } from "@/app/earn/workspace";
+import { GraduationProgress } from "./graduation-progress";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 const href = (m: Market) => `/onchain?pool=${m.pool}`;
 function useMarkets() {
@@ -130,7 +131,7 @@ export function LiveDirectory() {
         <h1>Markets</h1>
         <p>Trade stock-paired tokens, provide liquidity and earn trading fees.</p>
         <div className="exchange-actions"><Button asChild><Link href="/earn">View pools <ArrowUpRight /></Link></Button><Button asChild variant="outline"><Link href="/create"><Plus /> Launch token</Link></Button></div></div>
-        <div className="exchange-feature"><span className="sr-eyebrow">FEATURED MARKET</span><div><TokenPair /></div><p>Stock-paired trading → fees → liquidity or holder rewards.</p><Link href="/onchain">Trade ROOM / mSPY <ArrowRight size={16}/></Link><small>Devnet · DBC migration is not yet connected to the Earn pool.</small></div>
+        <div className="exchange-feature"><span className="sr-eyebrow">FEATURED MARKET</span><div><TokenPair /></div><p>Stock-paired trading → fees → liquidity or holder rewards.</p><Link href="/onchain">Trade ROOM / mSPY <ArrowRight size={16}/></Link><small>Devnet · Markets that complete their curve graduate to their own DAMM v2 pool. The Earn pool is a separate, directly seeded pool.</small></div>
       </section>
       <section className="exchange-stock-section"><div className="nm-section-heading"><div><span className="sr-eyebrow">ASSETS</span><h2>Stock pools</h2></div><Link className="sr-text-link" href="/earn">All pools <ArrowUpRight size={16}/></Link></div>
       <div className="exchange-stocks">{[
@@ -254,12 +255,13 @@ function MarketCard({ market: m }: { market: Market }) {
         </div>
         <Badge variant="outline" className="nm-venue">
           {data?.migrated ? (
-            "Migrated"
+            "Graduated"
           ) : (
             <MeteoraLabel>Meteora DBC</MeteoraLabel>
           )}
         </Badge>
       </div>
+      <GraduationProgress data={data} compact />
       <div className="sr-detail-row">
         <span>Creator reserve</span>
         <strong>

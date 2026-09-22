@@ -32,6 +32,7 @@ import {
   prepareTrade,
 } from "@/lib/treasury/runtime";
 import { formatUnits } from "@/lib/treasury/units";
+import { GraduationProgress } from "./graduation-progress";
 import { LiveWallet, useLive } from "./live-session";
 import type { Market } from "@/lib/treasury/runtime";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
@@ -150,7 +151,34 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       </div>
       <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
       <LiveWallet />
-      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><div className="sr-detail-row"><span>Network</span><strong>Solana Devnet</strong></div><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol="mSPY"/></div><div className="terminal-chart-empty"><strong>Price history unavailable</strong><p>Historical candles are not indexed for this test market. No simulated prices are shown.</p></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} /><div className="sr-detail-row"><span>Network</span><strong>Solana Devnet</strong></div><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol="mSPY"/></div><div className="terminal-chart-empty"><strong>Price history unavailable</strong><p>Historical candles are not indexed for this test market. No simulated prices are shown.</p></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {data?.migrated ? (
+        // A graduated pool no longer trades on its DBC curve; the runtime refuses
+        // such a swap. Say so here rather than after the user fills in the form.
+        <Card className="sr-panel mb-6">
+          <div className="sr-section-top">
+            <div>
+              <span className="sr-eyebrow">TRADE</span>
+              <h3>Graduated</h3>
+            </div>
+            <Badge variant="outline">
+              <MeteoraLabel>Meteora DAMM v2 · Devnet</MeteoraLabel>
+            </Badge>
+          </div>
+          <p className="sr-note">
+            This market completed its bonding curve and migrated to a Meteora
+            DAMM v2 pool, so it no longer trades here. Swapping on the new pool
+            from this page is not connected yet.
+          </p>
+          {data.dammPool && (
+            <Button asChild variant="outline" className="mt-4">
+              <a href={explorer("address", data.dammPool)} target="_blank" rel="noreferrer">
+                View the DAMM v2 pool <ArrowUpRight />
+              </a>
+            </Button>
+          )}
+        </Card>
+      ) : (
       <Card className="sr-panel mb-6">
         <div className="sr-section-top">
           <div>
@@ -240,7 +268,8 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
             supported by this Devnet pool.
           </p>
         )}
-      </Card></div>}
+      </Card>
+      )}</div>}
       {view === "fees" && <><div className="sr-community-layout">
         <Card className="sr-panel">
           <span className="sr-eyebrow">01 / EARNED BY TRADING</span>
