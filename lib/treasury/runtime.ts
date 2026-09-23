@@ -26,7 +26,7 @@ import dbcIdl from "./dbc.json";
 import initialMarket from "./market.json";
 import { buildCurveParams } from "./dbc-preview";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
-import { graduationProgress } from "./graduation";
+import { graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl } from "../token-profile";
 // "duet": 50% to the payout wallet, 50% creator-withdrawable reserve.
 // "floor": 50% to the payout wallet, 50% Stock Floor that only holders redeem.
@@ -92,7 +92,15 @@ type Pool = {
   quoteVault: PublicKey;
   partnerQuoteFee: BN;
   quoteReserve: BN;
+  sqrtPrice: BN;
   isMigrated: number;
+};
+type CurveConfig = {
+  migrationQuoteThreshold: BN;
+  migrationFeeOption: number;
+  migrationSqrtPrice: BN;
+  sqrtStartPrice: BN;
+  curve: { sqrtPrice: BN; liquidity: BN }[];
 };
 export async function readTreasury(market: Market = exportsMarket) {
   validateMarketIdentity(market);
@@ -122,12 +130,9 @@ export async function readTreasury(market: Market = exportsMarket) {
   const treasury = program.coder.accounts.decode<Treasury>("treasury", ta.data);
   const decoded = coder.decode<Pool>("virtualPool", pa.data),
     pool = decoded.poolState ?? decoded;
-  const config = coder.decode<{
-    quoteMint: PublicKey;
-    feeClaimer: PublicKey;
-    migrationQuoteThreshold: BN;
-    migrationFeeOption: number;
-  }>("poolConfig", ca.data);
+  const config = coder.decode<
+    { quoteMint: PublicKey; feeClaimer: PublicKey } & CurveConfig
+  >("poolConfig", ca.data);
   for (const key of [
     "pool",
     "config",
@@ -200,19 +205,30 @@ export async function readTreasury(market: Market = exportsMarket) {
     // In floor mode the whole retained balance is the floor.
     floor: mode === "floor" ? available.toString() : "0",
     baseSupply: baseSupply.toString(),
-    ...(await readGraduation(pool, config, market)),
+    ...(await readGraduation(pool, config, market, baseSupply)),
   };
 }
 // Graduation state from the pool and config already fetched above: no extra RPC.
 async function readGraduation(
   pool: Pool,
-  config: { migrationQuoteThreshold: BN; migrationFeeOption: number },
+  config: CurveConfig,
   market: Market,
+  baseSupply: bigint,
 ) {
   const migrated = pool.isMigrated !== 0;
   const quoteReserve = BigInt(pool.quoteReserve.toString()),
     threshold = BigInt(config.migrationQuoteThreshold.toString());
   const progress = graduationProgress(quoteReserve, threshold, migrated);
+  const big = (v: BN) => BigInt(v.toString());
+  // Market cap in the quote stock, now and at each milestone.
+  const caps = milestoneCaps(
+    big(pool.sqrtPrice),
+    big(config.sqrtStartPrice),
+    config.curve.map((c) => ({ sqrtPrice: big(c.sqrtPrice), liquidity: big(c.liquidity) })),
+    threshold,
+    big(config.migrationSqrtPrice),
+    baseSupply,
+  );
   let dammPool: string | null = null;
   if (migrated) {
     // DBC creates the DAMM v2 pool under the config matching the migration fee option.
@@ -231,6 +247,9 @@ async function readGraduation(
     migrationQuoteThreshold: threshold.toString(),
     graduationBps: progress.bps,
     graduationStage: progress.stage,
+    heat: progress.heat,
+    marketCap: caps.current,
+    milestoneCaps: caps.milestones,
     remainingToGraduate: progress.remaining.toString(),
     dammPool,
   };

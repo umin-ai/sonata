@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { graduationProgress, formatProgress } from "./graduation.ts";
+import { graduationProgress, formatProgress, marketCapAt, milestoneCaps, sqrtPriceAtQuote } from "./graduation.ts";
+import { buildCurveParams } from "./dbc-preview.ts";
 
 test("progress is measured against each pool's own threshold", () => {
   // Legacy config threshold versus the per-launch 2 -> 18 config threshold.
@@ -25,4 +26,26 @@ test("stages: curve, complete but not migrated, graduated", () => {
 
 test("a missing threshold is an error, not 0% or 100%", () => {
   assert.throws(() => graduationProgress(1n, 0n, false));
+});
+
+test("heat: heating up at a third, on fire at two thirds, exactly", () => {
+  const heat = (q: bigint) => graduationProgress(q, 300n, false).heat;
+  assert.deepEqual([heat(0n), heat(99n), heat(100n), heat(199n), heat(200n), heat(299n)], ["new", "new", "heating", "heating", "fire", "fire"]);
+  assert.equal(graduationProgress(300n, 300n, false).heat, "complete");
+  assert.equal(graduationProgress(300n, 300n, true).heat, "graduated");
+});
+
+test("milestone market caps follow the deployed curve from start to target", async () => {
+  // A launch from a 2 to a 12 stock-token market cap, 1 billion tokens at 6 decimals.
+  const p = await buildCurveParams(2, 12, 100);
+  const big = (v: { toString(): string }) => BigInt(v.toString());
+  const curve = p.curve.map((c) => ({ sqrtPrice: big(c.sqrtPrice), liquidity: big(c.liquidity) }));
+  const start = big(p.sqrtStartPrice), threshold = big(p.migrationQuoteThreshold), supply = 10n ** 15n;
+  // Devnet pool BZVxHs... was built from these inputs; its config's migration price is a 12 market cap.
+  const migration = 3n * 2n ** 64n / 10n;
+  const caps = milestoneCaps(start, start, curve, threshold, migration, supply);
+  assert.ok(Math.abs(caps.current - 2) / 2 < 0.01, `start ${caps.current}`);
+  assert.ok(caps.current < caps.milestones[0] && caps.milestones[0] < caps.milestones[1]);
+  assert.ok(caps.milestones[1] < marketCapAt(sqrtPriceAtQuote(threshold, start, curve), supply));
+  assert.equal(caps.milestones[2], marketCapAt(migration, supply));
 });

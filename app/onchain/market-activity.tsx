@@ -25,8 +25,10 @@ const fmt = (n: number) =>
   n >= 100 ? n.toFixed(1) : n >= 1 ? n.toFixed(3) : n.toPrecision(3);
 
 // Market cap over time, in the quote stock, from indexed DBC trades. Refreshes
-// every 20 seconds, the indexer's poll interval.
-export function PriceChart({ pool, quote, revision = 0 }: { pool: string; quote: string; revision?: number }) {
+// every 20 seconds, the indexer's poll interval. `supply` is the token's current
+// supply in whole tokens, which Stock Floor burns reduce; without it the chart
+// assumes the full minted supply.
+export function PriceChart({ pool, quote, revision = 0, supply }: { pool: string; quote: string; revision?: number; supply?: number }) {
   const [interval, setIntervalValue] = useState<Interval>("1h");
   const [data, setData] = useState<{ candles: Candle[]; supply: number; at: number } | null>(null);
   const [error, setError] = useState(false);
@@ -54,7 +56,7 @@ export function PriceChart({ pool, quote, revision = 0 }: { pool: string; quote:
   }, [pool, interval, revision]);
   const points = (data?.candles ?? []).map((c) => ({
     time: c.time * 1000,
-    cap: c.close * (data?.supply ?? 0),
+    cap: c.close * (supply ?? data?.supply ?? 0),
     volume: Number(c.volume) / 10 ** QUOTE_DECIMALS,
   }));
   const last = points.at(-1);

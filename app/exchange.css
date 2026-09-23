@@ -58,6 +58,19 @@
 .sr-app .graduation[data-stage=complete] [data-slot=progress-indicator]{background:#f5b94d}
 .sr-app .graduation[data-stage=graduated] [data-slot=progress-indicator]{background:#3fcf8e}
 .sr-app .graduation-note{margin:0;font-size:13px;line-height:1.5;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.sr-app .graduation-head b{color:var(--foreground);font-weight:600}
+.sr-app .curve-bar{display:flex;height:10px}
+.sr-app .curve-bar-segment{position:relative;flex:1;overflow:hidden;background:color-mix(in srgb,var(--muted-foreground) 20%,transparent);clip-path:polygon(0 0,calc(100% - 6px) 0,100% 50%,calc(100% - 6px) 100%,0 100%,6px 50%)}
+.sr-app .curve-bar-segment+.curve-bar-segment{margin-left:-3px}
+.sr-app .curve-bar-segment:first-child{border-radius:999px 0 0 999px;clip-path:polygon(0 0,calc(100% - 6px) 0,100% 50%,calc(100% - 6px) 100%,0 100%)}
+.sr-app .curve-bar-segment:last-child{border-radius:0 999px 999px 0;clip-path:polygon(0 0,100% 0,100% 100%,0 100%,6px 50%)}
+.sr-app .curve-bar-segment i{position:absolute;inset:0;background:linear-gradient(90deg,#dfe36a,#f3b544 42%,#f07a6a 72%,#e64fc2);background-size:300% 100%;clip-path:inset(0 calc((1 - var(--fill)) * 100%) 0 0)}
+.sr-app .curve-bar-segment:nth-child(2) i{background-position:50% 0}
+.sr-app .curve-bar-segment:nth-child(3) i{background-position:100% 0}
+.sr-app .curve-marks{display:grid;grid-template-columns:repeat(3,1fr);font-size:12px;line-height:1.35;color:var(--muted-foreground)}
+.sr-app .curve-marks>div{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right;padding:2px 8px 8px 4px;border-right:1px dotted color-mix(in srgb,var(--muted-foreground) 55%,transparent)}
+.sr-app .curve-marks strong{color:var(--foreground);font-weight:600;font-variant-numeric:tabular-nums}
+.sr-app .curve-marks .current span{color:var(--foreground)}
 /* Pyth price strip on the curve step: the price that converts dollar targets. */
 .sr-app .pyth-price{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid var(--exchange-border);border-radius:12px;background:color-mix(in srgb,var(--foreground) 3%,transparent);margin-bottom:12px}
 .sr-app .pyth-price>div{display:grid;gap:2px;min-width:0}
