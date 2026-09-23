@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Sets up (or updates) a Lightsail Ubuntu 24.04 instance to serve Sonata on
 # Solana Devnet. Run as root on the instance:
-#   sudo bash setup.sh <public-hostname>
+#   sudo bash setup.sh <public-hostname> [old-hostname ...]
+# Old hostnames get their own certificate and redirect to the public one.
 # Secrets are not in this repository: copy them to /opt/sonata/sonata.env
 # (mode 600, owner sonata) before running. See deploy/lightsail/README.md.
 set -euo pipefail
-HOST="${1:?usage: setup.sh <public-hostname>}"
+HOST="${1:?usage: setup.sh <public-hostname> [old-hostname ...]}"
+shift
+ALIASES="$*"
 REPO="${SONATA_REPO:-https://github.com/umin-ai/sonata}"
 HOME_DIR=/opt/sonata
 APP_DIR=$HOME_DIR/app
@@ -56,6 +59,9 @@ echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" >>
 
 sed "s/__HOST__/$HOST/g" "$HERE/sonata.service" > /etc/systemd/system/sonata.service
 sed "s/__HOST__/$HOST/g" "$HERE/Caddyfile" > /etc/caddy/Caddyfile
+if [ -n "$ALIASES" ]; then
+  printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "${ALIASES// /, }" "$HOST" >> /etc/caddy/Caddyfile
+fi
 systemctl daemon-reload
 systemctl enable sonata >/dev/null
 systemctl restart sonata
