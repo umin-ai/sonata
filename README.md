@@ -6,7 +6,7 @@
 
 **Current status, on-chain evidence, security model and Meteora references are in the protocol repository's [HANDOFF.md](https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md).** Read it before relying on anything below.
 
-Open http://localhost:5173/ . Sonata's connected Devnet core supports market creation with an optional Stock Floor and token profile (image, description, links), trading, burning tokens for their share of a Stock Floor, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, holder-reward rounds and funded reward claims. One signing wallet connects Portfolio and Activity. All assets are valueless test tokens.
+Open http://localhost:5173/ . Sonata's connected Devnet core supports market creation with an optional Stock Floor and token profile (image, description, links), trading with market-cap charts and recent trades from the trade indexer (`indexer/`), burning tokens for their share of a Stock Floor, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, holder-reward rounds and funded reward claims. One signing wallet connects Portfolio and Activity. All assets are valueless test tokens.
 
 - `/create` and `/onchain?pool=…`: Meteora DBC launch and Sonata treasury operations. Each launch creates its own DBC config.
 - `/capital`: atomically deploy a creator reserve into the supported ROOM/mSPY strategy, with matching ROOM from the creator wallet.
@@ -20,7 +20,7 @@ The connected Devnet demonstration is verified. Production issuer integration, u
 
 Separate simulations remain at `/lab`, `/lab/create`, `/lab/portfolio`, `/lab/activity`, `/lab/community` and `/vaults/...`; the earlier credit sandbox remains at `/devnet`. Do not combine those features with the live implementation claims.
 
-Current checks: 88 frontend tests (`npm test`), TypeScript checking and production build pass. The protocol suite passes 37 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
+Current checks: 92 frontend tests (`npm test`) and 3 indexer tests (`npm run test:indexer`), TypeScript checking and production build pass. The protocol suite passes 37 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
 
 ## Historical credit implementation
 
@@ -83,7 +83,7 @@ npx tsc --noEmit
 git diff --check
 ```
 
-`npm test` runs 88 tests across 19 files. `lib/server/stockroom.test.ts` is excluded and the file says why. The 16 calculation, ledger and adapter tests in `finance`, `credit` and `jupiter-data` cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
+`npm test` runs 92 tests across 21 files. `lib/server/stockroom.test.ts` is excluded and the file says why. The 16 calculation, ledger and adapter tests in `finance`, `credit` and `jupiter-data` cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
 
 ## Unreleased execution work
 
