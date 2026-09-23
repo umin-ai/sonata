@@ -9,6 +9,7 @@ Source line links are pinned to these commits, so each keeps pointing at the cod
 - [`umin-ai/sonata-protocol` @ `019c688`](https://github.com/umin-ai/sonata-protocol/tree/019c688e4083cfc877fb8a8cb78c8519b92efd8e) — programs, scripts, artifacts
 - [`umin-ai/sonata` @ `130b5e2`](https://github.com/umin-ai/sonata/tree/130b5e206e60800ac721b1dd59cd718d6cc5ab4e) — frontend
 - [`umin-ai/sonata-protocol` @ `3988345`](https://github.com/umin-ai/sonata-protocol/tree/39883450bb2f2e5c0d068c3e478b3c506e3e6717) — Stock Floor (treasury Floor mode), its tests, scripts and evidence
+- [`umin-ai/sonata` @ `e4059bf`](https://github.com/umin-ai/sonata/tree/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb) — public-exposure fixes and the Lightsail deployment
 - [`umin-ai/sonata` @ `ca12d2d`](https://github.com/umin-ai/sonata/tree/ca12d2d489f85f0a7eb8341d3b2c6d94ec8323a4) — Stock Floor switch, floor panel and token profiles
 
 Explorer links use `?cluster=devnet`.
@@ -283,8 +284,9 @@ What Meteora does not state is that `fee_claimer` may be a PDA owned by a third-
 ### 6.8 Unaudited surfaces
 
 - No program has had a professional audit.
-- **`POST /api/devnet` trusts caller-supplied headers.** It authenticates on `oai-authenticated-user-*` headers without signature or session verification ([`app/api/devnet/route.ts`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/api/devnet/route.ts), [`app/chatgpt-auth.ts`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/chatgpt-auth.ts)). The middleware that strips forged copies of those headers runs only in the development server and is absent from the production build. The endpoint co-signs with a disposable Devnet authority for the historical credit demo. This frontend is not deployed publicly, and it must not be deployed as-is: doing so would expose an unauthenticated signing endpoint.
-- **`POST /api/token-profile` is unauthenticated.** It checks origin, size and image type, and uploads to Irys devnet with a throwaway key, but has no rate limit. Like `/api/devnet`, it is for local use.
+- **`POST /api/devnet` is off on the hosted app.** It authenticates on `oai-authenticated-user-*` headers without signature or session verification ([`app/chatgpt-auth.ts`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/chatgpt-auth.ts)), and it co-signs with a disposable Devnet authority for the historical credit demo. Since 23 September it returns 404 unless `SONATA_ENABLE_DEVNET_SPONSOR=1` is set ([`route.ts:5-14`](https://github.com/umin-ai/sonata/blob/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/app/api/devnet/route.ts#L5-L14)). The hosted server has neither that flag nor the authority key, and its proxy strips those headers ([`Caddyfile`](https://github.com/umin-ai/sonata/blob/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/deploy/lightsail/Caddyfile)). It remains a local-only tool.
+- **`POST /api/token-profile` is unauthenticated but limited.** It checks origin, size and image type, and allows 6 uploads per client and 120 in total per 10 minutes ([`route.ts:36`](https://github.com/umin-ai/sonata/blob/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/app/api/token-profile/route.ts#L36)). Someone with many addresses could still use up the total and block uploads for up to 10 minutes.
+- **Hosted on Devnet** at https://34-255-123-10.sslip.io, on one AWS Lightsail instance: Caddy (HTTPS, Let's Encrypt) in front of the app, which runs in workerd through wrangler's local mode and listens only on 127.0.0.1. The firewall opens 80 and 443; SSH is limited to the operator's address. Server-only settings are the Pyth and Jupiter keys and an S3 key that can only upload. Setup is scripted in [`deploy/lightsail/`](https://github.com/umin-ai/sonata/tree/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/deploy/lightsail). wrangler's local mode is a development server used here as the runtime: adequate for a Devnet demo, not a production host. The address follows the instance's public IP, which has no static IP yet.
 - No CI runs the test suites.
 
 ---
@@ -325,7 +327,8 @@ What Sonata does differently: the quote asset is a stock token; each launch depl
 - Launch-time holder or liquidity policy; liquidity allocation for any market other than `GHHFvUXd…`
 - On-chain verification of per-recipient reward splits
 - The token-badge path for real stock tokens, and any mainnet deployment
-- Authentication on `/api/devnet`, and CI
+- CI
+- A static IP and a real domain for the hosted app
 - Indexed per-market metrics and price history
 
 ---
@@ -336,7 +339,7 @@ What Sonata does differently: the quote asset is a stock token; each launch depl
 2. Add a treasury instruction that claims the locked DAMM v2 position's fees, so both the fee path and the Stock Floor keep growing after graduation.
 3. Trading a graduated market from its page. The page links to the DAMM v2 pool; swapping on it from the app is not connected.
 
-Do not spend mainnet funds. Do not deploy the frontend publicly until §6.8 is fixed.
+Do not spend mainnet funds. Hosting notes and remaining limits are in §6.8.
 
 ---
 
@@ -347,6 +350,8 @@ The product is **Sonata**, renamed from the working name Stockroom on 22 Septemb
 ---
 
 ## 12. Reproduce, files and identities
+
+**Hosted (Devnet):** https://34-255-123-10.sslip.io
 
 **Frontend** (`umin-ai/sonata`): `npm ci`, `npm run dev`, `npm test`, `npx tsc --noEmit`, `npm run build`.
 **Protocol** (`umin-ai/sonata-protocol`): `node --test tests/*.test.mjs`, `cargo test -p credit-math`, `node scripts/verify-deployed-bytes.mjs`, `node scripts/verify-configurable-launch.mjs [out.json]` and `node scripts/verify-fee-path.mjs [proof.json] [out.json]`, `node scripts/verify-graduation.mjs [proof.json] [out.json]` and `node scripts/verify-graduated-trade.mjs`, `node scripts/verify-dollar-launch.mjs mQQQ 25000 300` (needs the frontend dev server for its price route) and `node scripts/create-mock-quote-mints.mjs`, `SONATA_MODE=floor node scripts/verify-dollar-launch.mjs mQQQ 25000 300 artifacts/stock-floor-launch.json` then `node scripts/verify-stock-floor.mjs artifacts/stock-floor-launch.json`, and `node scripts/fund-devnet-wallet.mjs <address> [sol] [symbol] [amount]` (these send Devnet transactions and need the pool creator's funded key); `node scripts/read-graduation.mjs <proof.json> <out.json> <four signatures>` and `node scripts/verify-handoff.mjs` are read-only. Never run the graduation script against the flagship; it refuses to.
