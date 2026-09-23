@@ -28,7 +28,7 @@ const fmt = (n: number) =>
 // every 20 seconds, the indexer's poll interval.
 export function PriceChart({ pool, quote, revision = 0 }: { pool: string; quote: string; revision?: number }) {
   const [interval, setIntervalValue] = useState<Interval>("1h");
-  const [data, setData] = useState<{ candles: Candle[]; supply: number } | null>(null);
+  const [data, setData] = useState<{ candles: Candle[]; supply: number; at: number } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
@@ -37,7 +37,7 @@ export function PriceChart({ pool, quote, revision = 0 }: { pool: string; quote:
       fetchCandles(pool, interval, controller.signal)
         .then((d) => {
           if (active) {
-            setData(d);
+            setData({ ...d, at: Date.now() });
             setError(false);
           }
         })
@@ -59,7 +59,7 @@ export function PriceChart({ pool, quote, revision = 0 }: { pool: string; quote:
   }));
   const last = points.at(-1);
   // Carry the last price to now, so a market with one bucket still draws a line.
-  if (last && Date.now() - last.time > 60_000) points.push({ time: Date.now(), cap: last.cap, volume: 0 });
+  if (last && data && data.at - last.time > 60_000) points.push({ time: data.at, cap: last.cap, volume: 0 });
   return (
     <div className="price-chart">
       <div className="price-chart-head">
