@@ -485,19 +485,20 @@ export function LiveLaunch() {
               <div className="launch-controls">{step>0 && <Button variant="outline" onClick={()=>setStep(step-1)}>Back</Button>}{step<4 ? <Button disabled={!name.trim() || !symbol.trim() || (step===2 && !curve)} onClick={()=>setStep(step+1)}>Continue</Button> : !deployable ? <Button variant="outline" disabled={!curve} onClick={()=>{const blob=new Blob([JSON.stringify({name,symbol,...settings,quoteThresholdAtoms:curve?.quoteThreshold,network:"devnet",deployed:false},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="stockroom-launch-preview.json";a.click();URL.revokeObjectURL(url);}}>Export configuration</Button> : !address ? <WalletConnectButton /> : <Button
                 disabled={!enabled || !name.trim() || !symbol.trim() || !curve || !deployable || !profileValid}
                 onClick={() =>
-                  void execute(async () =>
-                    prepareLaunch(
-                      address,
-                      name.trim(),
-                      symbol,
-                      payout.trim() || address,
-                      settings,
-                      // Publish the profile first so its URI is fixed into the token's metadata.
-                      hasProfile(profile)
-                        ? await publishProfile(name.trim(), symbol, profile)
-                        : "",
-                    ),
-                  )
+                  void execute(async () => {
+                    const launch = (uri: string) =>
+                      prepareLaunch(address, name.trim(), symbol, payout.trim() || address, settings, uri);
+                    // Publish the metadata first so its URI is fixed into the token. Every
+                    // launch gets one, naming Sonata. Without a profile it is optional: a
+                    // failed upload, or a name too long to fit a URI in the transaction,
+                    // launches with no URI rather than blocking the launch.
+                    if (hasProfile(profile)) return launch(await publishProfile(name.trim(), symbol, profile));
+                    const uri = await publishProfile(name.trim(), symbol, profile).catch(() => "");
+                    return launch(uri).catch((e: Error) => {
+                      if (uri && /Shorten the token name/.test(e.message)) return launch("");
+                      throw e;
+                    });
+                  })
                 }
               >
                 {address ? "Review transaction" : "Connect wallet to launch"}

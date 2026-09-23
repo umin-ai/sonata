@@ -70,8 +70,6 @@ export async function POST(request: Request) {
       const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[imageType]!;
       image = await store(bytes, imageType, ext);
     }
-    if (!image && !description && !Object.keys(links).length)
-      throw Error("Nothing to publish: add an image, description or link.");
     const metadata = buildMetadata({
       name: f.name,
       symbol: f.symbol,

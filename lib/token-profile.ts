@@ -116,7 +116,7 @@ export function buildMetadata(input: {
           },
         }
       : {}),
-    createdOn: "Sonata (Solana Devnet)",
+    createdOn: "https://sonata.umin.ai",
   };
 }
 

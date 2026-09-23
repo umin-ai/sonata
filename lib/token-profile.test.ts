@@ -51,6 +51,12 @@ test("metadata carries socials in both common shapes and reads back", () => {
   assert.deepEqual(back.links, { website: "https://sonata.gg/", x: "https://x.com/sonata", telegram: "https://t.me/sonata" });
 });
 
+test("every metadata file names Sonata, even with no profile", () => {
+  const meta = buildMetadata({ name: "Plain", symbol: "PLN", description: "", links: {} });
+  assert.equal(meta.createdOn, "https://sonata.umin.ai");
+  assert.deepEqual(parseProfile(JSON.parse(JSON.stringify(meta))).links, {});
+});
+
 test("untrusted metadata cannot smuggle links or images", () => {
   const back = parseProfile({
     image: "https://evil.example/tracker.png",
