@@ -8,7 +8,7 @@ const HANDOFF = "https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md
 const explorer = (a: string) => `https://explorer.solana.com/address/${a}?cluster=devnet`;
 
 const parts: [string, string, string, string][] = [
-  ["Launch", "Meteora Dynamic Bonding Curve", "Every launch deploys its own Meteora DBC config and pool from the creator's choices. Sonata's treasury program is the config's fee claimer, so fees go to code, not a wallet.", "Live on Devnet"],
+  ["Launch", "Meteora Dynamic Bonding Curve", "Every launch deploys its own Meteora DBC config and pool from the creator's choices, paired with a stock: S&P 500, Nasdaq 100, Tesla, Microsoft, Amazon, Meta, McDonald's or pre-IPO Anthropic. Sonata's treasury program is the config's fee claimer, so fees go to code, not a wallet.", "Live on Devnet"],
   ["Dollar targets", "Jupiter, checked by Pyth", "Graduation targets are set in US dollars and converted at the price of the real tokenized stock (SPYx, QQQx, TSLAx) across Solana markets. Pyth's equity feed is an independent check: a gap above 1% blocks the launch.", "Live on Devnet"],
   ["Stock Floor", "Sonata treasury program", "Half of net trading fees builds a floor in the stock token. Any holder can burn tokens for their exact share; the creator can never withdraw it.", "Live on Devnet"],
   ["Graduation", "Meteora DAMM v2", "When a curve fills, the market migrates to a DAMM v2 pool with 100% of its liquidity permanently locked.", "Proven on Devnet"],
@@ -27,6 +27,7 @@ const notYet = [
   "Mainnet, and real stock tokens as the quote asset (they need a Meteora token badge).",
   "Collecting fees after graduation, so the Stock Floor stops growing at graduation.",
   "Holder rewards on markets not quoted in mSPY.",
+  "NVIDIA as a paired stock (no Devnet test token yet).",
   "A professional audit. One key can upgrade all programs.",
 ];
 
