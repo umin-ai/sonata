@@ -77,6 +77,42 @@ pub mod stockroom_treasury {
         Ok(())
     }
 
+    /// Name the launchpad behind every pool whose config uses this Vault as fee
+    /// claimer, through Meteora's partner metadata (name, website, logo). The Vault
+    /// PDA signs as fee claimer; only the Vault admin can call it. DBC creates the
+    /// metadata account once per fee claimer and has no update instruction, so this
+    /// can succeed only once.
+    pub fn create_partner_metadata(
+        ctx: Context<CreatePartnerMetadata>,
+        name: String,
+        website: String,
+        logo: String,
+    ) -> Result<()> {
+        let seeds: &[&[u8]] = &[VAULT_SEED, &[ctx.accounts.vault.bump]];
+        let signer = &[seeds];
+        let cpi = CpiContext::new_with_signer(
+            ctx.accounts.dbc_program.key(),
+            dynamic_bonding_curve::cpi::accounts::CreatePartnerMetadataCtx {
+                partner_metadata: ctx.accounts.partner_metadata.to_account_info(),
+                payer: ctx.accounts.admin.to_account_info(),
+                fee_claimer: ctx.accounts.vault.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+                event_authority: ctx.accounts.dbc_event_authority.to_account_info(),
+                program: ctx.accounts.dbc_program.to_account_info(),
+            },
+            signer,
+        );
+        dynamic_bonding_curve::cpi::create_partner_metadata(
+            cpi,
+            dynamic_bonding_curve::CreatePartnerMetadataParameters {
+                padding: [0; 96],
+                name,
+                website,
+                logo,
+            },
+        )
+    }
+
     /// Register a treasury for a DBC pool whose config names the Vault as fee_claimer.
     pub fn init_treasury(
         ctx: Context<InitTreasury>,
@@ -373,6 +409,22 @@ pub struct InitVault<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CreatePartnerMetadata<'info> {
+    #[account(seeds = [VAULT_SEED], bump = vault.bump, has_one = admin @ TreasuryError::Unauthorized)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    /// CHECK: DBC partner metadata PDA (seeds ["partner_metadata", vault]); DBC derives,
+    /// creates and validates it.
+    #[account(mut)]
+    pub partner_metadata: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+    /// CHECK: DBC event authority PDA (seeds ["__event_authority"]); validated by the DBC program.
+    pub dbc_event_authority: UncheckedAccount<'info>,
+    pub dbc_program: Program<'info, dynamic_bonding_curve::program::DynamicBondingCurve>,
 }
 
 #[derive(Accounts)]
