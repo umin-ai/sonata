@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Buffer } from "buffer/";
 import bs58 from "bs58";
 import { Keypair, Transaction } from "@solana/web3.js";
@@ -117,7 +117,6 @@ function Stat({
 function useStockroomController() {
   const external = useWallet("solana:devnet");
   const pathname = usePathname();
-  const router = useRouter();
   const [selectedMarket, setSelectedMarket] = useState("MockSPYx");
   const routeMarket = pathname.match(/^\/(?:markets|activity)\/([^/]+)$/)?.[1];
   const marketId =
@@ -259,7 +258,7 @@ function useStockroomController() {
     setReview(null);
     setNotice("");
     setError("");
-    router.push(`/${destination}/${encodeURIComponent(id)}`);
+    window.location.assign(`/${destination}/${encodeURIComponent(id)}`);
   }
   async function startDemo() {
     if (disabled) return;
@@ -1188,7 +1187,6 @@ function AppLink({
 }: Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
   href: string;
 }) {
-  const router = useRouter();
   return (
     <a
       {...props}
@@ -1210,7 +1208,7 @@ function AppLink({
         )
           return;
         event.preventDefault();
-        router.push(href);
+        window.location.assign(href);
       }}
     >
       {children}

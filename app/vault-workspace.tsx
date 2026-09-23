@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import { StockroomShell } from "./stockroom-shell";
 import { toast } from "sonner";
-import Link from "next/link";
+import Link from "@/app/plain-link";
 import { usePathname } from "next/navigation";
 import {
   ArrowUpRight,

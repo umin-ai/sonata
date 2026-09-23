@@ -36,7 +36,7 @@ import {
 import { LineChart, Line, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useState, useEffect, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/app/plain-link";
 import {
   ArrowUpRight,
   ArrowRight,

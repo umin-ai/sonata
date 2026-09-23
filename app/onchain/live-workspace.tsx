@@ -6,7 +6,7 @@ import { WalletConnectButton } from "./wallet-connect";
 import { MeteoraLabel } from "@/app/protocol-identity";
 import { TokenName, TokenPair } from "@/app/token-identity";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/plain-link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,

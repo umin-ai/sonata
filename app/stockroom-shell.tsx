@@ -2,7 +2,7 @@
 import stockPools from "@/lib/liquidity/stock-markets.json";
 import { ThemeToggle } from "./theme-provider";
 import { useState, type ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/app/plain-link";
 import { usePathname } from "next/navigation";
 import {
   Activity,

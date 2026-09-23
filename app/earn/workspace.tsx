@@ -3,7 +3,7 @@ import stockPools from "@/lib/liquidity/stock-markets.json";
 import { MeteoraLabel } from "@/app/protocol-identity";
 import { TokenName, TokenPair } from "@/app/token-identity";
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/plain-link";
 import {
   ArrowDownUp,
   ArrowUpRight,

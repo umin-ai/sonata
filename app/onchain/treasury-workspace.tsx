@@ -2,7 +2,7 @@
 import { MeteoraLabel } from "@/app/protocol-identity";
 import { TokenName, TokenPair } from "@/app/token-identity";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/plain-link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

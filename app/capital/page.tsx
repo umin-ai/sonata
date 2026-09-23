@@ -1,7 +1,7 @@
 "use client";
 import { TokenName, TokenPair } from "@/app/token-identity";
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/app/plain-link";
 import { ArrowUpRight, RefreshCw, Sprout } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
