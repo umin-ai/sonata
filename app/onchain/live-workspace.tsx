@@ -51,6 +51,15 @@ import { LiveWallet, useLive } from "./live-session";
 import { OnchainTreasury } from "./treasury-workspace";
 import { LiquidityPortfolio } from "@/app/earn/workspace";
 import { GraduationProgress } from "./graduation-progress";
+import { StockFloor } from "./stock-floor";
+import {
+  TokenProfileFields,
+  emptyProfile,
+  hasProfile,
+  publishProfile,
+} from "@/app/token-profile-fields";
+import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-view";
+import { normalizeLinks } from "@/lib/token-profile";
 import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 const href = (m: Market) => `/onchain?pool=${m.pool}`;
@@ -229,6 +238,7 @@ export function LiveDirectory() {
 function MarketCard({ market: m }: { market: Market }) {
   const [data, setData] = useState<TreasurySnapshot | null>(null),
     [error, setError] = useState("");
+  const tokenProfile = useTokenProfile(m.uri);
   const { revision } = useLive();
   useEffect(() => {
     let active = true;
@@ -250,10 +260,12 @@ function MarketCard({ market: m }: { market: Market }) {
     <Card className="sr-panel nm-market-card">
       <div className="sr-section-top">
         <div>
-          <h3>
+          <h3 className="token-title">
+            <TokenImage profile={tokenProfile} symbol={m.symbol} size={32} />
             <TokenPair base={m.symbol} quote={quoteSymbolOf(m.quoteMint)} size={32} />
           </h3>
           <p className="sr-note font-bold">{m.name}</p>
+          <TokenLinks profile={tokenProfile} />
         </div>
         <Badge variant="outline" className="nm-venue">
           {data?.migrated ? (
@@ -264,12 +276,16 @@ function MarketCard({ market: m }: { market: Market }) {
         </Badge>
       </div>
       <GraduationProgress data={data} quote={quoteSymbolOf(m.quoteMint)} compact />
+      {m.mode === "floor" ? (
+        <StockFloor data={data} market={m} quote={quoteSymbolOf(m.quoteMint)} compact />
+      ) : (
       <div className="sr-detail-row">
         <span>Creator reserve</span>
         <strong>
           {data ? formatUnits(data.available) : "—"} <TokenName symbol={quoteSymbolOf(m.quoteMint)} />
         </strong>
       </div>
+      )}
       <div className="sr-detail-row">
         <span>Lifetime collected fees</span>
         <strong>
@@ -338,7 +354,14 @@ export function LiveLaunch() {
     [draft, setDraft] = useState<Market | null>(null),
     [exists, setExists] = useState<boolean | null>(null),
     [error, setError] = useState(""),
-    [completed, setCompleted] = useState("");
+    [completed, setCompleted] = useState(""),
+    [profile, setProfile] = useState(emptyProfile);
+  let profileValid = true;
+  try {
+    normalizeLinks(profile);
+  } catch {
+    profileValid = false;
+  }
   useEffect(() => {
     let active = true;
     setError("");
@@ -472,20 +495,25 @@ export function LiveLaunch() {
                   placeholder="CREW"
                 />
               </div>
+              <TokenProfileFields value={profile} onChange={setProfile} />
               </>}
               {step >= 1 && step <= 3 && <LaunchSettingsStep step={step} value={settings} onChange={setSettings} price={price} pyth={pyth} onRefreshPrice={()=>setPythRefresh(n=>n+1)}/>}
               {step === 3 && settings.rewards === "treasury" && <div><Label htmlFor="payout-wallet">Fee recipient</Label><Input id="payout-wallet" value={payout} onChange={e=>setPayout(e.target.value)} placeholder={address || "Connected wallet by default"}/><p className="sr-note">Fixed after activation. Leave empty to use your connected wallet.</p></div>}
-              {step === 4 && <div className="launch-review"><TokenPair base={symbol} quote={settings.quote}/><div className="sr-detail-row"><span>Token name</span><strong>{name}</strong></div><div className="sr-detail-row"><span>Supply</span><strong>1,000,000,000</strong></div><div className="sr-detail-row"><span>Trading fee</span><strong>{settings.fee/100}%</strong></div>{settings.pricing && <div className="sr-detail-row"><span>Graduates at</span><strong>{formatUsd(settings.pricing.targetUsd)} · {settings.target} {settings.quote}</strong></div>}{settings.pricing && <p className="sr-note">Priced by {settings.pricing.source==='pyth'?'Pyth':'Jupiter (Solana market)'} at {formatUsd(settings.pricing.price)} ({settings.pricing.label}, {formatPriceTime(settings.pricing.publishTimeMs)}).</p>}<p className="sr-note">{deployable ? "Supported Devnet configuration." : "Preview configuration. Deployment is not supported for these settings yet."}</p><p className="sr-note">{deployable ? "Two transactions: launch the token, then activate the treasury. Review the estimated network cost before signing." : "Export these settings for review. No token or pool will be created."}</p></div>}
+              {step === 4 && <div className="launch-review"><div className="launch-review-head">{profile.preview && <img className="token-image" src={profile.preview} alt="" width={40} height={40}/>}<TokenPair base={symbol} quote={settings.quote}/></div><div className="sr-detail-row"><span>Token name</span><strong>{name}</strong></div>{profile.description.trim() && <div className="sr-detail-row"><span>Description</span><strong>{profile.description.trim()}</strong></div>}<div className="sr-detail-row"><span>Social links</span><strong>{[profile.website&&"Website",profile.x&&"X",profile.telegram&&"Telegram"].filter(Boolean).join(" · ")||"None"}</strong></div><div className="sr-detail-row"><span>Supply</span><strong>1,000,000,000</strong></div><div className="sr-detail-row"><span>Trading fee</span><strong>{settings.fee/100}%</strong></div><div className="sr-detail-row"><span>Stock Floor</span><strong>{settings.floor?'On · 50% of net fees, creator can never withdraw':'Off · 50% to your withdrawable reserve'}</strong></div>{settings.pricing && <div className="sr-detail-row"><span>Graduates at</span><strong>{formatUsd(settings.pricing.targetUsd)} · {settings.target} {settings.quote}</strong></div>}{settings.pricing && <p className="sr-note">Priced by {settings.pricing.source==='pyth'?'Pyth':'Jupiter (Solana market)'} at {formatUsd(settings.pricing.price)} ({settings.pricing.label}, {formatPriceTime(settings.pricing.publishTimeMs)}).</p>}<p className="sr-note">{deployable ? "Supported Devnet configuration." : "Preview configuration. Deployment is not supported for these settings yet."}</p><p className="sr-note">{deployable ? "Two transactions: launch the token, then activate the treasury. Review the estimated network cost before signing." : "Export these settings for review. No token or pool will be created."}</p></div>}
               <div className="launch-controls">{step>0 && <Button variant="outline" onClick={()=>setStep(step-1)}>Back</Button>}{step<4 ? <Button disabled={!name.trim() || !symbol.trim() || (step===2 && !curve)} onClick={()=>setStep(step+1)}>Continue</Button> : !deployable ? <Button variant="outline" disabled={!curve} onClick={()=>{const blob=new Blob([JSON.stringify({name,symbol,...settings,quoteThresholdAtoms:curve?.quoteThreshold,network:"devnet",deployed:false},null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="stockroom-launch-preview.json";a.click();URL.revokeObjectURL(url);}}>Export configuration</Button> : !address ? <WalletConnectButton /> : <Button
-                disabled={!enabled || !name.trim() || !symbol.trim() || !curve || !deployable}
+                disabled={!enabled || !name.trim() || !symbol.trim() || !curve || !deployable || !profileValid}
                 onClick={() =>
-                  void execute(() =>
+                  void execute(async () =>
                     prepareLaunch(
                       address,
                       name.trim(),
                       symbol,
                       payout.trim() || address,
                       settings,
+                      // Publish the profile first so its URI is fixed into the token's metadata.
+                      hasProfile(profile)
+                        ? await publishProfile(name.trim(), symbol, profile)
+                        : "",
                     ),
                   )
                 }
@@ -504,11 +532,11 @@ export function LiveLaunch() {
           <p className="sr-note">{name || "Your token name"}</p>
           <div className="sr-detail-row">
             <span>Trading fee</span>
-            <strong>{draft ? 1 : settings.fee/100}% · before protocol deductions</strong>
+            <strong>{draft ? (draft.fee !== undefined ? `${draft.fee/100}%` : "Set at launch") : `${settings.fee/100}%`} · before protocol deductions</strong>
           </div>
           <div className="sr-detail-row">
             <span>Net collected fees</span>
-            <strong>{draft || settings.rewards==="treasury" ? "50% recipient / 50% treasury" : settings.rewards==="holders" ? "Holder rewards · preview" : "Liquidity · preview"}</strong>
+            <strong>{(draft ? draft.mode==="floor" : settings.rewards==="treasury" && settings.floor) ? "50% recipient / 50% Stock Floor" : draft || settings.rewards==="treasury" ? "50% recipient / 50% creator reserve" : settings.rewards==="holders" ? "Holder rewards · preview" : "Liquidity · preview"}</strong>
           </div>
           <div className="sr-detail-row">
             <span>Mock stock</span>

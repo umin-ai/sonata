@@ -27,7 +27,21 @@ import initialMarket from "./market.json";
 import { buildCurveParams } from "./dbc-preview";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { graduationProgress } from "./graduation";
-export type Market = typeof initialMarket & { symbol: string; name: string };
+import { isProfileUrl } from "../token-profile";
+// "duet": 50% to the payout wallet, 50% creator-withdrawable reserve.
+// "floor": 50% to the payout wallet, 50% Stock Floor that only holders redeem.
+export type TreasuryMode = "duet" | "floor";
+export type Market = typeof initialMarket & {
+  symbol: string;
+  name: string;
+  mode?: TreasuryMode;
+  // Trading fee in bps, known for launches made in this session.
+  fee?: number;
+  // Token profile metadata JSON (image, description, links), when published.
+  uri?: string;
+};
+const modeOf = (m: Record<string, unknown>): TreasuryMode | null =>
+  "floor" in m ? "floor" : "duet" in m ? "duet" : null;
 export const market: Market = {
   ...initialMarket,
   symbol: "ROOM",
@@ -91,12 +105,13 @@ export async function readTreasury(market: Market = exportsMarket) {
     "payoutQuote",
     "quoteMint",
     "programId",
+    "baseMint",
   ] as const;
   const result = await connection.getMultipleAccountsInfoAndContext(
     names.map((n) => pk(market[n])),
     "confirmed",
   );
-  const [ta, pa, ca, tqa, pqa, qm, pr] = result.value;
+  const [ta, pa, ca, tqa, pqa, qm, pr, bm] = result.value;
   if (
     !ta?.owner.equals(program.programId) ||
     !pa?.owner.equals(pk(dbc.program)) ||
@@ -125,8 +140,10 @@ export async function readTreasury(market: Market = exportsMarket) {
       throw Error(
         `Treasury ${key} changed. Refresh integration before signing.`,
       );
+  const mode = modeOf(treasury.mode);
+  if (!mode || (market.mode && market.mode !== mode))
+    throw Error("Treasury mode changed. Refresh integration before signing.");
   if (
-    !("duet" in treasury.mode) ||
     !config.feeClaimer.equals(pk(market.vault)) ||
     !config.quoteMint.equals(pk(market.quoteMint)) ||
     !pool.config.equals(pk(market.config)) ||
@@ -138,6 +155,8 @@ export async function readTreasury(market: Market = exportsMarket) {
   const mint = unpackMint(pk(market.quoteMint), qm, TOKEN_2022_PROGRAM_ID);
   if (mint.decimals !== 8 || mint.freezeAuthority)
     throw Error("Unexpected mock stock mint.");
+  // Community token supply: the Stock Floor is shared across all of it.
+  const baseSupply = unpackMint(pk(market.baseMint), bm, TOKEN_PROGRAM_ID).supply;
   const custody = unpackAccount(
       pk(market.treasuryQuote),
       tqa,
@@ -177,6 +196,10 @@ export async function readTreasury(market: Market = exportsMarket) {
     recipientBalance: payout.amount.toString(),
     uncollected: pool.partnerQuoteFee.toString(),
     migrated: pool.isMigrated !== 0,
+    mode,
+    // In floor mode the whole retained balance is the floor.
+    floor: mode === "floor" ? available.toString() : "0",
+    baseSupply: baseSupply.toString(),
     ...(await readGraduation(pool, config, market)),
   };
 }
@@ -213,7 +236,12 @@ async function readGraduation(
   };
 }
 export type TreasurySnapshot = Awaited<ReturnType<typeof readTreasury>>;
-export type TreasuryAction = "collect" | "allocate" | "withdraw";
+export type TreasuryAction =
+  | "collect"
+  | "allocate"
+  | "withdraw"
+  | "redeem"
+  | "sync";
 export type TradeSide = "buy" | "sell";
 export type PreparedTreasury = {
   action:
@@ -230,6 +258,7 @@ export type PreparedTreasury = {
     | "reward-claim"
     | "reward-policy"
     | "reward-deliver";
+  redeem?: { burn: string; payout: string; baseSymbol: string };
   rewards?: {
     description: string;
     allocations: { recipient: string; amount: string }[];
@@ -283,53 +312,118 @@ export async function prepareTreasury(
   const tx = new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }),
   );
+  const claimIx = () =>
+    program.methods
+      .claim()
+      .accounts({
+        vault: pk(market.vault),
+        treasury: pk(market.treasury),
+        poolAuthority: pk(dbc.poolAuthority),
+        config: pk(market.config),
+        pool: pk(market.pool),
+        treasuryBase: pk(market.treasuryBase),
+        treasuryQuote: pk(market.treasuryQuote),
+        baseVault: pk(market.baseVault),
+        quoteVault: pk(market.quoteVault),
+        baseMint: pk(market.baseMint),
+        quoteMint: pk(market.quoteMint),
+        tokenBaseProgram: TOKEN_PROGRAM_ID,
+        tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+        dbcEventAuthority: pk(dbc.eventAuthority),
+        dbcProgram: pk(dbc.program),
+      })
+      .instruction();
+  const distributeIx = () =>
+    program.methods
+      .distribute()
+      .accounts({
+        treasury: pk(market.treasury),
+        treasuryQuote: pk(market.treasuryQuote),
+        payoutQuote: pk(market.payoutQuote),
+        quoteMint: pk(market.quoteMint),
+        tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .instruction();
   if (action === "collect") {
     if (state.migrated)
       throw Error("This pool migrated; the DAMM fee adapter is not connected.");
     if (BigInt(state.uncollected) <= 0n)
       throw Error("No new trading fees to collect.");
     raw = state.uncollected;
-    tx.add(
-      await program.methods
-        .claim()
-        .accounts({
-          vault: pk(market.vault),
-          treasury: pk(market.treasury),
-          poolAuthority: pk(dbc.poolAuthority),
-          config: pk(market.config),
-          pool: pk(market.pool),
-          treasuryBase: pk(market.treasuryBase),
-          treasuryQuote: pk(market.treasuryQuote),
-          baseVault: pk(market.baseVault),
-          quoteVault: pk(market.quoteVault),
-          baseMint: pk(market.baseMint),
-          quoteMint: pk(market.quoteMint),
-          tokenBaseProgram: TOKEN_PROGRAM_ID,
-          tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
-          dbcEventAuthority: pk(dbc.eventAuthority),
-          dbcProgram: pk(dbc.program),
-        })
-        .instruction(),
-    );
+    tx.add(await claimIx());
   } else if (action === "allocate") {
     if (BigInt(state.unallocated) <= 0n)
       throw Error("Collect trading fees first.");
     raw = state.unallocated;
     recipient = market.payoutOwner;
+    tx.add(await distributeIx());
+  } else if (action === "sync") {
+    // Collect and split in one signature, so new fees reach the floor at once.
+    // Both instructions are permissionless; the caller only pays the network fee.
+    const uncollected = state.migrated ? 0n : BigInt(state.uncollected);
+    if (uncollected <= 0n && BigInt(state.unallocated) <= 0n)
+      throw Error("No new trading fees to add to the floor yet.");
+    raw = (uncollected + BigInt(state.unallocated)).toString();
+    recipient = market.treasury;
+    if (uncollected > 0n) tx.add(await claimIx());
+    tx.add(await distributeIx());
+  }
+  if (action === "redeem") {
+    if (state.mode !== "floor")
+      throw Error("This market has no Stock Floor.");
+    const burn = parseUnits(amount ?? "", 6);
+    if (burn <= 0n) throw Error("Enter how many tokens to burn.");
+    const holderBase = getAssociatedTokenAddressSync(pk(market.baseMint), owner);
+    const info = await connection.getAccountInfo(holderBase, "confirmed");
+    const held = info
+      ? unpackAccount(holderBase, info, TOKEN_PROGRAM_ID).amount
+      : 0n;
+    if (burn > held) throw Error(`You hold fewer ${market.symbol} than that.`);
+    // Same rounding as the program: floor * burn / supply, rounded down.
+    const payout = (BigInt(state.floor) * burn) / BigInt(state.baseSupply);
+    if (payout <= 0n)
+      throw Error("Too few tokens to redeem any stock at the current floor.");
+    raw = payout.toString();
+    recipient = wallet;
+    const holderQuote = getAssociatedTokenAddressSync(
+      pk(market.quoteMint),
+      owner,
+      false,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    const { BN } = browserAnchor as typeof import("@coral-xyz/anchor");
     tx.add(
+      createAssociatedTokenAccountIdempotentInstruction(
+        owner,
+        holderQuote,
+        owner,
+        pk(market.quoteMint),
+        TOKEN_2022_PROGRAM_ID,
+      ),
       await program.methods
-        .distribute()
+        .redeem(new BN(burn.toString()))
         .accounts({
           treasury: pk(market.treasury),
+          holder: owner,
+          holderBase,
+          holderQuote,
           treasuryQuote: pk(market.treasuryQuote),
-          payoutQuote: pk(market.payoutQuote),
+          baseMint: pk(market.baseMint),
           quoteMint: pk(market.quoteMint),
+          tokenBaseProgram: TOKEN_PROGRAM_ID,
           tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
         })
         .instruction(),
     );
+    return {
+      ...(await finalizeTransaction(tx, action, wallet, raw, recipient)),
+      market,
+      redeem: { burn: burn.toString(), payout: raw, baseSymbol: market.symbol },
+    };
   }
   if (action === "withdraw") {
+    if (state.mode === "floor")
+      throw Error("The Stock Floor belongs to holders; the creator cannot withdraw it.");
     if (wallet !== market.creator)
       throw Error("Only this market’s creator can withdraw its reserve.");
     const quantity = parseUnits(amount ?? "", 8);
@@ -583,6 +677,10 @@ export function validateMarketIdentity(value: Market) {
       throw Error("Unsupported Sonata market configuration.");
   if (!quoteAssetList.some((a) => a.mint === value.quoteMint))
     throw Error("Unsupported quote asset for a Sonata market.");
+  if (value.mode !== undefined && value.mode !== "duet" && value.mode !== "floor")
+    throw Error("Unsupported treasury mode.");
+  if (value.uri !== undefined && !isProfileUrl(value.uri))
+    throw Error("Unsupported token profile location.");
   const [treasury] = PublicKey.findProgramAddressSync(
     [Buffer.from("treasury"), pk(value.pool).toBuffer()],
     program.programId,
@@ -602,7 +700,7 @@ export async function discoverMarkets(): Promise<Market[]> {
   const quoteMints = new Set(quoteAssetList.map((a) => a.mint));
   const supported = entries.filter(
     ({ account: t }) =>
-      quoteMints.has(t.quoteMint.toBase58()) && "duet" in t.mode,
+      quoteMints.has(t.quoteMint.toBase58()) && modeOf(t.mode) !== null,
   );
   if (!supported.length) return [];
   const pools = await connection.getMultipleAccountsInfo(
@@ -620,7 +718,8 @@ export async function discoverMarkets(): Promise<Market[]> {
     const decoded = coder.decode<Pool>("virtualPool", info.data),
       pool = decoded.poolState ?? decoded;
     let name = `Community ${t.baseMint.toBase58().slice(0, 6)}`,
-      symbol = t.baseMint.toBase58().slice(0, 6);
+      symbol = t.baseMint.toBase58().slice(0, 6),
+      uri = "";
     const md = metadata[i];
     if (
       md?.owner.equals(METAPLEX_PROGRAM_ID) &&
@@ -643,6 +742,7 @@ export async function discoverMarkets(): Promise<Market[]> {
       try {
         name = read();
         symbol = read();
+        uri = read();
       } catch {
         /* Address remains the asset identity. */
       }
@@ -658,6 +758,8 @@ export async function discoverMarkets(): Promise<Market[]> {
       baseMint: t.baseMint.toBase58(),
       creator: t.creator.toBase58(),
       payoutOwner: t.payoutOwner.toBase58(),
+      mode: modeOf(t.mode) ?? undefined,
+      ...(isProfileUrl(uri) ? { uri } : {}),
       baseVault: pool.baseVault.toBase58(),
       quoteVault: pool.quoteVault.toBase58(),
       treasuryBase: getAssociatedTokenAddressSync(
@@ -689,6 +791,7 @@ export type LaunchCurve = {
   initial: number;
   target: number;
   fee: number;
+  floor?: boolean;
 };
 export async function prepareLaunch(
   wallet: string,
@@ -696,8 +799,11 @@ export async function prepareLaunch(
   symbol: string,
   payout: string,
   curve: LaunchCurve,
+  uri = "",
 ): Promise<PreparedTreasury> {
   await checkNetwork();
+  if (uri && !isProfileUrl(uri))
+    throw Error("Token profile must be published through Sonata first.");
   const asset = quoteAssetBySymbol(curve.quote);
   if (!asset)
     throw Error(
@@ -751,6 +857,9 @@ export async function prepareLaunch(
     treasury: treasury.toBase58(),
     creator: wallet,
     payoutOwner: payout,
+    mode: curve.floor ? "floor" : "duet",
+    fee: curve.fee,
+    ...(uri ? { uri } : {}),
     baseVault: deriveDbcTokenVaultAddress(pool, mint.publicKey).toBase58(),
     quoteVault: deriveDbcTokenVaultAddress(pool, quoteMint).toBase58(),
     treasuryBase: getAssociatedTokenAddressSync(
@@ -785,7 +894,7 @@ export async function prepareLaunch(
     preCreatePoolParam: {
       name,
       symbol,
-      uri: "",
+      uri,
       poolCreator: owner,
       baseMint: mint.publicKey,
     },
@@ -822,7 +931,7 @@ export async function prepareRegistration(
     );
   tx.add(
     await program.methods
-      .initTreasury({ duet: {} }, pk(m.payoutOwner))
+      .initTreasury({ [m.mode ?? "duet"]: {} }, pk(m.payoutOwner))
       .accounts({
         vault: pk(m.vault),
         treasury: pk(m.treasury),
@@ -863,6 +972,8 @@ export async function reserveWithdrawal(
   raw: bigint,
 ) {
   const state = await readTreasury(m);
+  if (state.mode === "floor")
+    throw Error("The Stock Floor belongs to holders; the creator cannot withdraw it.");
   if (wallet !== m.creator)
     throw Error("Only this market’s creator can deploy its reserve.");
   if (raw <= 0n || raw > BigInt(state.available))

@@ -34,12 +34,15 @@ import {
 import { formatUnits } from "@/lib/treasury/units";
 import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import { GraduationProgress } from "./graduation-progress";
+import { StockFloor } from "./stock-floor";
+import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-view";
 import { LiveWallet, useLive } from "./live-session";
 import type { Market } from "@/lib/treasury/runtime";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 export function OnchainTreasury({ selected = market }: { selected?: Market }) {
   const market = selected;
   const q = quoteSymbolOf(market.quoteMint);
+  const tokenProfile = useTokenProfile(market.uri);
   const [view, setView] = useState("trade");
   const { address, busy, pending, revision, labels, execute } = useLive();
   const [data, setData] = useState<TreasurySnapshot | null>(null),
@@ -97,12 +100,14 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       <div className="sr-heading">
         <div>
           <span className="sr-eyebrow">SONATA / TRADE</span>
-          <h1>
+          <h1 className="token-title">
+            <TokenImage profile={tokenProfile} symbol={market.symbol} size={44} />
             <TokenPair base={market.symbol} quote={q} size={36} />
           </h1>
           <p>
-            Trade, view fees and manage your market.
+            {tokenProfile?.description ?? "Trade, view fees and manage your market."}
           </p>
+          <TokenLinks profile={tokenProfile} />
         </div>
         <Button
           variant="outline"
@@ -119,8 +124,10 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       <Alert className="mb-6">
         <ShieldCheck />
         <AlertDescription>
-          {q} is a valueless mock stock token. Collected creator reserves can
-          fund liquidity positions or fixed community rewards.
+          {q} is a valueless mock stock token.{" "}
+          {market.mode === "floor"
+            ? `Half of net trading fees builds this market's Stock Floor, which any ${market.symbol} holder can redeem and the creator cannot withdraw.`
+            : "Collected creator reserves can fund liquidity positions or fixed community rewards."}
         </AlertDescription>
       </Alert>
       {error && (
@@ -153,7 +160,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       </div>
       <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
       <LiveWallet />
-      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} /><div className="sr-detail-row"><span>Network</span><strong>Solana Devnet</strong></div><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><div className="terminal-chart-empty"><strong>Price history unavailable</strong><p>Historical candles are not indexed for this test market. No simulated prices are shown.</p></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} /><StockFloor data={data} market={market} quote={q} held={balances?.base} /><div className="sr-detail-row"><span>Network</span><strong>Solana Devnet</strong></div><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><div className="terminal-chart-empty"><strong>Price history unavailable</strong><p>Historical candles are not indexed for this test market. No simulated prices are shown.</p></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {data?.migrated ? (
         // A graduated pool no longer trades on its DBC curve; the runtime refuses
         // such a swap. Say so here rather than after the user fills in the form.
@@ -313,9 +320,9 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           <span className="sr-eyebrow">02 / FIXED AT CREATION</span>
           <h3>Fee distribution</h3>
           <p className="sr-note">
-            Allocation sends 50% to the fixed recipient. The remaining 50% stays
-            in custody. Calling this does not give the caller ownership of those
-            funds.
+            Allocation sends 50% to the fixed recipient. The remaining 50%{" "}
+            {market.mode === "floor" ? "goes into the Stock Floor" : "stays in custody"}.
+            Calling this does not give the caller ownership of those funds.
           </p>
           <div className="sr-detail-row">
             <span>Ready to allocate</span>
@@ -348,6 +355,37 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           )}
         </Card>
       </div>
+      {market.mode === "floor" ? (
+      <Card className="sr-panel">
+        <span className="sr-eyebrow">03 / STOCK FLOOR</span>
+        <h3>Held for holders</h3>
+        <div className="sr-position-strip">
+          <div>
+            <span>Floor now</span>
+            <strong>
+              {value("floor")} <TokenName symbol={q} />
+            </strong>
+          </div>
+          <div>
+            <span>Lifetime added</span>
+            <strong>
+              {value("retained")} <TokenName symbol={q} />
+            </strong>
+          </div>
+          <div>
+            <span>Redeemed by holders</span>
+            <strong>
+              {value("withdrawn")} <TokenName symbol={q} />
+            </strong>
+          </div>
+        </div>
+        <p className="sr-note">
+          The treasury program refuses any creator withdrawal from this market.
+          The only way out is a holder burning {market.symbol} for their share
+          in the Trade tab.
+        </p>
+      </Card>
+      ) : (
       <Card className="sr-panel">
         <span className="sr-eyebrow">03 / CREATOR RESERVE</span>
         <h3>Treasury balance</h3>
@@ -422,6 +460,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           </p>
         )}
       </Card>
+      )}
       </>}
       {view === "history" && <Card className="sr-panel">
         <div className="sr-section-top">

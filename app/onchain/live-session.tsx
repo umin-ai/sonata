@@ -26,6 +26,7 @@ import {
   type PreparedTreasury,
 } from "@/lib/treasury/runtime";
 import { formatUnits } from "@/lib/treasury/units";
+import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 const storagePrefix = `stockroom.session.${market.programId}`;
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 const names = {
@@ -45,6 +46,8 @@ const names = {
   register: "Activate treasury",
   collect: "Collect trading fees",
   allocate: "Allocate collected fees",
+  redeem: "Burn tokens for stock",
+  sync: "Add new fees to the Stock Floor",
 };
 import { LiveContext, useLive, type Pending } from "./live-context";
 export { useLive } from "./live-context";
@@ -62,6 +65,14 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     lock = useRef(false),
     address = wallet.account?.address ?? testAddress,
     currentAddress = useRef(address);
+  // Amounts in the review are in this market's quote token, not always mSPY.
+  const quoteSymbol = review?.market
+    ? quoteSymbolOf(review.market.quoteMint)
+    : review?.trade
+      ? review.action === "sell"
+        ? review.trade.outputSymbol
+        : review.trade.inputSymbol
+      : "mSPY";
   useEffect(() => {
     currentAddress.current = address;
   }, [address]);
@@ -391,12 +402,31 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           </DialogHeader>
           {review && (
             <>
+              {review.redeem && (
+                <div className="space-y-3">
+                  <div className="sr-detail-row">
+                    <span>You burn</span>
+                    <strong>
+                      {formatUnits(review.redeem.burn, 6)}{" "}
+                      <TokenName symbol={review.redeem.baseSymbol} />
+                    </strong>
+                  </div>
+                  <div className="sr-detail-row">
+                    <span>You receive</span>
+                    <strong>
+                      {formatUnits(review.redeem.payout)}{" "}
+                      <TokenName symbol={quoteSymbol} />
+                    </strong>
+                  </div>
+                </div>
+              )}
               {!review.liquidity &&
+                !review.redeem &&
                 review.action !== "launch" &&
                 review.action !== "register" && (
                   <p className="text-2xl">
                     {formatUnits(review.raw, review.trade?.inputDecimals ?? 8)}{" "}
-                    <TokenName symbol={review.trade?.inputSymbol ?? "mSPY"} />
+                    <TokenName symbol={review.trade?.inputSymbol ?? quoteSymbol} />
                   </p>
                 )}
               {review.liquidity && (
@@ -478,7 +508,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                         BigInt(review.trade.tradingFee) +
                           BigInt(review.trade.protocolFee),
                       )}{" "}
-                      mSPY
+                      {quoteSymbol}
                     </strong>
                   </div>
                   <p className="sr-note">
@@ -494,9 +524,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   : review.liquidity
                     ? "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
                     : review.action === "launch"
-                      ? "Create a permanent token and Meteora pool. 1% trading fee before protocol deductions; the treasury allocates net collected fees 50% to your fixed recipient and 50% to the creator reserve. A second signature activates the treasury. This does not purchase tokens."
+                      ? `Create a permanent token and its own Meteora pool with the trading fee you chose. Net collected fees go 50% to your fixed recipient and 50% to ${review.market?.mode === "floor" ? "the Stock Floor, which only holders can redeem" : "the creator reserve"}. A second signature activates the treasury. This does not purchase tokens.`
                       : review.action === "register"
-                        ? "Register the creator, immutable recipient and 50/50 allocation in Sonata, and create its custody accounts."
+                        ? review.market?.mode === "floor"
+                          ? "Register the creator, immutable recipient and Stock Floor in Sonata, and create its custody accounts. Once active, the creator can never withdraw the floor."
+                          : "Register the creator, immutable recipient and 50/50 allocation in Sonata, and create its custody accounts."
+                        : review.action === "redeem"
+                          ? "Your tokens are burned and you receive their exact share of the Stock Floor: floor × tokens burned ÷ total supply, rounded down. Nobody else's share goes down."
+                        : review.action === "sync"
+                          ? "Collects new trading fees from Meteora and splits them: 50% to the fixed recipient, 50% into the Stock Floor. Anyone can do this; you only pay the network fee."
                         : review.action === "withdraw"
                           ? "Move the requested allocated reserve to the creator’s wallet. No holder balances are redeemed."
                           : review.action === "allocate"

@@ -1,22 +1,24 @@
 "use client";
 import {useEffect} from 'react';
-import {RefreshCw} from 'lucide-react';
+import {RefreshCw,ShieldCheck} from 'lucide-react';
 import {TokenName} from './token-identity';
 import {Label} from '@/components/ui/label';
+import {Switch} from '@/components/ui/switch';
 import {isDeployableQuote} from '@/lib/treasury/quote-assets';
 import {OPEN_USD,GRADUATION_USD,usdToQuote,formatUsd,formatPriceTime,type StockPrice} from '@/lib/pricing/stock-price';
 // A dollar target converted to quote units at the Solana market price. The converted
 // initial/target are what the on-chain config uses; the snapshot records the
 // price that produced them and does not move afterwards.
 export type Pricing={source:'pyth'|'jupiter';openUsd:number;targetUsd:number;price:number;confidenceRatio:number;publishTimeMs:number;label:string;live:boolean;feed:string};
-export type LaunchSettings={quote:string;initial:number;target:number;fee:number;rewards:string;pricing?:Pricing};
+// floor: half of net fees becomes a Stock Floor that holders redeem by burning; fixed at creation.
+export type LaunchSettings={quote:string;initial:number;target:number;fee:number;rewards:string;floor:boolean;pricing?:Pricing};
 export type PythState=
  |{status:'loading'}
  |{status:'unconfigured'}
  |{status:'error';message:string}
  |{status:'unusable';message:string;data:StockPrice}
  |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number;guard?:{feed:string;price:number;divergence:number}};
-export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fee:100,rewards:'treasury'};
+export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fee:100,rewards:'treasury',floor:true};
 // Every curve and fee combination now deploys as its own DBC config. What still
 // gates a launch is a quote mint that exists onchain and a reward policy the
 // protocol actually enforces; holder and liquidity policies remain proposals.
@@ -62,5 +64,5 @@ export function LaunchSettingsStep({step,value,onChange,price,pyth,onRefreshPric
   const why=pyth.status==='unconfigured'?'Dollar targets are unavailable, so these targets are set in mSPY.':pyth.status==='loading'?'Loading the stock price…':pyth.status==='error'||pyth.status==='unusable'?`Dollar targets are unavailable: ${pyth.message} These targets are set in mSPY.`:'';
   return <div className="curve-choices">{why&&<p className="sr-note" role="status">{why}</p>}<p className="sr-note">Opens at <strong>{usd(2)}</strong> estimated market cap. Choose the graduation target and trading fee.</p><fieldset><legend>Graduation market cap</legend><div className="curve-presets">{[[8,'Lower target'],[12,'Default'],[18,'Higher target']].map(([target,label])=><button type="button" key={target} aria-pressed={value.target===target} onClick={()=>update({initial:2,target:Number(target),pricing:undefined})}><strong>{usd(Number(target))}</strong><small>{target} {value.quote} · market cap</small><span>{label}</span><span className="preset-check" aria-hidden="true">{value.target===target?'✓':'○'}</span></button>)}</div></fieldset>{feeChoices}{route}<p className="sr-note">USD estimates use the corresponding mainnet stock-token price. Mock tokens have no monetary value. The quote-token target stays fixed; its USD estimate moves with price.</p><details className="launch-disclosure"><summary>Liquidity settings</summary><p className="sr-note">Fixed starting market cap of 2 quote tokens. 100% of partner LP is permanently locked after migration. These presets do not change the fee schedule or LP allocation.</p></details></div>;
  }
- return <><p className="sr-note">Choose how the collected creator revenue should be used. This does not change the protocol’s own fee deductions.</p><div className="launch-options rewards-options">{[['treasury','Creator fees','50% to the fixed recipient; 50% retained in the creator treasury.','Available now'],['holders','Holder rewards',`Distribute a share of ${value.quote} fees to eligible token holders.`,'Not at launch · enable from Rewards afterwards'],['liquidity','Liquidity','Allocate collected fees to a liquidity position.','Preview · launch integration pending']].map(([id,title,copy,status])=><button type="button" key={id} aria-pressed={value.rewards===id} onClick={()=>update({rewards:id})}><strong>{title}</strong><span>{copy}</span><small>{status}</small></button>)}</div></>;
+ return <><div className="floor-switch"><div><Label htmlFor="stock-floor"><ShieldCheck size={16}/> Stock Floor</Label><p className="sr-note">Half of net trading fees builds a floor. Any holder can burn their tokens for a share of it, paid in {value.quote}. You can never withdraw it. Only set at creation.</p></div><Switch id="stock-floor" checked={value.floor&&value.rewards==='treasury'} disabled={value.rewards!=='treasury'} onCheckedChange={(floor:boolean)=>update({floor})} aria-label="Stock Floor"/></div><p className="sr-note">Choose how the collected creator revenue should be used. This does not change the protocol’s own fee deductions.</p><div className="launch-options rewards-options">{[['treasury','Fee split',value.floor?'50% to the fixed recipient; 50% builds the Stock Floor for holders.':'50% to the fixed recipient; 50% retained in the creator treasury, which you can withdraw.','Available now'],['holders','Holder rewards',`Distribute a share of ${value.quote} fees to eligible token holders.`,'Not at launch · enable from Rewards afterwards'],['liquidity','Liquidity','Allocate collected fees to a liquidity position.','Preview · launch integration pending']].map(([id,title,copy,status])=><button type="button" key={id} aria-pressed={value.rewards===id} onClick={()=>update({rewards:id})}><strong>{title}</strong><span>{copy}</span><small>{status}</small></button>)}</div></>;
 }

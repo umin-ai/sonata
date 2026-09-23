@@ -68,3 +68,31 @@
 .sr-app .pyth-refresh{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;padding:8px 12px;border:1px solid var(--exchange-border);border-radius:9px;font-size:13px;color:var(--foreground);background:transparent}
 .sr-app .pyth-refresh:hover{border-color:var(--exchange-accent)}
 .sr-app .curve-presets button:disabled{opacity:.5;cursor:not-allowed}
+/* Stock Floor: holder-redeemable half of net fees on Floor-mode markets. */
+.sr-app .stock-floor{margin:14px 0 6px;padding:14px 16px;border:1px solid color-mix(in srgb,#3fcf8e 45%,var(--exchange-border));border-radius:12px;background:color-mix(in srgb,#3fcf8e 7%,transparent);display:grid;gap:10px}
+.sr-app .stock-floor-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.sr-app .stock-floor-head span,.sr-app .stock-floor-compact span{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--foreground)}
+.sr-app .stock-floor-head small{font-size:12px;color:var(--muted-foreground)}
+.sr-app .stock-floor-total{font-size:24px;font-weight:650;font-variant-numeric:tabular-nums;display:inline-flex;align-items:center;gap:8px}
+.sr-app .stock-floor-note{margin:0;font-size:13px;line-height:1.5;color:var(--muted-foreground)}
+.sr-app .stock-floor-pending{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;font-variant-numeric:tabular-nums}
+.sr-app .stock-floor-burn{display:grid;gap:8px;padding-top:6px;border-top:1px solid var(--exchange-border)}
+.sr-app .stock-floor-burn label{margin-bottom:2px}
+.sr-app .stock-floor-input{display:flex;gap:8px}
+.sr-app .stock-floor-compact{margin:10px 0 4px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.sr-app .stock-floor-compact strong{font-variant-numeric:tabular-nums;display:inline-flex;align-items:center;gap:6px}
+.sr-app .floor-switch{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 16px;margin-bottom:14px;border:1px solid color-mix(in srgb,#3fcf8e 45%,var(--exchange-border));border-radius:12px;background:color-mix(in srgb,#3fcf8e 7%,transparent)}
+.sr-app .floor-switch label{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.sr-app .floor-switch .sr-note{margin:4px 0 0}
+/* Token profile: image, description and social links from the token metadata. */
+.sr-app .token-title{display:flex;align-items:center;gap:12px}
+.sr-app .token-image{border-radius:999px;object-fit:cover;flex:none;background:var(--muted)}
+.sr-app .token-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.sr-app .token-links a{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--exchange-border);border-radius:999px;font-size:12px;color:var(--foreground);text-decoration:none}
+.sr-app .token-links a:hover{border-color:var(--exchange-accent)}
+.sr-app .token-profile-fields{display:grid;gap:16px}
+.sr-app .token-image-picker{display:flex;align-items:flex-start;gap:14px}
+.sr-app .token-image-picker img,.sr-app .token-image-empty{width:64px;height:64px;border-radius:14px;object-fit:cover;flex:none}
+.sr-app .token-image-empty{display:grid;place-items:center;border:1px dashed var(--exchange-border);color:var(--muted-foreground)}
+.sr-app .token-image-picker .sr-note{margin:6px 0 0}
+.sr-app .launch-review-head{display:flex;align-items:center;gap:10px}
