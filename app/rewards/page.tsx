@@ -65,8 +65,11 @@ export default function RewardsPage() {
       const rewards = await readHolderRewards();
       const rows = [];
       const all = await discoverMarkets();
-      // Only mSPY markets can be funded by the rewards program.
-      for (const market of all.filter((m) => m.quoteMint === REWARDS_MINT))
+      // Only mSPY markets can be funded by the rewards program, and never from a
+      // Stock Floor: the treasury refuses withdrawals from a floor.
+      for (const market of all.filter(
+        (m) => m.quoteMint === REWARDS_MINT && m.mode !== "floor",
+      ))
         rows.push({ market, state: await readTreasury(market) });
       if (id === request.current) setExcluded(all.length - rows.length);
       if (id === request.current) {
@@ -237,7 +240,7 @@ export default function RewardsPage() {
         <TabsContent value="holders" className="space-y-5 mt-5">
           {excluded > 0 && (
             <p className="sr-note" role="status">
-              {excluded} market{excluded === 1 ? " is" : "s are"} not shown: holder rewards are paid by a program that currently funds only mSPY markets.
+              {excluded} market{excluded === 1 ? " is" : "s are"} not shown: holder rewards are paid by a program that currently funds only mSPY markets, and never from a Stock Floor, which holders redeem directly.
             </p>
           )}
           <div className="grid gap-5 lg:grid-cols-2">
