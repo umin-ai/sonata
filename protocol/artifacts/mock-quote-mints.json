@@ -1,6 +1,6 @@
 {
   "network": "solana:devnet",
-  "createdAt": "2026-09-22T23:25:58.855Z",
+  "createdAt": "2026-09-23T13:29:20.114Z",
   "note": "Mock stock quote tokens, no monetary value. Same profile as mSPY; permissionless DBC quote assets.",
   "tokens": [
     {
@@ -29,7 +29,8 @@
           "label": "Mint 10000 mQQQ to the deployer",
           "signature": "3Lvg31bB79ihPN4VfBEs4TFDxA5Lxw1uEmAZcuHR7wypuuJKCdJidheW4dx8etyzd4qJLHEN5umPK2gjW4CMvFnz"
         }
-      ]
+      ],
+      "createdAt": "2026-09-22T23:25:58.855Z"
     },
     {
       "symbol": "mTSLA",
@@ -56,6 +57,147 @@
         {
           "label": "Mint 10000 mTSLA to the deployer",
           "signature": "2zoB9WBrUYrovrJ2qd6Kyad54m1RzSE6rU1V8d6jMZGVwSRvCs9RB4jgfegHDqxBBwBBMSQr86SB4p7TzZ4GYZZb"
+        }
+      ],
+      "createdAt": "2026-09-22T23:25:58.855Z"
+    },
+    {
+      "symbol": "mMSFT",
+      "name": "Mock Microsoft (Sonata devnet)",
+      "mint": "DZr6KNYrthdmkcMJeSvJwPAAKUFjeazQ2VeC7YKtFnnu",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mMSFT mint with metadata",
+          "signature": "2ahczha9SFYbNYjHFgnKBfZ4NYsWYst5ac5zi1Jc57NgtqXdamAPsr1yXVy6Mt3YH8CSbAe9uTMcuDs7ovZwHhUm"
+        },
+        {
+          "label": "Mint 10000 mMSFT to the deployer",
+          "signature": "4ECTj21bZ9rpTudEibvRke1AoMbEGP4sAxKEHyLh4JpnnZrhukwAwD4TjAf7kKQE2rArVGzTaTiousUpSt72PES8"
+        }
+      ]
+    },
+    {
+      "symbol": "mAMZN",
+      "name": "Mock Amazon (Sonata devnet)",
+      "mint": "AXUB1Fw3FgcwuaqHNAT2y2nY12Td1VtNKE4egMz5wJGu",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mAMZN mint with metadata",
+          "signature": "3Nq6zehNk8jqRBKbusJGLHNZXuDPrZb9Q4vauQwFt4YLFVQPJYTZevjbvG8H49su5SogUhrz9uUDGC2fQMwvxX8K"
+        },
+        {
+          "label": "Mint 10000 mAMZN to the deployer",
+          "signature": "4mH7RAof1u9STnkf2kWxomN2bPE2svtDZBSP5mobMMsjFZpYyS1dvkYrXA3agvzzx3sAjdMtjo196u37HcuKtj8k"
+        }
+      ]
+    },
+    {
+      "symbol": "mMETA",
+      "name": "Mock Meta (Sonata devnet)",
+      "mint": "GLdq1B4DB4otJ6vk7pq1kdupwCcD6gfnwDXtZErmcMX7",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mMETA mint with metadata",
+          "signature": "duUHjKiCsHXQAR5c7kv8NNAFnQzN9P6vWw6mv91PXEHoWRaFhadbgZwGAwYP1Qfv8CCDnyq732k8y3XfRkdhxNh"
+        },
+        {
+          "label": "Mint 10000 mMETA to the deployer",
+          "signature": "EAJEL44QDiBXGBwCrWYkHru4Hro4fFNQxWYNNrFQZdDvoZX3ZMkn3qJwWAFsk5vQawnHosuHhmfTbmzpim3RdDY"
+        }
+      ]
+    },
+    {
+      "symbol": "mMCD",
+      "name": "Mock McDonald's (Sonata devnet)",
+      "mint": "n7bQdWkZWpQzwTp2UXTsaaSG7Zvie7kdfP8e4yZTpxn",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mMCD mint with metadata",
+          "signature": "64DDoRfMit2b7qGCsiK89uAsKeu2cy6qm4r89NUAGPhihySZ3SqCPAiYq7Zvw5qdtDLP763sW5WqQ61NKEXaNcSN"
+        },
+        {
+          "label": "Mint 10000 mMCD to the deployer",
+          "signature": "66U2AE6g1TQ2fuhCj1TbmxLmRDks9ZDYZ9v7VXjh9sBCWkzbADMaTX8tLmfzbd8p6Mf7gWRUoULzZ1G6zafKK1og"
+        }
+      ]
+    },
+    {
+      "symbol": "mANTHROPIC",
+      "name": "Mock Anthropic pre-IPO (Sonata devnet)",
+      "mint": "6LSXE2125CsYkFdospyip66rcBoazuFSXVbuQSFjZHDa",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mANTHROPIC mint with metadata",
+          "signature": "4yvyRZd6r1wevhPZHZV9FwFhFFMcG9rwGQ4B3GtKMhVLQF3g49kdHknLsXQaN1krhFz54LeiePcn5iaggRzMw352"
+        },
+        {
+          "label": "Mint 10000 mANTHROPIC to the deployer",
+          "signature": "2Y49L7LcoHipUfVaezoWPiU3g65JFVGRQiTBasBpsVR7qGqLEiQ1gUrKTNSGLgZ12Yu1xNKVpG7qmaRDkQc68zeQ"
         }
       ]
     }

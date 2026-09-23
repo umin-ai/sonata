@@ -38,6 +38,11 @@ const SUPPLY_UI = 10_000n; // minted to the deployer for Devnet launches and gra
 const TOKENS = [
   { symbol: "mQQQ", name: "Mock Nasdaq-100 (Sonata devnet)", key: ".keys/mock-mqqq.json" },
   { symbol: "mTSLA", name: "Mock Tesla (Sonata devnet)", key: ".keys/mock-mtsla.json" },
+  { symbol: "mMSFT", name: "Mock Microsoft (Sonata devnet)", key: ".keys/mock-mmsft.json" },
+  { symbol: "mAMZN", name: "Mock Amazon (Sonata devnet)", key: ".keys/mock-mamzn.json" },
+  { symbol: "mMETA", name: "Mock Meta (Sonata devnet)", key: ".keys/mock-mmeta.json" },
+  { symbol: "mMCD", name: "Mock McDonald's (Sonata devnet)", key: ".keys/mock-mmcd.json" },
+  { symbol: "mANTHROPIC", name: "Mock Anthropic pre-IPO (Sonata devnet)", key: ".keys/mock-manthropic.json" },
 ];
 
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
@@ -51,6 +56,9 @@ const load = (path) => {
 };
 
 const results = [];
+const previous = existsSync("artifacts/mock-quote-mints.json")
+  ? JSON.parse(readFileSync("artifacts/mock-quote-mints.json", "utf8")).tokens ?? []
+  : [];
 for (const t of TOKENS) {
   const mint = load(t.key);
   const traces = [];
@@ -107,7 +115,10 @@ for (const t of TOKENS) {
     symbolMatches: md?.symbol === t.symbol,
   };
   for (const [k, ok] of Object.entries(checks)) assert.ok(ok, `${t.symbol}: ${k} failed`);
-  results.push({ symbol: t.symbol, name: md.name, mint: mint.publicKey.toBase58(), decimals: m.decimals, supply: m.supply.toString(), extensions, checks, traces });
+  // A re-run verifies existing mints without new transactions; keep the
+  // creation traces recorded when each mint was made.
+  const earlier = previous.find((p) => p.mint === mint.publicKey.toBase58());
+  results.push({ symbol: t.symbol, name: md.name, mint: mint.publicKey.toBase58(), decimals: m.decimals, supply: m.supply.toString(), extensions, checks, traces: traces.length ? traces : earlier?.traces ?? [] });
 }
 
 writeFileSync(
