@@ -9,7 +9,7 @@ const explorer = (a: string) => `https://explorer.solana.com/address/${a}?cluste
 
 const parts: [string, string, string, string][] = [
   ["Launch", "Meteora Dynamic Bonding Curve", "Every launch deploys its own Meteora DBC config and pool from the creator's choices, paired with a stock: S&P 500, Nasdaq 100, Tesla, Microsoft, Amazon, Meta, McDonald's or pre-IPO Anthropic. Sonata's treasury program is the config's fee claimer, so fees go to code, not a wallet.", "Live on Devnet"],
-  ["Dollar targets", "Jupiter, checked by Pyth", "Graduation targets are set in US dollars and converted at the price of the real tokenized stock (SPYx, QQQx, TSLAx) across Solana markets. Pyth's equity feed is an independent check: a gap above 1% blocks the launch.", "Live on Devnet"],
+  ["Dollar targets", "Jupiter, checked by Pyth", "Graduation targets are set in US dollars and converted at the price of the real tokenized stock on Solana (xStocks such as SPYx or MSFTx, or PreStocks for Anthropic). Pyth's equity feed is an independent check: a gap above 1% blocks the launch.", "Live on Devnet"],
   ["Stock Floor", "Sonata treasury program", "Half of net trading fees builds a floor in the stock token. Any holder can burn tokens for their exact share; the creator can never withdraw it.", "Live on Devnet"],
   ["Graduation", "Meteora DAMM v2", "When a curve fills, the market migrates to a DAMM v2 pool with 100% of its liquidity permanently locked.", "Proven on Devnet"],
   ["Charts and trades", "Sonata trade indexer", "Every swap on a Sonata market is read from Meteora's own swap events into a database, which powers the charts, recent trades and 24h volume.", "Live on Devnet"],
