@@ -26,6 +26,6 @@ DNS only (not proxied), so Caddy obtains the certificate itself.
 Firewall (Lightsail): 80 and 443 open; 22 limited to the operator's address
 and Lightsail's browser SSH.
 
-Without a domain, `<ip-with-dashes>.sslip.io` resolves to the instance and
-gets a normal certificate. It changes if the instance's public IP changes;
-attach a static IP before pointing a real domain at it.
+Before the domain existed the app was served at `34-255-123-10.sslip.io`,
+which now redirects. Both names follow the instance's public IP: attach a
+static IP (and update the A record) before relying on them long term.

@@ -2,7 +2,7 @@
 
 ## Current local app — 23 September 2026
 
-**Live on Solana Devnet: https://34-255-123-10.sslip.io** (AWS Lightsail; setup in [deploy/lightsail/](deploy/lightsail/README.md)).
+**Live on Solana Devnet: https://sonata.umin.ai** (AWS Lightsail; setup in [deploy/lightsail/](deploy/lightsail/README.md)).
 
 **Current status, on-chain evidence, security model and Meteora references are in the protocol repository's [HANDOFF.md](https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md).** Read it before relying on anything below.
 
