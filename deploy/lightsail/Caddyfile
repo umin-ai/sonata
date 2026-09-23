@@ -1,0 +1,20 @@
+# HTTPS with an automatic Let's Encrypt certificate, then proxy to the app.
+__HOST__ {
+	encode zstd gzip
+	# The app never trusts these, but strip them at the edge as well.
+	request_header -Oai-Authenticated-User-Id
+	request_header -Oai-Authenticated-User-Email
+	request_header -Oai-Authenticated-User-Full-Name
+	request_header -Oai-Authenticated-User-Full-Name-Encoding
+	request_body {
+		max_size 200KB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8787
+}
