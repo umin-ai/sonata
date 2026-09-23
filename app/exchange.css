@@ -104,7 +104,7 @@
 .sr-app .token-links a{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--exchange-border);border-radius:999px;font-size:12px;color:var(--foreground);text-decoration:none}
 .sr-app .token-links a:hover{border-color:var(--exchange-accent)}
 .sr-app .token-profile-fields{display:grid;gap:16px}
-.sr-app .token-image-picker{display:flex;align-items:flex-start;gap:14px}
+.sr-app .token-image-picker{display:flex;align-items:flex-start;gap:14px;margin-top:8px}
 .sr-app .token-image-picker img,.sr-app .token-image-empty{width:64px;height:64px;border-radius:14px;object-fit:cover;flex:none}
 .sr-app .token-image-empty{display:grid;place-items:center;border:1px dashed var(--exchange-border);color:var(--muted-foreground)}
 .sr-app .token-image-picker .sr-note{margin:6px 0 0}
