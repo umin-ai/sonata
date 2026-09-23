@@ -17,6 +17,8 @@ import {
   Sprout,
   Gift,
   Layers3,
+  AudioLines,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -98,7 +100,7 @@ function Heading({
   return (
     <div className="sr-heading">
       <div>
-        <span className="sr-eyebrow">SONATA / SOLANA DEVNET</span>
+        <span className="sr-eyebrow">SONATA</span>
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
@@ -134,36 +136,44 @@ function Address({ value }: { value: string }) {
 export function LiveDirectory() {
   const { markets, error, loading, refresh } = useMarkets();
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<"all" | "floor">("all");
   const filtered = markets.filter((m) =>
-    `${m.symbol} ${m.name}`.toLowerCase().includes(query.toLowerCase()),
+    `${m.symbol} ${m.name} ${quoteSymbolOf(m.quoteMint)}`.toLowerCase().includes(query.toLowerCase()) && (category === "all" || m.mode === "floor"),
   );
   return (
     <>
-      <section className="exchange-hero">
-        <div><span className="sr-eyebrow">SOLANA</span>
-        <h1>Markets</h1>
-        <p>Trade stock-paired tokens, provide liquidity and earn trading fees.</p>
-        <div className="exchange-actions"><Button asChild><Link href="/earn">View pools <ArrowUpRight /></Link></Button><Button asChild variant="outline"><Link href="/create"><Plus /> Launch token</Link></Button></div></div>
-        <div className="exchange-feature"><span className="sr-eyebrow">FEATURED MARKET</span><div><TokenPair /></div><p>Stock-paired trading → fees → liquidity or holder rewards.</p><Link href="/onchain">Trade ROOM / mSPY <ArrowRight size={16}/></Link><small>Devnet · Markets that complete their curve graduate to their own DAMM v2 pool. The Earn pool is a separate, directly seeded pool.</small></div>
-      </section>
-      <section className="exchange-stock-section"><div className="nm-section-heading"><div><span className="sr-eyebrow">PAIR WITH A STOCK</span><h2>Launch against</h2></div><Link className="sr-text-link" href="/create">Launch token <ArrowUpRight size={16}/></Link></div>
-      <div className="exchange-stocks">{[
-        ["mSPY","S&P 500","Broad market"], ["mQQQ","Nasdaq 100","Growth"], ["mTSLA","Tesla","Consumer & energy"], ["mMSFT","Microsoft","Technology"],
-        ["mAMZN","Amazon","Consumer"], ["mMETA","Meta","Technology"], ["mMCD","McDonald's","Consumer"], ["mANTHROPIC","Anthropic","Pre-IPO · PreStocks"]
-      ].map(([symbol,name,sector])=>isDeployableQuote(symbol) ? <Link key={symbol} href="/create" className="exchange-stock"><div className="exchange-stock-top"><TokenName symbol={symbol} size={36}/><ArrowUpRight size={18}/></div><h3>{name}</h3><p>{sector}</p><div className="exchange-stock-bottom"><span>Devnet</span><span>Launch →</span></div></Link> : <div key={symbol} className="exchange-stock" aria-disabled="true"><div className="exchange-stock-top"><TokenName symbol={symbol} size={36}/></div><h3>{name}</h3><p>{sector}</p><div className="exchange-stock-bottom"><span>Coming soon</span><span>No Devnet token yet</span></div></div>)}</div></section>
-      <div className="exchange-paths">{[
-        ["/create","01","Launch","Configure a stock-paired DBC market."],
-        ["/onchain","02","Trade","Inspect the market and its collected fees."],
-        ["/earn","03","Provide liquidity","Deposit into the separate Devnet LP pool."],
-        ["/rewards","04","Rewards","See eligibility, rounds and delivery receipts."]
-      ].map(([url,n,title,copy])=><Link href={url} key={url}><span>{n}</span><div><strong>{title}</strong><p>{copy}</p></div><ArrowUpRight size={16}/></Link>)}</div>
+      <div className="sonata-welcome"><div><span className="sonata-kicker">SONATA / DISCOVER</span><h1>The marketplace<span>.</span></h1></div></div>
+      <div className="sonata-lobby sonata-command-lobby">
+        <section className="sonata-command-banner" aria-labelledby="sonata-feature-title">
+          <div className="sonata-command-copy">
+            <span className="sonata-command-label"><AudioLines size={14} /> COMMUNITY TOKENS. STOCK-POWERED PAIRS.</span>
+            <h2 id="sonata-feature-title">MAKE YOUR<br /><em>NEXT MOVE.</em></h2>
+            <p>Find your market. Or create the next one.</p>
+            <div className="sonata-command-actions"><Button asChild><Link href="/create"><Plus size={15} /> Launch token <ArrowUpRight size={15} /></Link></Button><Link href="/ecosystem" className="sonata-command-learn">How Sonata works <ArrowRight size={14} /></Link></div>
+          </div>
+          <div className="sonata-command-art" aria-hidden="true">
+            <div className="sonata-command-orbit orbit-outer" /><div className="sonata-command-orbit orbit-inner" />
+            <div className="sonata-command-core"><AudioLines className="sonata-command-wave" /></div>
+            <span className="sonata-command-cross cross-one">+</span><span className="sonata-command-cross cross-two">+</span>
+            <div className="sonata-command-signature"><span>SONATA</span><small>STOCK-POWERED MARKETS</small></div>
+            <span className="sonata-command-bars"><i /><i /><i /><i /><i /><i /><i /></span>
+          </div>
+          <div className="sonata-command-route"><span>01 / LAUNCH</span><span>02 / TRADE</span><span>03 / EARN</span><AudioLines size={15} /></div>
+        </section>
+        <aside className="sonata-shortcuts" aria-label="Explore Sonata">
+          <Link href="/onchain" className="sonata-shortcut"><span className="sonata-shortcut-icon violet"><AudioLines /></span><div><small>01 / FEATURED MARKET</small><strong>ROOM <span>/ mSPY</span></strong></div><ArrowUpRight size={18} /></Link>
+          <Link href="/earn" className="sonata-shortcut"><span className="sonata-shortcut-icon ice"><Sprout /></span><div><small>02 / LIQUIDITY</small><strong>Explore pools</strong></div><ArrowUpRight size={18} /></Link>
+          <Link href="/rewards" className="sonata-shortcut"><span className="sonata-shortcut-icon lavender"><Gift /></span><div><small>03 / REWARDS</small><strong>Holder rewards</strong></div><ArrowUpRight size={18} /></Link>
+        </aside>
+      </div>
+      <div className="sonata-discovery-layout"><div className="sonata-discovery-main">
       <section className="nm-markets" aria-labelledby="market-heading">
         <div className="nm-section-heading">
           <div>
-            <span className="sr-eyebrow">THE MARKETPLACE</span>
-            <h2 id="market-heading">Community markets.</h2>
+            <span className="sr-eyebrow">DISCOVER YOUR NEXT MOVE</span>
+            <h2 id="market-heading">Market radar <AudioLines size={21} /></h2>
             <p>
-              Explore registered DBC markets. Community tokens are distinct from the stock tokens they trade against.
+              Explore community markets paired with mock stock tokens.
             </p>
           </div>
           <Button
@@ -176,8 +186,9 @@ export function LiveDirectory() {
           </Button>
         </div>
         <div className="nm-market-toolbar">
-          <div className="nm-market-tab">
-            All markets <span>{loading ? "…" : markets.length}</span>
+          <div className="sonata-market-tabs" aria-label="Filter markets">
+            <button type="button" aria-pressed={category === "all"} onClick={() => setCategory("all")}>All markets <span>{loading ? "…" : markets.length}</span></button>
+            <button type="button" aria-pressed={category === "floor"} onClick={() => setCategory("floor")}><ShieldCheck size={14} /> Stock Floor</button>
           </div>
           <div className="nm-market-search">
             <Search size={17} />
@@ -189,10 +200,18 @@ export function LiveDirectory() {
             />
           </div>
         </div>
-        {error && <Alert className="mb-5"><AlertDescription>Market data is temporarily unavailable. You can still explore vault previews or retry using refresh.</AlertDescription></Alert>}
+        {error && <Alert className="mb-5"><AlertDescription>Market data is temporarily unavailable. Refresh to try again, or explore the launch studio.</AlertDescription></Alert>}
         <div className="nm-market-grid">
+          {!query.trim() && category === "all" && (
+            <Link href="/create" className="sonata-launch-card" aria-label="Launch token — create your own market">
+              <span className="sonata-launch-kicker">CREATOR SLOT <span aria-hidden="true">{"///"}</span></span>
+              <span className="sonata-launch-sigil" aria-hidden="true"><Plus strokeWidth={1.5} /></span>
+              <div className="sonata-launch-copy"><h3>LAUNCH<br />TOKEN</h3><p>Your community. Your market.</p></div>
+              <span className="sonata-launch-action">CHOOSE YOUR STOCK PAIR <ArrowUpRight size={16} /></span>
+            </Link>
+          )}
           {loading && !markets.length
-            ? [1, 2].map((n) => (
+            ? [1, 2, 3, 4].map((n) => (
                 <div
                   className="nm-market-skeleton"
                   key={n}
@@ -214,26 +233,20 @@ export function LiveDirectory() {
                 ? "Try another name or symbol."
                 : "Create the first stock-paired community market."}
             </p>
-            <Button variant="outline" onClick={() => setQuery("")}>
+            <Button variant="outline" onClick={() => { setQuery(""); setCategory("all"); }}>
               Clear search
             </Button>
           </Card>
         )}
       </section>
-      <div className="nm-bottom-note">
-        <Layers3 size={20} />
-        <div>
-          <strong>Trading fees</strong>
-          <p>
-            Trading fees fund creator reserves. Creators choose liquidity or
-            member rewards. Holding a community token does not give ownership of
-            its reserve.
-          </p>
-        </div>
-        <Link href="/capital" aria-label="Explore creator capital">
-          <ArrowRight />
-        </Link>
       </div>
+      </div>
+      <section className="sonata-pair-section"><div className="sonata-panel-title"><div><span className="sr-eyebrow">CHOOSE YOUR STARTING POINT</span><h2>Pick your pair</h2></div><Link href="/create">Launch studio <ArrowUpRight size={15} /></Link></div>
+      <div className="sonata-pairs">{[
+        ["mSPY","S&P 500"], ["mQQQ","Nasdaq 100"], ["mTSLA","Tesla"], ["mMSFT","Microsoft"],
+        ["mAMZN","Amazon"], ["mMETA","Meta"], ["mMCD","McDonald's"], ["mANTHROPIC","Anthropic"]
+      ].map(([symbol,name]) => isDeployableQuote(symbol) ? <Link key={symbol} href="/create" className="sonata-pair"><TokenName symbol={symbol} size={30}/><span>{name}</span><small>Launch <ArrowUpRight size={12} /></small></Link> : <div key={symbol} className="sonata-pair" aria-disabled="true"><TokenName symbol={symbol} size={30}/><span>{name}</span><small>Coming soon</small></div>)}</div></section>
+      <p className="sonata-market-note">Community tokens are distinct from the stocks they trade against and do not convey stock ownership.</p>
     </>
   );
 }
@@ -260,53 +273,18 @@ function MarketCard({ market: m }: { market: Market }) {
     };
   }, [m, revision]);
   return (
-    <Card className="sr-panel nm-market-card">
-      <div className="sr-section-top">
-        <div>
-          <h3 className="token-title">
-            <TokenImage profile={tokenProfile} symbol={m.symbol} size={32} />
-            <TokenPair base={m.symbol} quote={quoteSymbolOf(m.quoteMint)} size={32} />
-          </h3>
-          <p className="sr-note font-bold">{m.name}</p>
-          <TokenLinks profile={tokenProfile} />
-        </div>
-        <Badge variant="outline" className="nm-venue">
-          {data?.migrated ? (
-            "Graduated"
-          ) : (
-            <MeteoraLabel>Meteora DBC</MeteoraLabel>
-          )}
-        </Badge>
+    <Card className="sonata-token-card" data-sonata-tone={m.baseMint.charCodeAt(0) % 3}>
+      <Link href={href(m)} className="sonata-token-identity" aria-label={`Open ${m.name} market`}>
+        <span className="sonata-token-avatar" aria-hidden="true"><span>{m.symbol.slice(0, 2)}</span><TokenImage profile={tokenProfile} symbol={m.symbol} size={42} /></span>
+        <div><h3>{m.symbol}</h3><p title={m.name}>{m.name}</p></div>
+        <ArrowUpRight size={16} />
+      </Link>
+      <div className="sonata-token-pair"><span>Paired with</span><TokenName symbol={quoteSymbolOf(m.quoteMint)} size={20} />
       </div>
+      <StockFloor data={data} market={m} quote={quoteSymbolOf(m.quoteMint)} compact />
       <GraduationProgress data={data} quote={quoteSymbolOf(m.quoteMint)} compact />
-      <MarketStats pool={m.pool} quote={quoteSymbolOf(m.quoteMint)} />
-      {m.mode === "floor" ? (
-        <StockFloor data={data} market={m} quote={quoteSymbolOf(m.quoteMint)} compact />
-      ) : (
-      <div className="sr-detail-row">
-        <span>Creator reserve</span>
-        <strong>
-          {data ? formatUnits(data.available) : "—"} <TokenName symbol={quoteSymbolOf(m.quoteMint)} />
-        </strong>
-      </div>
-      )}
-      <div className="sr-detail-row">
-        <span>Lifetime collected fees</span>
-        <strong>
-          {data ? formatUnits(data.claimed) : "—"} <TokenName symbol={quoteSymbolOf(m.quoteMint)} />
-        </strong>
-      </div>
-      <div className="sr-detail-row">
-        <span>Community mint</span>
-        <Address value={m.baseMint} />
-      </div>
-      <Failure text={error} />
-      <Button asChild variant="outline" className="mt-4">
-        <Link href={href(m)}>
-          Open market
-          <ArrowUpRight />
-        </Link>
-      </Button>
+      <div className="sonata-token-activity"><MarketStats pool={m.pool} quote={quoteSymbolOf(m.quoteMint)} /></div>
+      {error && <p className="sonata-token-error">Chain data unavailable · <Link href={href(m)}>Open market to retry</Link></p>}
     </Card>
   );
 }
@@ -402,7 +380,7 @@ export function LiveLaunch() {
     <>
       <Heading
         title="Launch your token"
-        description="Pair your token with mock stocks and collect trading fees. Launch on Solana Devnet."
+        description="Pair your token with mock stocks and collect trading fees."
       />
       <LiveWallet />
       <Failure text={error} />

@@ -208,10 +208,14 @@ export function MarketStats({ pool, quote }: { pool: string; quote: string }) {
   }, [pool]);
   if (!stats) return null;
   const change = change24h(stats);
+  const volume = Number(formatUnits(stats.volume24h, QUOTE_DECIMALS));
+  const volumeLabel = volume > 0 && volume < 0.0001
+    ? "<0.0001"
+    : volume.toLocaleString(undefined, { maximumFractionDigits: 4 });
   return (
     <div className="market-card-stats">
       <span>
-        24h vol <strong>{formatUnits(stats.volume24h, QUOTE_DECIMALS)} {quote}</strong>
+        24h vol <strong>{volumeLabel} {quote}</strong>
       </span>
       <span>
         {stats.trades24h} trade{stats.trades24h === 1 ? "" : "s"}

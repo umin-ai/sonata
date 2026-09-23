@@ -22,7 +22,6 @@ import {
   Sidebar,
   SidebarHeader,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarGroupContent,
@@ -30,20 +29,14 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarInset,
-  SidebarTrigger,
-  SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Breadcrumb,
   BreadcrumbList,
   BreadcrumbItem,
-  BreadcrumbLink,
   BreadcrumbPage,
-  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import {
   Dialog,
@@ -70,15 +63,15 @@ const destinations = [
   ["/ecosystem", "How it works", BookOpen],
 ] as const;
 function Navigation() {
-  const path = usePathname(),
-    { setOpenMobile } = useSidebar();
+  const path = usePathname();
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="none" className="sonata-permanent-sidebar">
       <SidebarHeader className="p-4">
+        <span className="sonata-sidebar-edition" aria-hidden="true">SONATA / MARKETS <span>{"///"}</span></span>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link href="/" onClick={() => setOpenMobile(false)}>
+              <Link href="/" aria-label="Sonata home">
                 <BrandMark />
                 <span className="sx-wordmark">sonata</span>
               </Link>
@@ -88,7 +81,7 @@ function Navigation() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Explore</SidebarGroupLabel>
+          <SidebarGroupLabel><span>01</span> Explore</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {destinations.slice(0, 5).map(([href, label, Icon]) => (
@@ -103,7 +96,7 @@ function Navigation() {
                     }
                     tooltip={label}
                   >
-                    <Link href={href} onClick={() => setOpenMobile(false)}>
+                    <Link href={href} aria-label={label} title={label} className={href === "/create" ? "sonata-sidebar-launch" : undefined}>
                       <Icon />
                       <span>{label}</span>
                     </Link>
@@ -114,7 +107,7 @@ function Navigation() {
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel>Build a market</SidebarGroupLabel>
+          <SidebarGroupLabel><span>02</span> Create & trade</SidebarGroupLabel>
           <SidebarMenu>
             {destinations.slice(5, 8).map(([href, label, Icon]) => (
               <SidebarMenuItem key={href}>
@@ -123,7 +116,7 @@ function Navigation() {
                   isActive={path === href}
                   tooltip={label}
                 >
-                  <Link href={href} onClick={() => setOpenMobile(false)}>
+                  <Link href={href} aria-label={label} title={label} className={href === "/create" ? "sonata-sidebar-launch" : undefined}>
                     <Icon />
                     <span>{label}</span>
                   </Link>
@@ -133,7 +126,7 @@ function Navigation() {
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel>More</SidebarGroupLabel>
+          <SidebarGroupLabel><span>03</span> Learn</SidebarGroupLabel>
           <SidebarMenu>
             {destinations.slice(8).map(([href, label, Icon]) => (
               <SidebarMenuItem key={href}>
@@ -142,7 +135,7 @@ function Navigation() {
                   isActive={path === href}
                   tooltip={label}
                 >
-                  <Link href={href} onClick={() => setOpenMobile(false)}>
+                  <Link href={href} aria-label={label} title={label} className={href === "/create" ? "sonata-sidebar-launch" : undefined}>
                     <Icon />
                     <span>{label}</span>
                   </Link>
@@ -152,17 +145,7 @@ function Navigation() {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-3">
-        <div className="sx-sidebar-note group-data-[collapsible=icon]:hidden">
-          <span className="sx-status-dot" /> Solana · test environment
-          <p>
-            Tokenized stock markets.
-            <br />
-            Devnet test assets only.
-          </p>
-        </div>
-      </SidebarFooter>
-      <SidebarRail />
+
     </Sidebar>
   );
 }
@@ -190,7 +173,7 @@ export function StockroomShell({
     "/rewards",
     "/community",
     "/ecosystem",
-  ].includes(path) || (stockPools as {id:string}[]).some(p=>path===`/vaults/${p.id}`);
+  ].includes(path) || path.startsWith("/markets/") || (stockPools as {id:string}[]).some(p=>path===`/vaults/${p.id}`);
   const [wallet, setWallet] = useState(false);
   const title = path.startsWith("/lab")
     ? "Strategy prototype"
@@ -201,20 +184,12 @@ export function StockroomShell({
         : (destinations.find(([url]) => url === path)?.[1] ?? "Workspace");
   return (
     <div className="sr-app" data-demo-ready={ready ? "true" : "false"}>
-      <SidebarProvider>
+      <SidebarProvider open={true} style={{ "--sidebar-width": "14rem" } as React.CSSProperties}>
         <Navigation />
         <SidebarInset className="min-w-0 terminal-shell">
           <header className="sx-topbar">
-            <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="h-5" />
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink asChild>
-                    <Link href="/">Sonata</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
                   <BreadcrumbPage>{title}</BreadcrumbPage>
                 </BreadcrumbItem>
@@ -247,7 +222,7 @@ export function StockroomShell({
               <AlertDescription>
                 <span>
                   {live
-                    ? "Actual Devnet transactions. Test tokens have no monetary value."
+                    ? "Test tokens have no monetary value."
                     : "Simulated assets and transactions. No real funds."}
                 </span>
                 <Link href="/ecosystem">
@@ -256,12 +231,7 @@ export function StockroomShell({
               </AlertDescription>
             </Alert>
             {children}
-            <footer className="sx-footer">
-              <span>Sonata · Solana Devnet</span>
-              <Badge variant="outline">
-                {live ? "Solana Devnet" : "Strategy prototype"}
-              </Badge>
-            </footer>
+
           </div>
         </SidebarInset>
       </SidebarProvider>

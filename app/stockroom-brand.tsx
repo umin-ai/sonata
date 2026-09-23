@@ -1,1 +1,17 @@
-export function BrandMark(){return <svg className="sr-brand-mark" width="30" height="32" viewBox="0 0 32 34" fill="none" aria-hidden="true"><path d="M25 5H12a7 7 0 0 0 0 14h8a5 5 0 0 1 0 10H7" stroke="currentColor" strokeWidth="5"/><path d="M20 5v10M12 19v10" stroke="currentColor" strokeWidth="2" opacity=".45"/></svg>}
+const SONATA_CURVE = "M76 140C76 66 132 12 204 12H372C372 86 333 138 277 138C228 138 200 101 192 32C184 105 151 140 76 140Z";
+
+export function BrandMark() {
+  return (
+    <svg
+      className="sr-brand-mark"
+      width="36"
+      height="27"
+      viewBox="0 0 384 288"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d={SONATA_CURVE} />
+      <path d={SONATA_CURVE} transform="rotate(180 192 144)" />
+    </svg>
+  );
+}

@@ -7,8 +7,9 @@ import "./credit-theme.css";
 import "./shadcn-workspace.css";
 import "./devnet/devnet.css";
 import "./neumorphic.css";
-import "./dark-mode.css";
 import "./exchange.css";
+import "./sonata.css";
+import "./sonata-hud.css";
 export const metadata: Metadata = {
   title: "Sonata — Stock-powered markets",
   description:
