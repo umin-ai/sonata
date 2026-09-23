@@ -11,7 +11,6 @@ import {
   FlaskConical,
   Layers3,
   Plus,
-  Users,
   Wallet,
   ShieldCheck,
   Sprout,
@@ -98,7 +97,9 @@ function Navigation() {
                     asChild
                     isActive={
                       path === href ||
-                      (href === "/" && path.startsWith("/vaults/"))
+                      (href === "/" &&
+                        (path.startsWith("/vaults/") ||
+                          path.startsWith("/markets/")))
                     }
                     tooltip={label}
                   >
@@ -131,24 +132,27 @@ function Navigation() {
             ))}
           </SidebarMenu>
         </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>More</SidebarGroupLabel>
+          <SidebarMenu>
+            {destinations.slice(8).map(([href, label, Icon]) => (
+              <SidebarMenuItem key={href}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={path === href}
+                  tooltip={label}
+                >
+                  <Link href={href} onClick={() => setOpenMobile(false)}>
+                    <Icon />
+                    <span>{label}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-3">
-        <SidebarMenu>
-          {destinations.slice(8).map(([href, label, Icon]) => (
-            <SidebarMenuItem key={href}>
-              <SidebarMenuButton
-                asChild
-                isActive={path === href}
-                tooltip={label}
-              >
-                <Link href={href} onClick={() => setOpenMobile(false)}>
-                  <Icon />
-                  <span>{label}</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
         <div className="sx-sidebar-note group-data-[collapsible=icon]:hidden">
           <span className="sx-status-dot" /> Solana · test environment
           <p>
@@ -189,7 +193,7 @@ export function StockroomShell({
   const [wallet, setWallet] = useState(false);
   const title = path.startsWith("/lab")
     ? "Strategy prototype"
-    : path.startsWith("/vaults/")
+    : path.startsWith("/vaults/") || path.startsWith("/markets/")
       ? "Market detail"
       : path === "/create"
         ? "Launch token"
@@ -197,12 +201,24 @@ export function StockroomShell({
   return (
     <div className="sr-app" data-demo-ready={ready ? "true" : "false"}>
       <SidebarProvider>
+        <Navigation />
         <SidebarInset className="min-w-0 terminal-shell">
-          <header className="sx-topbar terminal-header">
-            <Link href="/" className="terminal-brand"><BrandMark /><strong>sonata</strong></Link>
-            <nav className="terminal-nav" aria-label="Main navigation">
-              {[["/","Markets"],["/earn","Pools"],["/create","Launch"],["/rewards","Rewards"],["/portfolio","Portfolio"]].map(([url,label])=><Link key={url} href={url} aria-current={path===url?"page":undefined}>{label}</Link>)}
-            </nav>
+          <header className="sx-topbar">
+            <SidebarTrigger className="-ml-1" />
+            <Separator orientation="vertical" className="h-5" />
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem className="hidden md:block">
+                  <BreadcrumbLink asChild>
+                    <Link href="/">Sonata</Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>{title}</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
             <div className="sx-header-actions">
               <ThemeToggle />
               <Badge variant="outline" className="sx-demo-badge">
@@ -240,7 +256,7 @@ export function StockroomShell({
             </Alert>
             {children}
             <footer className="sx-footer">
-              <span>Sonata · Solana Devnet</span><nav className="terminal-footer-links"><Link href="/activity">Activity</Link><Link href="/capital">Treasury</Link><Link href="/ecosystem">Integrations</Link><Link href="/lab">Strategy lab</Link></nav>
+              <span>Sonata · Solana Devnet</span>
               <Badge variant="outline">
                 {live ? "Solana Devnet" : "Strategy prototype"}
               </Badge>
