@@ -58,6 +58,8 @@ export function PriceChart({ pool, quote, revision = 0 }: { pool: string; quote:
     volume: Number(c.volume) / 10 ** QUOTE_DECIMALS,
   }));
   const last = points.at(-1);
+  // Carry the last price to now, so a market with one bucket still draws a line.
+  if (last && Date.now() - last.time > 60_000) points.push({ time: Date.now(), cap: last.cap, volume: 0 });
   return (
     <div className="price-chart">
       <div className="price-chart-head">
