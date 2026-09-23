@@ -33,6 +33,7 @@ if ! command -v caddy >/dev/null; then
 fi
 
 id sonata >/dev/null 2>&1 || useradd --system --create-home --home-dir $HOME_DIR --shell /usr/sbin/nologin sonata
+chown sonata:sonata $HOME_DIR
 test -f $HOME_DIR/sonata.env || { echo "Missing $HOME_DIR/sonata.env"; exit 1; }
 chown sonata:sonata $HOME_DIR/sonata.env && chmod 600 $HOME_DIR/sonata.env
 

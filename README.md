@@ -2,6 +2,8 @@
 
 ## Current local app — 23 September 2026
 
+**Live on Solana Devnet: https://34-255-123-10.sslip.io** (AWS Lightsail; setup in [deploy/lightsail/](deploy/lightsail/README.md)).
+
 **Current status, on-chain evidence, security model and Meteora references are in the protocol repository's [HANDOFF.md](https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md).** Read it before relying on anything below.
 
 Open http://localhost:5173/ . Sonata's connected Devnet core supports market creation with an optional Stock Floor and token profile (image, description, links), trading, burning tokens for their share of a Stock Floor, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, holder-reward rounds and funded reward claims. One signing wallet connects Portfolio and Activity. All assets are valueless test tokens.
