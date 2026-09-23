@@ -7,6 +7,7 @@ import {
   sniffImage,
 } from "@/lib/token-profile";
 import { uploadToIrys } from "@/lib/server/irys-upload";
+import { clientKey, createRateLimit } from "@/lib/server/rate-limit";
 
 // Publishes a launch's token profile (image, description, social links) as the
 // public metadata JSON that wallets, explorers and Jupiter read from the token's
@@ -15,6 +16,8 @@ import { uploadToIrys } from "@/lib/server/irys-upload";
 // funded or kept (lib/server/irys-upload.ts). Devnet uploads are temporary.
 export const dynamic = "force-dynamic";
 const MAX_BODY = MAX_IMAGE_BYTES + 8_000;
+// Each launch publishes one profile; this leaves room for retries and blocks spam.
+const allow = createRateLimit({ perKey: 6, total: 120, windowMs: 10 * 60_000 });
 const Fields = z.object({
   name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 .-]{2,31}$/),
   symbol: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/),
@@ -30,6 +33,11 @@ export async function POST(request: Request) {
     const origin = request.headers.get("origin");
     if (origin && origin !== new URL(request.url).origin)
       throw Error("Cross-origin requests are not accepted.");
+    if (!allow(clientKey(request)))
+      return Response.json(
+        { error: "Too many profile uploads. Try again in a few minutes." },
+        { status: 429, headers },
+      );
     if (Number(request.headers.get("content-length") || 0) > MAX_BODY)
       throw Error("Image too large. Use one under 95 KB.");
     const form = await request.formData();
