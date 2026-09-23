@@ -14,6 +14,7 @@ const parts: [string, string, string, string][] = [
   ["Graduation", "Meteora DAMM v2", "When a curve fills, the market migrates to a DAMM v2 pool with 100% of its liquidity permanently locked.", "Proven on Devnet"],
   ["Charts and trades", "Sonata trade indexer", "Every swap on a Sonata market is read from Meteora's own swap events into a database, which powers the charts, recent trades and 24h volume.", "Live on Devnet"],
   ["Token profiles", "Amazon S3 and CloudFront", "Images, descriptions and links are stored under the SHA-256 of each file, so anyone can check a token's image is the one uploaded.", "Live on Devnet"],
+  ["Launchpad identity", "Meteora partner metadata", "One on-chain record names Sonata, with its website and logo, as the launchpad behind every Sonata pool, including graduated ones. New tokens' metadata also links to sonata.umin.ai.", "Live on Devnet"],
   ["Holder rewards", "Sonata rewards program", "Creators can fund reward rounds for holders from their reserve.", "Live for mSPY markets"],
 ];
 

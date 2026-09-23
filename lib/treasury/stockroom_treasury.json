@@ -130,6 +130,89 @@
       "args": []
     },
     {
+      "name": "create_partner_metadata",
+      "docs": [
+        "Name the launchpad behind every pool whose config uses this Vault as fee",
+        "claimer, through Meteora's partner metadata (name, website, logo). The Vault",
+        "PDA signs as fee claimer; only the Vault admin can call it. DBC creates the",
+        "metadata account once per fee claimer and has no update instruction, so this",
+        "can succeed only once."
+      ],
+      "discriminator": [
+        192,
+        168,
+        234,
+        191,
+        188,
+        226,
+        227,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  111,
+                  99,
+                  107,
+                  114,
+                  111,
+                  111,
+                  109
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "partner_metadata",
+          "docs": [
+            "creates and validates it."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "dbc_event_authority"
+        },
+        {
+          "name": "dbc_program",
+          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "website",
+          "type": "string"
+        },
+        {
+          "name": "logo",
+          "type": "string"
+        }
+      ]
+    },
+    {
       "name": "distribute",
       "docs": [
         "Split what has been claimed but not yet allocated: payout share out, remainder retained."
