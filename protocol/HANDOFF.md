@@ -17,7 +17,7 @@ Explorer links use `?cluster=devnet`.
 
 ## 1. Three things a reviewer should know first
 
-**1. The deployed treasury program now matches this repository's source, but did not until 23 September.** `stockroom_treasury` was deployed on 17 September; its source was later restored and rebuilt with a reconciled lockfile, and the rebuild did not reproduce the deployed bytes. This was recorded at the time in [`artifacts/stockroom-treasury-deployment.json`](https://github.com/umin-ai/sonata-protocol/blob/019c688e4083cfc877fb8a8cb78c8519b92efd8e/artifacts/stockroom-treasury-deployment.json) (`"rebuiltMatchesDeployment": false`). On 23 September the program was upgraded to the tested rebuild in [`673Yrm9r…cf5w5qpY`](https://explorer.solana.com/tx/673Yrm9r9Hf7LfwZMmb1oRxf49D1cjpwEUgKB8LbZZmAoDkZzvHWwH4MXXXDaA3cyQREGZA8UfXaKc8Tcf5w5qpY?cluster=devnet), and later the same day upgraded again to add the Stock Floor mode (§5.5) in [`3rFz2suT…hWhCRdKm`](https://explorer.solana.com/tx/3rFz2suTrLCGa7LqUppXVe81z1JJF32rqXPvefzQu4UmnfeNpgT4FcLwsffeBAKU26dJin62MRA7E4myhWhCRdKm?cluster=devnet). `scripts/verify-deployed-bytes.mjs` reports the treasury matching its build byte for byte. Transactions in §4 ran against whichever binary was live at the time: the "post-upgrade" and graduation rows against the first upgrade, the Stock Floor and app rows against the second. See §6.1 for every program's status.
+**1. The deployed treasury program now matches this repository's source, but did not until 23 September.** `stockroom_treasury` was deployed on 17 September; its source was later restored and rebuilt with a reconciled lockfile, and the rebuild did not reproduce the deployed bytes. This was recorded at the time in [`artifacts/stockroom-treasury-deployment.json`](https://github.com/umin-ai/sonata-protocol/blob/019c688e4083cfc877fb8a8cb78c8519b92efd8e/artifacts/stockroom-treasury-deployment.json) (`"rebuiltMatchesDeployment": false`). On 23 September the program was upgraded to the tested rebuild in [`673Yrm9r…cf5w5qpY`](https://explorer.solana.com/tx/673Yrm9r9Hf7LfwZMmb1oRxf49D1cjpwEUgKB8LbZZmAoDkZzvHWwH4MXXXDaA3cyQREGZA8UfXaKc8Tcf5w5qpY?cluster=devnet), and later the same day upgraded again to add the Stock Floor mode (§5.5) in [`3rFz2suT…hWhCRdKm`](https://explorer.solana.com/tx/3rFz2suTrLCGa7LqUppXVe81z1JJF32rqXPvefzQu4UmnfeNpgT4FcLwsffeBAKU26dJin62MRA7E4myhWhCRdKm?cluster=devnet). The rewards program, whose logic did not change but which compiles in the treasury's account types, was redeployed from its rebuild in [`3Ta1ZmML…uuYcDRYz`](https://explorer.solana.com/tx/3Ta1ZmMLSaSsonkNshjgZHpxy2xMP8Z3FnUGyA9eJqsEpJwh1V2fxytYeEVh9csWVw2AYJETyH49pYtuuYcDRYz?cluster=devnet). `scripts/verify-deployed-bytes.mjs` reports all four programs matching their builds byte for byte. Transactions in §4 ran against whichever binary was live at the time: the "post-upgrade" and graduation rows against the first upgrade, the Stock Floor and app rows against the second. See §6.1 for every program's status.
 
 **2. All four programs are upgradeable by one key.** Anything this document calls immutable is immutable only in the sense that no instruction in the current program changes it. See §6.2.
 
@@ -118,7 +118,8 @@ Every signature below was queried on 23 September with `getSignatureStatuses` an
 | App: burn for stock | [`4GGL4wnz…NekPLjve`](https://explorer.solana.com/tx/4GGL4wnz8U4zxhgdidk8Hv2Zvzex8qXy48uNMgqYVjjnby5drJLznRZfNDJf2sA2e5c4FTsWuWPRNpfuNekPLjve?cluster=devnet) | 1,905,864.930164 burned → 0.00004625 mQQQ; floor per 1M tokens unchanged at 0.00002427 mQQQ |
 | App launch: config and pool, token profile in metadata | [`4FtV1tKs…fTLvwvx4`](https://explorer.solana.com/tx/4FtV1tKsfDhQdsQWQWducZC55fDTfDJ1FR8g8LsQak7mYhLkgyWJ5SgtXvEAfCvcj46yQ1Z16RyaTyvvfTLvwvx4?cluster=devnet) | `artifacts/app-launch-floor-profile.json`; pool [`EFMUmeNJ…GJtMHUwQ`](https://explorer.solana.com/address/EFMUmeNJcz8Z49c74sTrmKcPq3qQsdchjzjGGJtMHUwQ?cluster=devnet) |
 | App launch: treasury activated in Floor mode | [`453GAncg…rsaiwuEm`](https://explorer.solana.com/tx/453GAncgMe12nqcMHnpU3aNi8m8hCBVcn7sB2bKUHvX3bsKBND6xNp1ohgMSJb3LzWSxN9mARTmC3iprrsaiwuEm?cluster=devnet) | Treasury [`4AVWEKpr…bLpFyDB4`](https://explorer.solana.com/address/4AVWEKpru9kMcytR3Yb9vL6jUegEqD7bh1BpbLpFyDB4?cluster=devnet) |
-| Deployed bytes vs builds, upgrade authority | read-only | `scripts/verify-deployed-bytes.mjs` → `artifacts/deployed-bytes-check.json` (status per program in §6.1) |
+| Rewards program redeployed from its rebuild (logic unchanged) | [`3Ta1ZmML…uuYcDRYz`](https://explorer.solana.com/tx/3Ta1ZmMLSaSsonkNshjgZHpxy2xMP8Z3FnUGyA9eJqsEpJwh1V2fxytYeEVh9csWVw2AYJETyH49pYtuuYcDRYz?cluster=devnet) | §6.1 |
+| Deployed bytes vs builds, upgrade authority | read-only | `scripts/verify-deployed-bytes.mjs` → `artifacts/deployed-bytes-check.json` (all four match) |
 
 The separate DAMM v2 pool is directly seeded. It is **not** the graduated form of any DBC pool.
 
@@ -209,7 +210,7 @@ Like pump.fun's create form, a launch can carry an image, a short description an
 | Program | Deployed matches local build | Upgrade authority |
 |---|---|---|
 | `stockroom_treasury` `GPANv5z…` | Yes — `c62dc338…`, the Stock Floor build (before that `8d7ad9a3…`, originally `b4111fe7…`) | `vb4pmin…` |
-| `stockroom_rewards` `6u1nXj1…` | **No, pending redeploy** — deployed `6195ac38…`, current build `736f450a…`. Its logic is unchanged; it compiles in the treasury's account types, which gained the Floor variant, so the rebuild differs | `vb4pmin…` |
+| `stockroom_rewards` `6u1nXj1…` | Yes — `736f450a…`, redeployed 23 September (previously `6195ac38…`) | `vb4pmin…` |
 | `stockroom_credit` `4sS8MrfT…` | Yes — `fea21c47…` | `vb4pmin…` |
 | `demo_oracle` `E45Bq8CU…` | Yes — `50d5e020…` | `vb4pmin…` |
 
@@ -220,6 +221,8 @@ History: the treasury's source was restored after its 17 September deployment, r
 The rebuild's IDL is identical to the IDL the frontend uses to decode the live treasury accounts (same instructions, discriminators and account types), so the account layout is compatible. **Remediated on 23 September.** The program was upgraded to the tested rebuild (treasury tests 6/6 on that binary) in [`673Yrm9r…cf5w5qpY`](https://explorer.solana.com/tx/673Yrm9r9Hf7LfwZMmb1oRxf49D1cjpwEUgKB8LbZZmAoDkZzvHWwH4MXXXDaA3cyQREGZA8UfXaKc8Tcf5w5qpY?cluster=devnet), at slot 502,628,696. Program ID and accounts were unchanged: all three existing treasuries decode under the upgraded program with their ledgers intact (the flagship still reads 648,829 claimed and 324,415 retained). The checker was re-run, followed by a fresh launch and the full fee path (§4).
 
 **Second upgrade, 23 September: Stock Floor.** ProgramData was extended by 36,000 bytes ([`2GKSLrW9…ApfB6cfU`](https://explorer.solana.com/tx/2GKSLrW9mAgH15JQCpR7PPpTUjs5fpwzqPdaygZ262jiSLfkPEokmP41sj4cNwp7jvpmUMdQhnjRhuZQApfB6cfU?cluster=devnet)) and the program upgraded ([`3rFz2suT…hWhCRdKm`](https://explorer.solana.com/tx/3rFz2suTrLCGa7LqUppXVe81z1JJF32rqXPvefzQu4UmnfeNpgT4FcLwsffeBAKU26dJin62MRA7E4myhWhCRdKm?cluster=devnet)). The account layout is unchanged: Floor is a new enum variant without data, appended after the existing ones, so existing treasuries decode exactly as before, and every existing market loads in the app after the upgrade. The treasury tests passed 13/13 on this binary (5 existing, 8 Stock Floor).
+
+**Rewards redeploy, 23 September.** The rewards program's source did not change, but it compiles in the treasury's account types, which gained the Floor variant, so its rebuild no longer matched the deployed bytes. It was redeployed from that rebuild (rewards tests 11/11 on it) in [`3Ta1ZmML…uuYcDRYz`](https://explorer.solana.com/tx/3Ta1ZmMLSaSsonkNshjgZHpxy2xMP8Z3FnUGyA9eJqsEpJwh1V2fxytYeEVh9csWVw2AYJETyH49pYtuuYcDRYz?cluster=devnet). The Rewards page loads the existing funded rounds and payouts under the redeployed program.
 
 ### 6.2 Upgrade authority: what "immutable" means here
 
@@ -314,7 +317,6 @@ What Sonata does differently: the quote asset is a stock token; each launch depl
 
 - A claim path for fees earned by the locked post-graduation position (§5.4)
 - A launch signed by an extension wallet such as Phantom (the app's built-in test wallet has signed one, §4)
-- Redeploying the rewards program so its deployed bytes match the current build again (§6.1)
 - Stock Floor growth after graduation, which needs the DAMM v2 fee claim above
 - Permanent storage for token profiles (Irys devnet uploads are temporary)
 - Moving or revoking the upgrade authority (§6.2)

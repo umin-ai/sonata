@@ -1,6 +1,6 @@
 {
   "network": "solana:devnet",
-  "checkedAt": "2026-09-23T09:31:16.451Z",
+  "checkedAt": "2026-09-23T09:47:12.075Z",
   "method": "sha256 of ProgramData bytes [45, 45 + local length), remainder required to be zero",
   "results": [
     {
@@ -26,9 +26,9 @@
         "path": "target/deploy/stockroom_rewards.so",
         "bytes": 329536,
         "sha256": "736f450aa0bb424ff919254b96c87128d1a88d4f2da9c0cb38cce2ad0d906ecf",
-        "deployedWindowSha256": "6195ac388f9539c63c8ee08fc245a86e1264b0c2af1bb9dd0bee85522206cb81",
+        "deployedWindowSha256": "736f450aa0bb424ff919254b96c87128d1a88d4f2da9c0cb38cce2ad0d906ecf",
         "tailIsZero": true,
-        "matches": false
+        "matches": true
       }
     },
     {
