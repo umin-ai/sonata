@@ -48,4 +48,8 @@ test("milestone market caps follow the deployed curve from start to target", asy
   assert.ok(caps.current < caps.milestones[0] && caps.milestones[0] < caps.milestones[1]);
   assert.ok(caps.milestones[1] < marketCapAt(sqrtPriceAtQuote(threshold, start, curve), supply));
   assert.equal(caps.milestones[2], marketCapAt(migration, supply));
+  // Filling the threshold lands on the migration price, the end of the first segment,
+  // as Meteora's formulas define it (not past it into the thin tail segment).
+  const end = sqrtPriceAtQuote(threshold, start, curve), migrationPoint = curve[0].sqrtPrice;
+  assert.ok(end <= migrationPoint && Number(migrationPoint - end) / Number(migrationPoint) < 1e-9, `${end} vs ${migrationPoint}`);
 });

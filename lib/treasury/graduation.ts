@@ -41,16 +41,18 @@ export type CurvePoint = { sqrtPrice: bigint; liquidity: bigint };
 /**
  * The curve's sqrt price (Q64) once `quote` raw units have been bought into it,
  * with Meteora DBC's own math: a segment from sqrt price a to b with liquidity L
- * holds L * (b - a) / 2^128 quote, and a partial amount q moves a to
- * a + q * 2^128 / L. Segment i runs from the previous point (or sqrtStart) up to
- * curve[i].sqrtPrice; unused points are zero.
+ * holds L * (b - a) / 2^128 quote, rounded up as the program rounds amounts in,
+ * and a partial amount q moves a to a + q * 2^128 / L. Segment i runs from the
+ * previous point (or sqrtStart) up to curve[i].sqrtPrice; unused points are zero.
+ * Rounding up matters at a segment's end: rounded down, the threshold would spill
+ * one raw unit into the next, much thinner segment and overshoot the price.
  */
 export function sqrtPriceAtQuote(quote: bigint, sqrtStart: bigint, curve: CurvePoint[]) {
   let price = sqrtStart,
     left = quote;
   for (const { sqrtPrice, liquidity } of curve) {
     if (sqrtPrice === 0n || liquidity === 0n) break;
-    const holds = (liquidity * (sqrtPrice - price)) >> 128n;
+    const holds = (liquidity * (sqrtPrice - price) + (1n << 128n) - 1n) >> 128n;
     if (left <= holds) return price + (left << 128n) / liquidity;
     left -= holds;
     price = sqrtPrice;
