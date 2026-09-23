@@ -16,5 +16,11 @@ __HOST__ {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}
-	reverse_proxy 127.0.0.1:8787
+	# Read-only market data from the trade indexer.
+	handle /api/index/* {
+		reverse_proxy 127.0.0.1:8790
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8787
+	}
 }

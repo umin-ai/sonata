@@ -1,0 +1,21 @@
+# Sonata trade indexer: Devnet DBC swaps into local PostgreSQL, and a read-only
+# market-data API on 127.0.0.1:8790 (Caddy serves it at /api/index/*).
+[Unit]
+Description=Sonata trade indexer (Solana Devnet)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=sonata
+Group=sonata
+WorkingDirectory=/opt/sonata/app
+EnvironmentFile=/opt/sonata/indexer.env
+ExecStart=/usr/bin/node indexer/index.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

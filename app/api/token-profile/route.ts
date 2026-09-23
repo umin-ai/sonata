@@ -7,13 +7,14 @@ import {
   sniffImage,
 } from "@/lib/token-profile";
 import { uploadToIrys } from "@/lib/server/irys-upload";
+import { s3Config, uploadToS3 } from "@/lib/server/s3-upload";
 import { clientKey, createRateLimit } from "@/lib/server/rate-limit";
 
 // Publishes a launch's token profile (image, description, social links) as the
 // public metadata JSON that wallets, explorers and Jupiter read from the token's
-// Metaplex `uri`. Stored on Irys devnet, Arweave's test network: uploads under
-// ~100 KB are free, so each upload signs with a throwaway key and nothing is
-// funded or kept (lib/server/irys-upload.ts). Devnet uploads are temporary.
+// Metaplex `uri`. Stored in Sonata's S3 bucket behind CloudFront, under keys that
+// are the SHA-256 of each file (lib/server/s3-upload.ts). Without S3 settings it
+// falls back to Irys devnet, which is free but temporary (lib/server/irys-upload.ts).
 export const dynamic = "force-dynamic";
 const MAX_BODY = MAX_IMAGE_BYTES + 8_000;
 // Each launch publishes one profile; this leaves room for retries and blocks spam.
@@ -55,6 +56,9 @@ export async function POST(request: Request) {
     });
     const description = normalizeDescription(f.description);
     const links = normalizeLinks(f);
+    const s3 = s3Config();
+    const store = (bytes: Uint8Array, type: string, name: string) =>
+      s3 ? uploadToS3(s3, bytes, type, name) : uploadToIrys(bytes, type);
     const file = form.get("image");
     let image: string | undefined, imageType: string | undefined;
     if (file instanceof File && file.size > 0) {
@@ -63,7 +67,8 @@ export async function POST(request: Request) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       imageType = sniffImage(bytes) ?? undefined;
       if (!imageType) throw Error("Use a PNG, JPG, WebP or GIF image.");
-      image = await uploadToIrys(bytes, imageType);
+      const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[imageType]!;
+      image = await store(bytes, imageType, `logo.${ext}`);
     }
     if (!image && !description && !Object.keys(links).length)
       throw Error("Nothing to publish: add an image, description or link.");
@@ -75,9 +80,10 @@ export async function POST(request: Request) {
       imageType,
       links,
     });
-    const uri = await uploadToIrys(
+    const uri = await store(
       new TextEncoder().encode(JSON.stringify(metadata)),
       "application/json",
+      "metadata.json",
     );
     return Response.json({ uri, image, metadata }, { headers });
   } catch (e) {

@@ -56,15 +56,20 @@ sudo -u sonata bash -c "cd $APP_DIR && npm ci --no-audit --no-fund && npm run bu
 # Server-only settings for the Workers runtime; rebuilt with every deploy.
 install -o sonata -g sonata -m 600 $HOME_DIR/sonata.env $APP_DIR/dist/server/.dev.vars
 echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" >> $APP_DIR/dist/server/.dev.vars
+echo "INDEXER_URL=http://127.0.0.1:8790/api/index" >> $APP_DIR/dist/server/.dev.vars
+# The indexer only needs the database.
+install -o sonata -g sonata -m 600 /dev/null $HOME_DIR/indexer.env
+echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" > $HOME_DIR/indexer.env
 
 sed "s/__HOST__/$HOST/g" "$HERE/sonata.service" > /etc/systemd/system/sonata.service
+install -m 644 "$HERE/sonata-indexer.service" /etc/systemd/system/sonata-indexer.service
 sed "s/__HOST__/$HOST/g" "$HERE/Caddyfile" > /etc/caddy/Caddyfile
 if [ -n "$ALIASES" ]; then
   printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "${ALIASES// /, }" "$HOST" >> /etc/caddy/Caddyfile
 fi
 systemctl daemon-reload
-systemctl enable sonata >/dev/null
-systemctl restart sonata
+systemctl enable sonata sonata-indexer >/dev/null 2>&1
+systemctl restart sonata sonata-indexer
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
 echo "Deployed $(sudo -u sonata git -C $APP_DIR rev-parse --short HEAD) to https://$HOST"

@@ -2,7 +2,11 @@
 // public metadata JSON (the Metaplex `uri`), like pump.fun's create form. The
 // same validators run before upload and again when a profile is displayed, so a
 // link read back from chain is never rendered unless it passes.
-export const PROFILE_HOSTS = ["devnet.irys.xyz", "gateway.irys.xyz"] as const;
+
+// Where profiles may live: Sonata's S3 bucket behind CloudFront (content-addressed
+// keys), or Irys devnet (used when S3 is not configured).
+export const CDN_HOST = "d3lwm4c3ge2mv2.cloudfront.net";
+export const PROFILE_HOSTS = [CDN_HOST, "devnet.irys.xyz", "gateway.irys.xyz"] as const;
 export const MAX_IMAGE_BYTES = 95_000; // under Irys's free upload size
 export const MAX_DESCRIPTION = 280;
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
@@ -68,8 +72,10 @@ export function normalizeDescription(input: string | undefined) {
 export function isProfileUrl(value: string) {
   try {
     const url = new URL(value);
+    if (url.protocol !== "https:" || url.search || url.hash) return false;
+    if (url.hostname === CDN_HOST)
+      return /^\/tokens\/[0-9a-f]{64}\/(logo\.(webp|png|jpg|gif)|metadata\.json)$/.test(url.pathname);
     return (
-      url.protocol === "https:" &&
       (PROFILE_HOSTS as readonly string[]).includes(url.hostname) &&
       /^\/[A-Za-z0-9_-]{43,44}$/.test(url.pathname)
     );

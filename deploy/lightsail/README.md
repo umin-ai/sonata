@@ -1,8 +1,9 @@
 # Deploying Sonata to AWS Lightsail (Solana Devnet)
 
 One Ubuntu 24.04 instance runs everything: Caddy (HTTPS) → the app on
-127.0.0.1:8787 (workerd via wrangler local mode) → PostgreSQL on localhost
-(installed for the coming indexer; the app does not use it yet).
+127.0.0.1:8787 (workerd via wrangler local mode), and `/api/index/*` → the
+trade indexer on 127.0.0.1:8790 (`indexer/index.mjs`, service
+`sonata-indexer`), which reads Devnet DBC swaps into PostgreSQL on localhost.
 
 Images are served from S3 through CloudFront; the app needs only an
 upload-only key. Nothing secret is stored in this repository.

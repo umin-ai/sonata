@@ -96,3 +96,23 @@
 .sr-app .token-image-empty{display:grid;place-items:center;border:1px dashed var(--exchange-border);color:var(--muted-foreground)}
 .sr-app .token-image-picker .sr-note{margin:6px 0 0}
 .sr-app .launch-review-head{display:flex;align-items:center;gap:10px}
+/* Market activity: indexed price chart and recent trades. */
+.sr-app .price-chart{display:grid;gap:10px;margin:14px 0}
+.sr-app .price-chart-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.sr-app .price-chart-head span{font-size:13px;color:var(--muted-foreground)}
+.sr-app .price-chart-head strong{display:flex;align-items:center;gap:8px;font-size:22px;font-weight:650;font-variant-numeric:tabular-nums}
+.sr-app .price-chart-intervals{display:flex;gap:4px}
+.sr-app .price-chart-intervals button{padding:4px 10px;border-radius:8px;font-size:12px;color:var(--muted-foreground);border:1px solid transparent}
+.sr-app .price-chart-intervals button[aria-pressed=true]{color:var(--foreground);border-color:var(--exchange-border);background:var(--muted)}
+.sr-app .recent-trades{display:grid;margin-top:8px}
+.sr-app .recent-trade{display:grid;grid-template-columns:56px 1.2fr 1.2fr 1fr auto;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid var(--exchange-border);font-size:13px;color:var(--foreground);text-decoration:none;font-variant-numeric:tabular-nums}
+.sr-app .recent-trade:hover{background:color-mix(in srgb,var(--foreground) 4%,transparent)}
+.sr-app .recent-trade span{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.sr-app .recent-trade-side{font-weight:650}
+.sr-app .recent-trade-side.buy{color:#3fcf8e}
+.sr-app .recent-trade-side.sell{color:#f07575}
+.sr-app .recent-trade-muted{color:var(--muted-foreground)}
+@media(max-width:700px){.sr-app .recent-trade{grid-template-columns:48px 1fr auto}.sr-app .recent-trade span:nth-child(3),.sr-app .recent-trade span:nth-child(4){display:none}}
+.sr-app .market-card-stats{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;margin-top:6px}
+.sr-app .market-card-stats strong{color:var(--foreground);font-weight:600}
+.sr-app .market-card-stats .up{color:#3fcf8e}.sr-app .market-card-stats .down{color:#f07575}

@@ -52,6 +52,7 @@ import { OnchainTreasury } from "./treasury-workspace";
 import { LiquidityPortfolio } from "@/app/earn/workspace";
 import { GraduationProgress } from "./graduation-progress";
 import { StockFloor } from "./stock-floor";
+import { MarketStats } from "./market-activity";
 import {
   TokenProfileFields,
   emptyProfile,
@@ -276,6 +277,7 @@ function MarketCard({ market: m }: { market: Market }) {
         </Badge>
       </div>
       <GraduationProgress data={data} quote={quoteSymbolOf(m.quoteMint)} compact />
+      <MarketStats pool={m.pool} quote={quoteSymbolOf(m.quoteMint)} />
       {m.mode === "floor" ? (
         <StockFloor data={data} market={m} quote={quoteSymbolOf(m.quoteMint)} compact />
       ) : (
