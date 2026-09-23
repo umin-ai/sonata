@@ -52,8 +52,8 @@ execFileSync("node", ["scripts/verify-configurable-launch.mjs", out], {
     SONATA_INITIAL: String(initial),
     SONATA_TARGET: String(target),
     SONATA_FEE_BPS: feeArg,
-    SONATA_TOKEN_NAME: "Dollar Launch Proof",
-    SONATA_TOKEN_SYMBOL: "USDL",
+    SONATA_TOKEN_NAME: process.env.SONATA_TOKEN_NAME ?? "Dollar Launch Proof",
+    SONATA_TOKEN_SYMBOL: process.env.SONATA_TOKEN_SYMBOL ?? "USDL",
     SONATA_PRICING: JSON.stringify(pricing),
   },
 });

@@ -1,0 +1,28 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-23T10:30:00.000Z",
+  "intent": "A launch made through the Sonata app's own launch flow (app/onchain/live-workspace.tsx -> lib/treasury/runtime.ts prepareLaunch and prepareRegistration), signed by the app's in-browser Devnet test wallet: dollar-priced mQQQ curve, 3% fee, Stock Floor on, and a token profile (image, description, website) published to Irys devnet and fixed into the token metadata.",
+  "wallet": "GX3N5UEDE4YBSC46ZND8YZbxP8ynZWtyQNtp5EqjezQ3",
+  "pool": "EFMUmeNJcz8Z49c74sTrmKcPq3qQsdchjzjGGJtMHUwQ",
+  "config": "2ase2Bmqqseeat11ZnUFDVrVT73EJGioH7R1DF8TpAYr",
+  "treasury": "4AVWEKpru9kMcytR3Yb9vL6jUegEqD7bh1BpbLpFyDB4",
+  "baseMint": "AC8PBP6dJjaKQcyuUnxg5TkK8VecE7JMMe2ppJxtDbcg",
+  "settings": { "quote": "mQQQ", "targetUsd": 25000, "priceUsd": 750.45, "priceSource": "Jupiter (QQQx on Solana)", "target": "33.313205 mQQQ", "feeBps": 300, "floor": true },
+  "profile": {
+    "uri": "https://devnet.irys.xyz/5yszaShqWfQR8exVbMN5F84L8KjJhtuDurMLLRgLd5Er",
+    "image": "https://devnet.irys.xyz/E5soayv5g22iD1T8PHtGoTCLJNcyPDSoa6JQxenwrDtr",
+    "imageBytes": 4570,
+    "website": "https://github.com/umin-ai/sonata",
+    "note": "Irys devnet uploads are temporary."
+  },
+  "checks": {
+    "metadataUriOnChain": true,
+    "profileJsonResolves": true,
+    "imageResolves": true,
+    "treasuryModeIsFloor": true
+  },
+  "traces": [
+    { "label": "App: create config and pool (with profile URI in token metadata)", "signature": "4FtV1tKsfDhQdsQWQWducZC55fDTfDJ1FR8g8LsQak7mYhLkgyWJ5SgtXvEAfCvcj46yQ1Z16RyaTyvvfTLvwvx4" },
+    { "label": "App: activate treasury in Stock Floor mode", "signature": "453GAncgMe12nqcMHnpU3aNi8m8hCBVcn7sB2bKUHvX3bsKBND6xNp1ohgMSJb3LzWSxN9mARTmC3iprrsaiwuEm" }
+  ]
+}

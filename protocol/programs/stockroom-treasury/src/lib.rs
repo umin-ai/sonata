@@ -18,6 +18,9 @@ pub enum Mode {
     Duet,
     /// 0% of principal paid out; only yield on the retained position is ever distributed.
     Sustain,
+    /// Stock Floor: 50% paid out, 50% retained as a floor that holders redeem by
+    /// burning the community token. The creator can never withdraw it.
+    Floor,
 }
 
 impl Mode {
@@ -26,6 +29,7 @@ impl Mode {
             Mode::Refrain => 10_000,
             Mode::Duet => 5_000,
             Mode::Sustain => 0,
+            Mode::Floor => 5_000,
         }
     }
 }
@@ -55,7 +59,8 @@ pub struct Treasury {
     pub total_distributed: u64,
     /// Raw quote units retained in the treasury token account, lifetime.
     pub total_retained: u64,
-    /// Raw quote units withdrawn to the creator, lifetime; not a credit or yield position.
+    /// Raw quote units that left the retained balance, lifetime: to the creator, or in
+    /// Floor mode to holders who redeemed. Not a credit or yield position.
     pub total_withdrawn: u64,
     pub last_claim_ts: i64,
 }
@@ -226,6 +231,7 @@ pub mod stockroom_treasury {
     /// Return only retained stock to its creator. This is not a yield or collateral position.
     pub fn withdraw_retained(ctx: Context<WithdrawRetained>, amount: u64) -> Result<()> {
         let t = &ctx.accounts.treasury;
+        require!(t.mode != Mode::Floor, TreasuryError::FloorLocked);
         require!(
             amount > 0
                 && amount
@@ -259,6 +265,92 @@ pub mod stockroom_treasury {
         emit!(RetainedWithdrawn { pool, amount });
         Ok(())
     }
+
+    /// Stock Floor: burn community tokens for their share of the floor, paid in the
+    /// quote stock. Share = floor * amount / base supply, rounded down. Supply counts
+    /// tokens still in the curve or a graduated pool, so the per-token floor is
+    /// conservative. Rounding down means a redemption never lowers the floor per
+    /// remaining token.
+    pub fn redeem(ctx: Context<Redeem>, amount: u64) -> Result<()> {
+        let t = &ctx.accounts.treasury;
+        require!(t.mode == Mode::Floor, TreasuryError::NotFloor);
+        let floor = t
+            .total_retained
+            .checked_sub(t.total_withdrawn)
+            .ok_or(TreasuryError::Math)?;
+        let supply = ctx.accounts.base_mint.supply;
+        require!(
+            amount > 0 && amount <= supply,
+            TreasuryError::NothingToRedeem
+        );
+        let payout = u64::try_from(
+            (floor as u128)
+                .checked_mul(amount as u128)
+                .ok_or(TreasuryError::Math)?
+                / (supply as u128),
+        )
+        .map_err(|_| TreasuryError::Math)?;
+        require!(payout > 0, TreasuryError::NothingToRedeem);
+        let pool = t.pool;
+        let bump = t.bump;
+        anchor_spl::token_interface::burn(
+            CpiContext::new(
+                ctx.accounts.token_base_program.key(),
+                anchor_spl::token_interface::Burn {
+                    mint: ctx.accounts.base_mint.to_account_info(),
+                    from: ctx.accounts.holder_base.to_account_info(),
+                    authority: ctx.accounts.holder.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+        let seeds: &[&[u8]] = &[TREASURY_SEED, pool.as_ref(), &[bump]];
+        anchor_spl::token_interface::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_quote_program.key(),
+                anchor_spl::token_interface::TransferChecked {
+                    from: ctx.accounts.treasury_quote.to_account_info(),
+                    mint: ctx.accounts.quote_mint.to_account_info(),
+                    to: ctx.accounts.holder_quote.to_account_info(),
+                    authority: ctx.accounts.treasury.to_account_info(),
+                },
+                &[seeds],
+            ),
+            payout,
+            ctx.accounts.quote_mint.decimals,
+        )?;
+        let t = &mut ctx.accounts.treasury;
+        t.total_withdrawn = t
+            .total_withdrawn
+            .checked_add(payout)
+            .ok_or(TreasuryError::Math)?;
+        emit!(Redeemed {
+            pool,
+            holder: ctx.accounts.holder.key(),
+            burned: amount,
+            payout
+        });
+        Ok(())
+    }
+}
+
+#[derive(Accounts)]
+pub struct Redeem<'info> {
+    #[account(mut, seeds = [TREASURY_SEED, treasury.pool.as_ref()], bump = treasury.bump, has_one = quote_mint, has_one = base_mint)]
+    pub treasury: Box<Account<'info, Treasury>>,
+    pub holder: Signer<'info>,
+    #[account(mut, token::mint = base_mint, token::authority = holder, token::token_program = token_base_program)]
+    pub holder_base: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = holder, token::token_program = token_quote_program)]
+    pub holder_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury, token::token_program = token_quote_program)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, mint::token_program = token_base_program)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(mint::token_program = token_quote_program)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub token_base_program: Interface<'info, TokenInterface>,
+    pub token_quote_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(Accounts)]
@@ -364,6 +456,14 @@ pub struct RetainedWithdrawn {
     pub amount: u64,
 }
 
+#[event]
+pub struct Redeemed {
+    pub pool: Pubkey,
+    pub holder: Pubkey,
+    pub burned: u64,
+    pub payout: u64,
+}
+
 #[error_code]
 pub enum TreasuryError {
     #[msg("Creator signature required")]
@@ -378,4 +478,10 @@ pub enum TreasuryError {
     Math,
     #[msg("Amount exceeds retained stock not yet routed")]
     NothingToRoute,
+    #[msg("Only Stock Floor treasuries can be redeemed")]
+    NotFloor,
+    #[msg("The Stock Floor belongs to holders; the creator cannot withdraw it")]
+    FloorLocked,
+    #[msg("Amount too small to redeem any stock")]
+    NothingToRedeem,
 }

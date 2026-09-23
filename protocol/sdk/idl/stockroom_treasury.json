@@ -343,6 +343,95 @@
       "args": []
     },
     {
+      "name": "redeem",
+      "docs": [
+        "Stock Floor: burn community tokens for their share of the floor, paid in the",
+        "quote stock. Share = floor * amount / base supply, rounded down. Supply counts",
+        "tokens still in the curve or a graduated pool, so the per-token floor is",
+        "conservative. Rounding down means a redemption never lowers the floor per",
+        "remaining token."
+      ],
+      "discriminator": [
+        184,
+        12,
+        86,
+        149,
+        70,
+        196,
+        97,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury.pool",
+                "account": "Treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "holder",
+          "signer": true
+        },
+        {
+          "name": "holder_base",
+          "writable": true
+        },
+        {
+          "name": "holder_quote",
+          "writable": true
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "base_mint",
+          "writable": true,
+          "relations": [
+            "treasury"
+          ]
+        },
+        {
+          "name": "quote_mint",
+          "relations": [
+            "treasury"
+          ]
+        },
+        {
+          "name": "token_base_program"
+        },
+        {
+          "name": "token_quote_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "withdraw_retained",
       "docs": [
         "Return only retained stock to its creator. This is not a yield or collateral position."
@@ -473,6 +562,19 @@
       ]
     },
     {
+      "name": "Redeemed",
+      "discriminator": [
+        14,
+        29,
+        183,
+        71,
+        31,
+        165,
+        107,
+        38
+      ]
+    },
+    {
       "name": "RetainedWithdrawn",
       "discriminator": [
         111,
@@ -516,6 +618,21 @@
       "code": 6005,
       "name": "NothingToRoute",
       "msg": "Amount exceeds retained stock not yet routed"
+    },
+    {
+      "code": 6006,
+      "name": "NotFloor",
+      "msg": "Only Stock Floor treasuries can be redeemed"
+    },
+    {
+      "code": 6007,
+      "name": "FloorLocked",
+      "msg": "The Stock Floor belongs to holders; the creator cannot withdraw it"
+    },
+    {
+      "code": 6008,
+      "name": "NothingToRedeem",
+      "msg": "Amount too small to redeem any stock"
     }
   ],
   "types": [
@@ -775,6 +892,9 @@
           },
           {
             "name": "Sustain"
+          },
+          {
+            "name": "Floor"
           }
         ]
       }
@@ -1444,6 +1564,30 @@
       }
     },
     {
+      "name": "Redeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "holder",
+            "type": "pubkey"
+          },
+          {
+            "name": "burned",
+            "type": "u64"
+          },
+          {
+            "name": "payout",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "RetainedWithdrawn",
       "type": {
         "kind": "struct",
@@ -1524,7 +1668,8 @@
           {
             "name": "total_withdrawn",
             "docs": [
-              "Raw quote units withdrawn to the creator, lifetime; not a credit or yield position."
+              "Raw quote units that left the retained balance, lifetime: to the creator, or in",
+              "Floor mode to holders who redeemed. Not a credit or yield position."
             ],
             "type": "u64"
           },

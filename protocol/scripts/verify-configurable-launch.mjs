@@ -44,6 +44,9 @@ const INITIAL_MARKET_CAP = Number(env.SONATA_INITIAL ?? 2),
   TOKEN_NAME = env.SONATA_TOKEN_NAME ?? "Configurable Launch Proof",
   TOKEN_SYMBOL = env.SONATA_TOKEN_SYMBOL ?? "CFGX",
   PRICING = env.SONATA_PRICING ? JSON.parse(env.SONATA_PRICING) : undefined,
+  // Treasury mode: "duet" (50% payout, 50% creator-withdrawable) or "floor"
+  // (50% payout, 50% Stock Floor that only holders can redeem).
+  MODE = env.SONATA_MODE ?? "duet",
   SHARED_CONFIG = "CUeJ6fgsw6wGXPCBchj9jxpkGVWzanXxYJFMiAPJea5J",
   QUOTE_MINT = new PublicKey(env.SONATA_QUOTE_MINT ?? "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg");
 
@@ -167,7 +170,7 @@ await send("Create creator config and pool", createTx, [
 ]);
 
 const registerTx = await program.methods
-  .initTreasury({ duet: {} }, admin.publicKey)
+  .initTreasury({ [MODE]: {} }, admin.publicKey)
   .accounts({
     vault,
     treasury,
@@ -216,6 +219,7 @@ const checks = {
     ((BigInt(FEE_BPS) * 1_000_000_000n) / 10_000n).toString(),
   treasuryBoundToConfig: onchainTreasury.config.equals(config.publicKey),
   treasuryBoundToPool: onchainTreasury.pool.equals(pool),
+  treasuryModeMatches: Object.keys(onchainTreasury.mode)[0] === MODE,
 };
 console.log(checks);
 for (const [name, ok] of Object.entries(checks))
@@ -231,6 +235,7 @@ const evidence = {
     migrationMarketCap: MIGRATION_MARKET_CAP,
     feeBps: FEE_BPS,
     quote: QUOTE_SYMBOL,
+    mode: MODE,
   },
   ...(PRICING ? { pricing: PRICING } : {}),
   sharedConfig: SHARED_CONFIG,

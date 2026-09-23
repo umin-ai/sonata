@@ -1053,6 +1053,9 @@
           },
           {
             "name": "Sustain"
+          },
+          {
+            "name": "Floor"
           }
         ]
       }
@@ -1122,7 +1125,8 @@
           {
             "name": "total_withdrawn",
             "docs": [
-              "Raw quote units withdrawn to the creator, lifetime; not a credit or yield position."
+              "Raw quote units that left the retained balance, lifetime: to the creator, or in",
+              "Floor mode to holders who redeemed. Not a credit or yield position."
             ],
             "type": "u64"
           },
