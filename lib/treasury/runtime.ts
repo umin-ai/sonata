@@ -899,9 +899,15 @@ export async function prepareLaunch(
       baseMint: mint.publicKey,
     },
   });
-  tx.instructions.unshift(
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 700000 }),
-  );
+  // No compute-unit instruction: a launch uses about 140,000 units, under the
+  // default budget of 200,000 per instruction, and the extra instruction's 40
+  // bytes matter because a Solana transaction is capped at 1,232 bytes.
+  tx.feePayer = owner;
+  tx.recentBlockhash = PublicKey.default.toBase58();
+  const message = tx.compileMessage();
+  const size = 1 + message.header.numRequiredSignatures * 64 + message.serialize().length;
+  if (size > 1232)
+    throw Error("This launch is too large for one Solana transaction. Shorten the token name.");
   const prepared = await finalizeTransaction(
     tx,
     "launch",

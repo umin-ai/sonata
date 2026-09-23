@@ -9,14 +9,15 @@ import {
   type TokenProfile,
 } from "@/lib/token-profile";
 
-// Reads a token's profile from its metadata URI. Only Irys URIs are fetched,
-// and parseProfile drops any image or link that fails validation.
+// Reads a token's profile through Sonata's own /api/token-meta, which fetches
+// only Sonata's CloudFront and Irys URIs and validates the result. The profile
+// is validated again here, so a link is never shown unless it passes.
 const cache = new Map<string, Promise<TokenProfile | null>>();
 function loadProfile(uri: string) {
   if (!cache.has(uri))
     cache.set(
       uri,
-      fetch(uri)
+      fetch(`/api/token-meta?v=2&uri=${encodeURIComponent(uri)}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((json) => (json ? parseProfile(json) : null))
         .catch(() => null),

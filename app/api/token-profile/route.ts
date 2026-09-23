@@ -57,8 +57,8 @@ export async function POST(request: Request) {
     const description = normalizeDescription(f.description);
     const links = normalizeLinks(f);
     const s3 = s3Config();
-    const store = (bytes: Uint8Array, type: string, name: string) =>
-      s3 ? uploadToS3(s3, bytes, type, name) : uploadToIrys(bytes, type);
+    const store = (bytes: Uint8Array, type: string, ext: string) =>
+      s3 ? uploadToS3(s3, bytes, type, ext) : uploadToIrys(bytes, type);
     const file = form.get("image");
     let image: string | undefined, imageType: string | undefined;
     if (file instanceof File && file.size > 0) {
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       imageType = sniffImage(bytes) ?? undefined;
       if (!imageType) throw Error("Use a PNG, JPG, WebP or GIF image.");
       const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[imageType]!;
-      image = await store(bytes, imageType, `logo.${ext}`);
+      image = await store(bytes, imageType, ext);
     }
     if (!image && !description && !Object.keys(links).length)
       throw Error("Nothing to publish: add an image, description or link.");
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
     const uri = await store(
       new TextEncoder().encode(JSON.stringify(metadata)),
       "application/json",
-      "metadata.json",
+      "json",
     );
     return Response.json({ uri, image, metadata }, { headers });
   } catch (e) {

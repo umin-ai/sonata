@@ -175,6 +175,24 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     }
     return false;
   };
+  // Resolve a pending transaction on its own: confirmed, failed or expired.
+  // Without this the app stays paused until "Check receipt" is pressed.
+  useEffect(() => {
+    if (!pending || busy) return;
+    let active = true;
+    const timer = setInterval(() => {
+      void check(pending).catch((e) => {
+        if (active)
+          setError(e instanceof Error ? e.message : "Transaction status unavailable.");
+      });
+    }, 8000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+    // check reads only stable setters and the connection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, busy]);
   async function execute(build: () => Promise<PreparedTreasury>) {
     if (lock.current || pending || !address) return;
     lock.current = true;
@@ -253,9 +271,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       remember(submitted);
       setReview(null);
       setBusy("Submitting to Solana Devnet…");
+      // Every transaction was simulated when its review opened. Skipping the
+      // send-time preflight avoids public Devnet's "Blockhash not found" when
+      // the request lands on an RPC node a few slots behind; the result is
+      // still checked below and a failure is reported with its receipt.
       await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: false,
-        maxRetries: 2,
+        skipPreflight: true,
+        maxRetries: 5,
       });
       setBusy("Waiting for network confirmation…");
       const result = await connection.confirmTransaction(

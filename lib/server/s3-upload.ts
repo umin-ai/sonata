@@ -1,7 +1,7 @@
 import { AwsClient } from "aws4fetch";
 
 // Token profile storage on S3, served through CloudFront. Each object's key is
-// the SHA-256 of its content (tokens/<hash>/<name>), so anyone can check that a
+// the SHA-256 of its content (tokens/<hash>.<ext>), so anyone can check that a
 // file behind a token's metadata URI is the one that was uploaded. The upload
 // key can only PutObject under tokens/ (see deploy/lightsail/README.md).
 export type S3Config = {
@@ -27,13 +27,15 @@ async function sha256Hex(bytes: Uint8Array) {
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function objectKey(bytes: Uint8Array, name: string) {
-  if (!/^(logo\.(webp|png|jpg|gif)|metadata\.json)$/.test(name)) throw Error("Unexpected object name.");
-  return `tokens/${await sha256Hex(bytes)}/${name}`;
+// Kept short on purpose: the metadata URI is written into the launch
+// transaction, which Solana caps at 1,232 bytes.
+export async function objectKey(bytes: Uint8Array, ext: string) {
+  if (!/^(json|webp|png|jpg|gif)$/.test(ext)) throw Error("Unexpected object type.");
+  return `tokens/${await sha256Hex(bytes)}.${ext}`;
 }
 
-export async function uploadToS3(cfg: S3Config, bytes: Uint8Array, contentType: string, name: string) {
-  const key = await objectKey(bytes, name);
+export async function uploadToS3(cfg: S3Config, bytes: Uint8Array, contentType: string, ext: string) {
+  const key = await objectKey(bytes, ext);
   const client = new AwsClient({
     accessKeyId: cfg.accessKeyId,
     secretAccessKey: cfg.secretAccessKey,

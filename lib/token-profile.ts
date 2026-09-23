@@ -74,7 +74,7 @@ export function isProfileUrl(value: string) {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.search || url.hash) return false;
     if (url.hostname === CDN_HOST)
-      return /^\/tokens\/[0-9a-f]{64}\/(logo\.(webp|png|jpg|gif)|metadata\.json)$/.test(url.pathname);
+      return /^\/tokens\/[0-9a-f]{64}\.(json|webp|png|jpg|gif)$/.test(url.pathname);
     return (
       (PROFILE_HOSTS as readonly string[]).includes(url.hostname) &&
       /^\/[A-Za-z0-9_-]{43,44}$/.test(url.pathname)

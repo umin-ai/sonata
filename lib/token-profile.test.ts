@@ -62,11 +62,11 @@ test("untrusted metadata cannot smuggle links or images", () => {
   assert.deepEqual(back, { description: undefined, image: undefined, links: {} });
   assert.equal(isProfileUrl("https://devnet.irys.xyz/../../x"), false);
   const h = "a".repeat(64);
-  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}/metadata.json`), true);
-  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}/logo.webp`), true);
-  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/other/${h}/logo.webp`), false);
-  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}/logo.webp?x=1`), false);
-  assert.equal(isProfileUrl(`http://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}/logo.webp`), false);
+  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}.json`), true);
+  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}.webp`), true);
+  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/other/${h}.webp`), false);
+  assert.equal(isProfileUrl(`https://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}.webp?x=1`), false);
+  assert.equal(isProfileUrl(`http://d3lwm4c3ge2mv2.cloudfront.net/tokens/${h}.webp`), false);
 });
 
 test("recognises image types by their bytes", () => {

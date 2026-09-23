@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { objectKey, s3Config } from "./s3-upload.ts";
 
 test("object keys are the content's SHA-256", async () => {
-  const key = await objectKey(new TextEncoder().encode("abc"), "metadata.json");
-  assert.equal(key, "tokens/ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad/metadata.json");
+  const key = await objectKey(new TextEncoder().encode("abc"), "json");
+  assert.equal(key, "tokens/ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad.json");
   await assert.rejects(objectKey(new Uint8Array(), "../x"), /Unexpected/);
 });
 
