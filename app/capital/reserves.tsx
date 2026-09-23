@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { formatUnits } from "@/lib/treasury/units";
+import { REWARDS_MINT } from "@/lib/treasury/quote-assets";
 export function useReserves() {
   const { address, revision } = useLive(),
     [rows, setRows] = useState<{ market: Market; state: TreasurySnapshot }[]>(
@@ -36,8 +37,11 @@ export function useReserves() {
     }
     setLoading(true);
     try {
+      // Only reserves this page can use: the creator's, withdrawable (not a
+      // Stock Floor, which belongs to holders), and in mSPY, the asset of the
+      // ROOM/mSPY pool and of the rewards program.
       const markets = (await discoverMarkets()).filter(
-          (m) => m.creator === address,
+          (m) => m.creator === address && m.mode !== "floor" && m.quoteMint === REWARDS_MINT,
         ),
         next = [];
       for (const market of markets)
@@ -87,8 +91,9 @@ export function ReservePicker({
       </Select>
       {!reserves.loading && !reserves.error && !reserves.rows.length && (
         <p className="sr-note">
-          No reserves owned by this wallet. Create a market, then collect and
-          allocate its trading fees.
+          No usable reserve for this wallet. Reserves here come from mSPY markets
+          you created without a Stock Floor, after their fees are collected and
+          allocated. A Stock Floor belongs to holders and cannot be withdrawn.
         </p>
       )}
     </div>

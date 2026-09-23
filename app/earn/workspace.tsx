@@ -1,5 +1,4 @@
 "use client";
-import stockPools from "@/lib/liquidity/stock-markets.json";
 import { MeteoraLabel } from "@/app/protocol-identity";
 import { TokenName, TokenPair } from "@/app/token-identity";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -126,7 +125,7 @@ export function LiquidityWorkspace() {
           <span className="sr-eyebrow">SONATA / EARN</span>
           <h1>Pools</h1>
           <p>
-            Explore stock liquidity strategies and earn from swap fees. Check availability before choosing a vault.
+            Provide liquidity to a live Devnet pool and earn its swap fees.
           </p>
         </div>
         <Button
@@ -138,15 +137,6 @@ export function LiquidityWorkspace() {
           Refresh
         </Button>
       </div>
-      <section aria-labelledby="stock-vaults-heading" className="mb-8">
-        <div className="sr-section-top"><div><h2 id="stock-vaults-heading">Stock pools</h2><p>Four stock strategies. Availability is shown per pool; all deployed pools use Devnet test assets.</p></div><Badge variant="outline">Liquidity pools</Badge></div>
-        <div className="exchange-vault-table"><div className="exchange-vault-row exchange-vault-labels"><span>Pool / asset</span><span>Strategy</span><span>Fee APR</span><span>Status</span><span /></div>
-          {[["spy","SPYx","S&P 500"],["nvda","NVDAx","NVIDIA"],["qqq","QQQx","Nasdaq 100"],["tsla","TSLAx","Tesla"]].map(([id,symbol,name]) => {
-            const deployed=(stockPools as {id:string}[]).some(p=>p.id===id);
-            return <div className="exchange-vault-row" key={id}><div><TokenName symbol={symbol} size={32}/><p>{name} · {deployed?"MockUSDC":"USDC preview"}</p></div><div><strong>Liquidity fees</strong><p>Stock + stablecoin</p></div><details><summary>{deployed?"Collecting data":"Not live"}</summary><p>Fee APR annualizes observed net LP fees relative to pool value. This vault has no verified observation period yet. External trading volume is not this vault’s return.</p></details><Badge variant="outline">{deployed?"Devnet":"Preview"}</Badge><Button asChild variant="outline"><Link href={`/vaults/${id}`}>Explore <ArrowUpRight size={16}/></Link></Button></div>
-          })}
-        </div>
-      </section>
       <div className="sr-section-top" id="devnet-liquidity"><div><h2>Try liquidity on Devnet</h2><p>ROOM / mSPY supports actual test deposits, swaps and withdrawals. Supply both tokens; fees compound into your LP position.</p></div><Badge variant="outline">Working test pool</Badge></div>
       <div className="flex flex-wrap gap-2 mb-6">
         <Badge variant="outline">

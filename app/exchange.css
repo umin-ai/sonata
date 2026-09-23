@@ -116,3 +116,9 @@
 .sr-app .market-card-stats{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted-foreground);font-variant-numeric:tabular-nums;margin-top:6px}
 .sr-app .market-card-stats strong{color:var(--foreground);font-weight:600}
 .sr-app .market-card-stats .up{color:#3fcf8e}.sr-app .market-card-stats .down{color:#f07575}
+/* How it works page. */
+.sr-app .how-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:16px}
+.sr-app .how-grid-2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.sr-app .how-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.sr-app .how-head h3{margin:0}
+.sr-app .how-list{margin:8px 0 0;padding-left:18px;display:grid;gap:6px;color:var(--muted-foreground);font-size:14px}

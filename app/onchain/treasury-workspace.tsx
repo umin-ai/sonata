@@ -32,7 +32,7 @@ import {
   prepareTrade,
 } from "@/lib/treasury/runtime";
 import { formatUnits } from "@/lib/treasury/units";
-import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
+import { REWARDS_MINT, quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import { GraduationProgress } from "./graduation-progress";
 import { StockFloor } from "./stock-floor";
 import { PriceChart, RecentTrades } from "./market-activity";
@@ -422,6 +422,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           This balance is not a holder-owned vault, a lending position or earned
           yield.
         </p>
+        {market.quoteMint === REWARDS_MINT ? (
         <div className="flex flex-wrap gap-3 mt-2">
           <Button asChild>
             <Link href="/capital">
@@ -434,6 +435,12 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
             </Link>
           </Button>
         </div>
+        ) : (
+          <p className="sr-note">
+            Liquidity deployment and holder rewards currently use mSPY, so this
+            {" "}{q} reserve can only be withdrawn by the creator.
+          </p>
+        )}
         {address === market.creator ? (
           <div className="max-w-md mt-4 space-y-3">
             <Label htmlFor="withdraw-amount">

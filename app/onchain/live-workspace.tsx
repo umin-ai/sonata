@@ -53,6 +53,7 @@ import { LiquidityPortfolio } from "@/app/earn/workspace";
 import { GraduationProgress } from "./graduation-progress";
 import { StockFloor } from "./stock-floor";
 import { MarketStats } from "./market-activity";
+import { isDeployableQuote } from "@/lib/treasury/quote-assets";
 import {
   TokenProfileFields,
   emptyProfile,
@@ -145,10 +146,10 @@ export function LiveDirectory() {
         <div className="exchange-actions"><Button asChild><Link href="/earn">View pools <ArrowUpRight /></Link></Button><Button asChild variant="outline"><Link href="/create"><Plus /> Launch token</Link></Button></div></div>
         <div className="exchange-feature"><span className="sr-eyebrow">FEATURED MARKET</span><div><TokenPair /></div><p>Stock-paired trading → fees → liquidity or holder rewards.</p><Link href="/onchain">Trade ROOM / mSPY <ArrowRight size={16}/></Link><small>Devnet · Markets that complete their curve graduate to their own DAMM v2 pool. The Earn pool is a separate, directly seeded pool.</small></div>
       </section>
-      <section className="exchange-stock-section"><div className="nm-section-heading"><div><span className="sr-eyebrow">ASSETS</span><h2>Stock pools</h2></div><Link className="sr-text-link" href="/earn">All pools <ArrowUpRight size={16}/></Link></div>
+      <section className="exchange-stock-section"><div className="nm-section-heading"><div><span className="sr-eyebrow">PAIR WITH A STOCK</span><h2>Launch against</h2></div><Link className="sr-text-link" href="/create">Launch token <ArrowUpRight size={16}/></Link></div>
       <div className="exchange-stocks">{[
-        ["spy","SPYx","S&P 500","Broad market"], ["nvda","NVDAx","NVIDIA","Technology"], ["qqq","QQQx","Nasdaq 100","Growth"], ["tsla","TSLAx","Tesla","Consumer & energy"]
-      ].map(([id,symbol,name,sector])=><Link key={id} href={`/vaults/${id}`} className="exchange-stock"><div className="exchange-stock-top"><TokenName symbol={symbol} size={36}/><ArrowUpRight size={18}/></div><h3>{name}</h3><p>{sector}</p><div className="exchange-stock-bottom"><span>Preview</span><span>Explore →</span></div></Link>)}</div></section>
+        ["mSPY","S&P 500","Broad market"], ["mQQQ","Nasdaq 100","Growth"], ["mTSLA","Tesla","Consumer & energy"], ["mNVDA","NVIDIA","Technology"]
+      ].map(([symbol,name,sector])=>isDeployableQuote(symbol) ? <Link key={symbol} href="/create" className="exchange-stock"><div className="exchange-stock-top"><TokenName symbol={symbol} size={36}/><ArrowUpRight size={18}/></div><h3>{name}</h3><p>{sector}</p><div className="exchange-stock-bottom"><span>Devnet</span><span>Launch →</span></div></Link> : <div key={symbol} className="exchange-stock" aria-disabled="true"><div className="exchange-stock-top"><TokenName symbol={symbol} size={36}/></div><h3>{name}</h3><p>{sector}</p><div className="exchange-stock-bottom"><span>Coming soon</span><span>No Devnet token yet</span></div></div>)}</div></section>
       <div className="exchange-paths">{[
         ["/create","01","Launch","Configure a stock-paired DBC market."],
         ["/onchain","02","Trade","Inspect the market and its collected fees."],

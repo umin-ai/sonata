@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Sprout,
   Gift,
+  BookOpen,
 } from "lucide-react";
 import {
   SidebarProvider,
@@ -66,8 +67,7 @@ const destinations = [
   ["/create", "Launch token", Plus],
   ["/capital", "Treasury", Layers3],
   ["/onchain", "Trade", ShieldCheck],
-  ["/ecosystem", "Integrations", Compass],
-  ["/lab", "Strategy lab", FlaskConical],
+  ["/ecosystem", "How it works", BookOpen],
 ] as const;
 function Navigation() {
   const path = usePathname(),
@@ -189,6 +189,7 @@ export function StockroomShell({
     "/capital",
     "/rewards",
     "/community",
+    "/ecosystem",
   ].includes(path) || (stockPools as {id:string}[]).some(p=>path===`/vaults/${p.id}`);
   const [wallet, setWallet] = useState(false);
   const title = path.startsWith("/lab")
@@ -250,7 +251,7 @@ export function StockroomShell({
                     : "Simulated assets and transactions. No real funds."}
                 </span>
                 <Link href="/ecosystem">
-                  Integration status <ArrowUpRight size={13} />
+                  How it works <ArrowUpRight size={13} />
                 </Link>
               </AlertDescription>
             </Alert>
