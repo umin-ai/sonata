@@ -12,7 +12,7 @@ Source line links are pinned to these commits, so each keeps pointing at the cod
 - [`umin-ai/sonata` @ `e4059bf`](https://github.com/umin-ai/sonata/tree/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb) — public-exposure fixes and the Lightsail deployment
 - [`umin-ai/sonata` @ `ca12d2d`](https://github.com/umin-ai/sonata/tree/ca12d2d489f85f0a7eb8341d3b2c6d94ec8323a4) — Stock Floor switch, floor panel and token profiles
 
-Explorer links use `?cluster=devnet`.
+Explorer links use `?cluster=devnet`. The app itself runs on Devnet at **https://sonata.umin.ai** (hosting details in §6.8).
 
 ---
 
@@ -61,7 +61,7 @@ Product flow: **Launch → Trade → Earn.** Demand and sustainable returns are 
 | | Indexed per-market metrics and price history |
 | | Mainnet deployment, and the Meteora token-badge path that real stock tokens require (§7) |
 
-Tests, run on 23 September: frontend `npm test` 85/85 (including Stock Floor maths 5, token profile validation 6, Irys encoding 2); protocol `node --test tests/*.test.mjs` 37/37 (credit 12, rewards 11, treasury 5, treasury Stock Floor 8, treasury registration 1); `cargo test -p credit-math` 6/6. Neither repository has CI; these run locally.
+Tests, run on 23 September: frontend `npm test` 88/88 (including Stock Floor maths 5, token profile validation 6, Irys encoding 2, upload rate limit 3); protocol `node --test tests/*.test.mjs` 37/37 (credit 12, rewards 11, treasury 5, treasury Stock Floor 8, treasury registration 1); `cargo test -p credit-math` 6/6. Neither repository has CI; these run locally.
 
 ---
 
@@ -286,7 +286,7 @@ What Meteora does not state is that `fee_claimer` may be a PDA owned by a third-
 - No program has had a professional audit.
 - **`POST /api/devnet` is off on the hosted app.** It authenticates on `oai-authenticated-user-*` headers without signature or session verification ([`app/chatgpt-auth.ts`](https://github.com/umin-ai/sonata/blob/130b5e206e60800ac721b1dd59cd718d6cc5ab4e/app/chatgpt-auth.ts)), and it co-signs with a disposable Devnet authority for the historical credit demo. Since 23 September it returns 404 unless `SONATA_ENABLE_DEVNET_SPONSOR=1` is set ([`route.ts:5-14`](https://github.com/umin-ai/sonata/blob/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/app/api/devnet/route.ts#L5-L14)). The hosted server has neither that flag nor the authority key, and its proxy strips those headers ([`Caddyfile`](https://github.com/umin-ai/sonata/blob/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/deploy/lightsail/Caddyfile)). It remains a local-only tool.
 - **`POST /api/token-profile` is unauthenticated but limited.** It checks origin, size and image type, and allows 6 uploads per client and 120 in total per 10 minutes ([`route.ts:36`](https://github.com/umin-ai/sonata/blob/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/app/api/token-profile/route.ts#L36)). Someone with many addresses could still use up the total and block uploads for up to 10 minutes.
-- **Hosted on Devnet** at https://sonata.umin.ai (DNS at Cloudflare, not proxied), on one AWS Lightsail instance: Caddy (HTTPS, Let's Encrypt) in front of the app, which runs in workerd through wrangler's local mode and listens only on 127.0.0.1. The firewall opens 80 and 443; SSH is limited to the operator's address. Server-only settings are the Pyth and Jupiter keys and an S3 key that can only upload. Setup is scripted in [`deploy/lightsail/`](https://github.com/umin-ai/sonata/tree/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/deploy/lightsail). wrangler's local mode is a development server used here as the runtime: adequate for a Devnet demo, not a production host. The DNS record points at the instance's public IP, which has no static IP yet, so stopping and starting the instance would break the address until the record is updated.
+- **Hosted on Devnet** at https://sonata.umin.ai (DNS at Cloudflare, not proxied), on one AWS Lightsail instance: Caddy (HTTPS, Let's Encrypt) in front of the app, which runs in workerd through wrangler's local mode and listens only on 127.0.0.1. The firewall opens 80 and 443; SSH is limited to the operator's address. Server-only settings are the Pyth and Jupiter keys and an S3 key that can only upload. Setup is scripted in [`deploy/lightsail/`](https://github.com/umin-ai/sonata/tree/e4059bf5f4d4b5e95d5dcf82f5d1085c3ec82abb/deploy/lightsail). wrangler's local mode is a development server used here as the runtime: adequate for a Devnet demo, not a production host. PostgreSQL is installed on the instance, reachable only locally, for a planned trade indexer; the app does not use it yet. The DNS record points at the instance's public IP, which has no static IP yet, so stopping and starting the instance would break the address until the record is updated.
 - No CI runs the test suites.
 
 ---
@@ -328,7 +328,9 @@ What Sonata does differently: the quote asset is a stock token; each launch depl
 - On-chain verification of per-recipient reward splits
 - The token-badge path for real stock tokens, and any mainnet deployment
 - CI
-- A static IP and a real domain for the hosted app
+- A static IP for the hosted app
+- Serving token images from S3 through CloudFront (the bucket, CDN and an upload-only key exist and were tested; the app still uploads to Irys devnet)
+- A trade indexer and price charts (the database is installed, not used)
 - Indexed per-market metrics and price history
 
 ---
@@ -356,7 +358,7 @@ The product is **Sonata**, renamed from the working name Stockroom on 22 Septemb
 **Frontend** (`umin-ai/sonata`): `npm ci`, `npm run dev`, `npm test`, `npx tsc --noEmit`, `npm run build`.
 **Protocol** (`umin-ai/sonata-protocol`): `node --test tests/*.test.mjs`, `cargo test -p credit-math`, `node scripts/verify-deployed-bytes.mjs`, `node scripts/verify-configurable-launch.mjs [out.json]` and `node scripts/verify-fee-path.mjs [proof.json] [out.json]`, `node scripts/verify-graduation.mjs [proof.json] [out.json]` and `node scripts/verify-graduated-trade.mjs`, `node scripts/verify-dollar-launch.mjs mQQQ 25000 300` (needs the frontend dev server for its price route) and `node scripts/create-mock-quote-mints.mjs`, `SONATA_MODE=floor node scripts/verify-dollar-launch.mjs mQQQ 25000 300 artifacts/stock-floor-launch.json` then `node scripts/verify-stock-floor.mjs artifacts/stock-floor-launch.json`, and `node scripts/fund-devnet-wallet.mjs <address> [sol] [symbol] [amount]` (these send Devnet transactions and need the pool creator's funded key); `node scripts/read-graduation.mjs <proof.json> <out.json> <four signatures>` and `node scripts/verify-handoff.mjs` are read-only. Never run the graduation script against the flagship; it refuses to.
 
-Key frontend files: `lib/treasury/runtime.ts` (launch, registration, discovery, on-chain reads), `lib/treasury/dbc-preview.ts` (curve parameters shared by preview and launch), `lib/treasury/quote-assets.json` (quote-mint registry), `app/launch-settings.tsx` (launch options and `canDeploy`), `lib/rewards/` (holder scan and rewards), `lib/liquidity/runtime.ts` (DAMM v2 pool), `lib/treasury/floor.ts` and `app/onchain/stock-floor.tsx` (Stock Floor), `lib/token-profile.ts`, `lib/server/irys-upload.ts` and `app/api/token-profile/route.ts` (token profiles).
+Key frontend files: `lib/treasury/runtime.ts` (launch, registration, discovery, on-chain reads), `lib/treasury/dbc-preview.ts` (curve parameters shared by preview and launch), `lib/treasury/quote-assets.json` (quote-mint registry), `app/launch-settings.tsx` (launch options and `canDeploy`), `lib/rewards/` (holder scan and rewards), `lib/liquidity/runtime.ts` (DAMM v2 pool), `lib/treasury/floor.ts` and `app/onchain/stock-floor.tsx` (Stock Floor), `lib/token-profile.ts`, `lib/server/irys-upload.ts` and `app/api/token-profile/route.ts` (token profiles), `lib/server/rate-limit.ts` (upload limit), `deploy/lightsail/` (hosting).
 
 Key protocol files: `programs/stockroom-treasury/src/lib.rs`, `programs/stockroom-rewards/src/lib.rs`, `scripts/`, `artifacts/`.
 
