@@ -148,7 +148,8 @@ export function LiveDirectory() {
       </section>
       <section className="exchange-stock-section"><div className="nm-section-heading"><div><span className="sr-eyebrow">PAIR WITH A STOCK</span><h2>Launch against</h2></div><Link className="sr-text-link" href="/create">Launch token <ArrowUpRight size={16}/></Link></div>
       <div className="exchange-stocks">{[
-        ["mSPY","S&P 500","Broad market"], ["mQQQ","Nasdaq 100","Growth"], ["mTSLA","Tesla","Consumer & energy"], ["mNVDA","NVIDIA","Technology"]
+        ["mSPY","S&P 500","Broad market"], ["mQQQ","Nasdaq 100","Growth"], ["mTSLA","Tesla","Consumer & energy"], ["mMSFT","Microsoft","Technology"],
+        ["mAMZN","Amazon","Consumer"], ["mMETA","Meta","Technology"], ["mMCD","McDonald's","Consumer"], ["mANTHROPIC","Anthropic","Pre-IPO · PreStocks"]
       ].map(([symbol,name,sector])=>isDeployableQuote(symbol) ? <Link key={symbol} href="/create" className="exchange-stock"><div className="exchange-stock-top"><TokenName symbol={symbol} size={36}/><ArrowUpRight size={18}/></div><h3>{name}</h3><p>{sector}</p><div className="exchange-stock-bottom"><span>Devnet</span><span>Launch →</span></div></Link> : <div key={symbol} className="exchange-stock" aria-disabled="true"><div className="exchange-stock-top"><TokenName symbol={symbol} size={36}/></div><h3>{name}</h3><p>{sector}</p><div className="exchange-stock-bottom"><span>Coming soon</span><span>No Devnet token yet</span></div></div>)}</div></section>
       <div className="exchange-paths">{[
         ["/create","01","Launch","Configure a stock-paired DBC market."],
@@ -338,7 +339,7 @@ export function LiveLaunch() {
   const [step, setStep] = useState(0);
   const [settings,setSettings]=useState(initialSettings);
   const [referencePrice,setReferencePrice]=useState<{quote:string;price:number;at:string}|null>(null);
-  useEffect(()=>{let active=true;const controller=new AbortController();setReferencePrice(null);const asset=({mSPY:'spy',mNVDA:'nvda',mQQQ:'qqq',mTSLA:'tsla'} as Record<string,string>)[settings.quote];fetch(`/api/token-market?asset=${asset}`,{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('Price unavailable');return await r.json() as {price:number;fetchedAt:string}}).then(d=>{if(active&&Number.isFinite(d.price)&&d.price>0)setReferencePrice({quote:settings.quote,price:d.price,at:d.fetchedAt})}).catch(()=>{});return()=>{active=false;controller.abort()}},[settings.quote]);
+  useEffect(()=>{let active=true;const controller=new AbortController();setReferencePrice(null);const asset=({mSPY:'spy',mNVDA:'nvda',mQQQ:'qqq',mTSLA:'tsla'} as Record<string,string>)[settings.quote];if(!asset)return()=>{active=false};fetch(`/api/token-market?asset=${asset}`,{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('Price unavailable');return await r.json() as {price:number;fetchedAt:string}}).then(d=>{if(active&&Number.isFinite(d.price)&&d.price>0)setReferencePrice({quote:settings.quote,price:d.price,at:d.fetchedAt})}).catch(()=>{});return()=>{active=false;controller.abort()}},[settings.quote]);
   const price=referencePrice?.quote===settings.quote?referencePrice.price:null;
   // Pyth Pro price for dollar targets. Fetched when the quote asset changes or the creator refreshes.
   const [pyth,setPyth]=useState<PythState>({status:'loading'});

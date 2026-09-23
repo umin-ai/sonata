@@ -9,6 +9,11 @@ export const PYTH_FEEDS: Record<string, { id: number; symbol: string }> = {
   mNVDA: { id: 1314, symbol: "Equity.US.NVDA/USD" },
   mQQQ: { id: 1363, symbol: "Equity.US.QQQ/USD" },
   mTSLA: { id: 1435, symbol: "Equity.US.TSLA/USD" },
+  mMSFT: { id: 1292, symbol: "Equity.US.MSFT/USD" },
+  mAMZN: { id: 954, symbol: "Equity.US.AMZN/USD" },
+  mMETA: { id: 1272, symbol: "Equity.US.META/USD" },
+  mMCD: { id: 1262, symbol: "Equity.US.MCD/USD" },
+  // mANTHROPIC has no Pyth feed: Anthropic is a private company.
 };
 
 /** Opening market cap and graduation choices, in US dollars. */
@@ -121,6 +126,12 @@ export const XSTOCK_MINTS: Record<string, { symbol: string; mint: string }> = {
   mNVDA: { symbol: "NVDAx", mint: "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh" },
   mQQQ: { symbol: "QQQx", mint: "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ" },
   mTSLA: { symbol: "TSLAx", mint: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB" },
+  mMSFT: { symbol: "MSFTx", mint: "XspzcW1PRtgf6Wj92HCiZdjzKCyFekVD8P5Ueh3dRMX" },
+  mAMZN: { symbol: "AMZNx", mint: "Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg" },
+  mMETA: { symbol: "METAx", mint: "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu" },
+  mMCD: { symbol: "MCDx", mint: "XsqE9cRRpzxcGKDXj1BJ7Xmg4GRhZoyY1KpmGSxAWT2" },
+  // PreStocks: pre-IPO exposure, priced from its Solana market only.
+  mANTHROPIC: { symbol: "ANTHROPIC", mint: "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw" },
 };
 
 // Checks that stand in for a confidence interval when pricing from DEX liquidity.

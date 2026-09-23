@@ -116,6 +116,7 @@ async function resolve(symbol: string): Promise<Result> {
   const market = await jupiterPrice(symbol);
   const key = process.env.PYTH_PRO_API_KEY;
   if (!key) return { ...market, pythStatus: "No Pyth key configured" };
+  if (!PYTH_FEEDS[symbol]) return { ...market, pythStatus: "Pyth has no feed for this asset" };
   const pyth = await pythPrice(symbol, key).catch((e: Error) => e);
   if (pyth instanceof Error) return { ...market, pythStatus: pyth.message };
   const gap = divergence(market.price, pyth.price);

@@ -13,6 +13,16 @@ const stockLogos: Record<string, string> = {
   mTSLA: "TSLAx",
   MockTSLAx: "TSLAx",
   TSLAx: "TSLAx",
+  mMSFT: "MSFTx",
+  MSFTx: "MSFTx",
+  mAMZN: "AMZNx",
+  AMZNx: "AMZNx",
+  mMETA: "METAx",
+  METAx: "METAx",
+  mMCD: "MCDx",
+  MCDx: "MCDx",
+  mANTHROPIC: "ANTHROPIC",
+  ANTHROPIC: "ANTHROPIC",
 };
 
 /** Mock stock labels stay explicit; unknown community tokens use a monogram. */

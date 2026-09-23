@@ -22,6 +22,41 @@
       "mint": "4UK6qbvzW4zuUfK7mXeJbkVh7ByrPcJMmHB4Ff8MTBaH",
       "decimals": 8,
       "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mMSFT",
+      "name": "Microsoft",
+      "mint": "DZr6KNYrthdmkcMJeSvJwPAAKUFjeazQ2VeC7YKtFnnu",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mAMZN",
+      "name": "Amazon",
+      "mint": "AXUB1Fw3FgcwuaqHNAT2y2nY12Td1VtNKE4egMz5wJGu",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mMETA",
+      "name": "Meta",
+      "mint": "GLdq1B4DB4otJ6vk7pq1kdupwCcD6gfnwDXtZErmcMX7",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mMCD",
+      "name": "McDonald's",
+      "mint": "n7bQdWkZWpQzwTp2UXTsaaSG7Zvie7kdfP8e4yZTpxn",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mANTHROPIC",
+      "name": "Anthropic (pre-IPO)",
+      "mint": "6LSXE2125CsYkFdospyip66rcBoazuFSXVbuQSFjZHDa",
+      "decimals": 8,
+      "tokenProgram": "token2022"
     }
   ]
 }
