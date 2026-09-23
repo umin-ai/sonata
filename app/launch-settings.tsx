@@ -18,7 +18,7 @@ export type PythState=
  |{status:'error';message:string}
  |{status:'unusable';message:string;data:StockPrice}
  |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number;guard?:{feed:string;price:number;divergence:number}};
-export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fee:100,rewards:'treasury',floor:true};
+export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fee:100,rewards:'treasury',floor:false};
 // Every curve and fee combination now deploys as its own DBC config. What still
 // gates a launch is a quote mint that exists onchain and a reward policy the
 // protocol actually enforces; holder and liquidity policies remain proposals.
