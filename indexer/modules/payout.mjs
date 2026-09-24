@@ -238,6 +238,17 @@ async function payableOf(ctx, shares, { create = null } = {}) {
 }
 
 /**
+ * The wallets among `owners` (PublicKeys) whose quote account can receive a
+ * transfer now, as a Set of base58 addresses; the others are counted in
+ * ctx.result.skipped by reason ("missing" for no account). Used before a
+ * round is allocated, so a wallet that cannot be paid gets no row.
+ */
+export async function receivers(ctx, owners) {
+  const payable = await payableOf(ctx, owners.map((owner) => ({ owner })));
+  return new Set(payable.map((p) => p.owner.toBase58()));
+}
+
+/**
  * Sends `payable` in batches that fit one transaction, in the order given.
  * `limit` caps what the module may pay this pass (ctx.result.paid included).
  * A recipient whose transfer fails simulation is dropped for this pass (at
@@ -321,18 +332,24 @@ const largestFirst = (a, b) => (a.amount === b.amount ? (a.key < b.key ? -1 : 1)
 async function payRows(ctx, rows, { module, detailOf, create, resolve, limit }) {
   const { result, authority, excludedOwners = [] } = ctx;
   const banned = keySet([CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, authority.publicKey, ...excludedOwners]);
+  // Parsed and checked once per recipient, however many rounds' rows it has.
+  const checked = new Map();
+  const ownerOf = (row) => {
+    const id = `${row.kind}:${row.recipient}`;
+    if (checked.has(id)) return checked.get(id);
+    const owner = row.kind === "position" ? (resolve?.(row) ?? null) : parseKey(row.recipient);
+    const entry = !owner ? { why: "unresolved", who: row.recipient } : banned.has(owner.toBase58()) || !onCurve(owner) ? { why: "excluded", who: owner.toBase58() } : { owner };
+    checked.set(id, entry);
+    return entry;
+  };
   const byOwner = new Map();
   for (const row of rows) {
-    const owner = row.kind === "position" ? (resolve?.(row) ?? null) : parseKey(row.recipient);
+    const { owner, why, who } = ownerOf(row);
     if (!owner) {
-      count(result, "unresolved", row.recipient);
+      count(result, why, who);
       continue;
     }
     const key = owner.toBase58();
-    if (banned.has(key) || !onCurve(owner)) {
-      count(result, "excluded", key);
-      continue;
-    }
     const seen = byOwner.get(key);
     if (seen) Object.assign(seen, { amount: seen.amount + row.amount, rows: [...seen.rows, row] });
     else byOwner.set(key, { owner, key, amount: row.amount, rows: [row] });
@@ -349,8 +366,13 @@ async function payRows(ctx, rows, { module, detailOf, create, resolve, limit }) 
  *   1. every unpaid row of earlier rounds is paid to its own recipient;
  *   2. only if that did not stop early (time budget, dry run), what no round
  *      holds yet, ctx.owedTotal (or ctx.owed) less the unpaid rows, is
- *      allocated as a new round by `allocate(amount)` (shares of { owner or
- *      position, amount, balance }) when it is at least ctx.minAtoms, and paid.
+ *      allocated as a new round by `allocate(amount, { unpaid })` (shares of
+ *      { owner or position, amount, balance }) when it is at least
+ *      ctx.minAtoms, and paid. `unpaid` is the Set of recipients (row
+ *      recipient strings) whose rows are still unpaid after step 1: they
+ *      could not be paid this pass, and a module that leaves them out of new
+ *      rounds (holders, diamond, lpFarm's wallets) keeps each at one open
+ *      row instead of one more per round.
  * An unpaid row stays its recipient's: a pass that stops early, a send not
  * settled yet (its pending row counts as paid) or a recipient that cannot
  * receive never re-splits it to anyone else. `create(owner)` decides whether
@@ -368,7 +390,10 @@ export async function payAllocated(ctx, { module, allocate, detailOf = () => nul
   if (open.length && (await payRows(ctx, open, opts))) return result;
   const unallocated = total - carried;
   if (unallocated > 0n && unallocated >= (ctx.minAtoms ?? 1n)) {
-    const shares = (await allocate(unallocated)).filter((s) => s.amount > 0n);
+    // Read again: rows paid (or sent) in step 1 are no longer unpaid. A dry run changed nothing.
+    const still = open.length && !dryRun ? await ledger.allocations(line.pool) : open;
+    const unpaid = new Set(still.map((r) => r.recipient));
+    const shares = (await allocate(unallocated, { unpaid })).filter((s) => s.amount > 0n);
     if (shares.reduce((s, x) => s + x.amount, 0n) > unallocated) throw Error("shares exceed what is owed");
     if (shares.length) {
       const rows = dryRun

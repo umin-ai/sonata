@@ -71,24 +71,71 @@ test("a pass that runs out of time finishes its round next pass before anything 
   assert.equal(ledger.allocationRows.filter((r) => r.round === 1).length, 40);
 });
 
-test("a holder that cannot receive keeps its share: later rounds never hand it to the others", async () => {
-  const [a, b, noAccount] = [key(), key(), key()];
-  const { authority, chain, m, ledger, paidTo } = holdersMarket([[a, TOKENS], [b, TOKENS]]);
-  holdBase(chain, m, noAccount, 2n * TOKENS);
+test("a holder without a usable quote account gets no row: each round is split among the holders who can be paid, and rows do not pile up (holders, diamond, lpFarm on the curve)", async () => {
+  for (const feeModel of ["holders", "diamond", "lpFarm"]) {
+    const [a, b, noAccount] = [key(), key(), key()];
+    const { authority, chain, m, ledger, paidTo } = holdersMarket([[a, TOKENS], [b, TOKENS]], { feeModel, owed: 7_000_000n });
+    holdBase(chain, m, noAccount, 2n * TOKENS);
+    const dbc = dbcAccounts(m);
+    chain.put(m.pool, dbc.poolInfo);
+    chain.put(m.config, dbc.configInfo);
+    const pass = (distributed) => rewardsPass({ chain, markets: [m], authority, ledger, distributed });
+    // Six passes with 1000000 new each: all of it to a and b, none held back for a holder who cannot be paid.
+    for (let i = 1n; i <= 6n; i++) {
+      const { lines } = await pass(i * 1_000_000n);
+      assert.equal(lines.find((l) => l.tag === "rewards").noAta, 1, feeModel);
+    }
+    assert.deepEqual([a, b].map(paidTo), [3_000_000n, 3_000_000n], feeModel);
+    assert.ok(!ledger.allocationRows.some((r) => r.recipient === noAccount.toBase58()), feeModel);
+    assert.equal(ledger.allocationRows.length, 12, feeModel);
+    assert.ok(ledger.allocationRows.every((r) => r.status === "paid"), feeModel);
+    // Once it opens a quote account it is in the next round.
+    quoteAccount(chain, m, noAccount);
+    const { out } = await pass(7_000_000n);
+    assert.equal(out.atoms, 1_000_000n, feeModel);
+    // Holding half, it gets half (diamond: all three are new to the snapshots at the same time, so all 1x).
+    assert.equal(paidTo(noAccount), 500_000n, feeModel);
+  }
+});
+
+test("rows allocated before a holder lost (or never had) its quote account stay its own and are paid once it can receive", async () => {
+  const [a, b] = [key(), key()];
+  const { authority, chain, m, ledger, paidTo } = holdersMarket([[a, TOKENS]]);
+  holdBase(chain, m, b, TOKENS);
+  // An earlier round (from before this rule) gave b 300000; b has no quote account.
+  await ledger.allocate(m.pool.toBase58(), { module: "holders", shares: [allocationOf({ owner: b, amount: 300_000n, balance: 1n })] });
   const pass = (distributed) => rewardsPass({ chain, markets: [m], authority, ledger, distributed });
+  const first = await pass(1_000_000n);
+  assert.equal(first.lines.find((l) => l.tag === "rewards").carried, 300_000n);
+  // The other 700000 is a new round, a's alone; b's row waits.
+  assert.deepEqual([a, b].map(paidTo), [700_000n, null]);
+  quoteAccount(chain, m, b);
   await pass(1_000_000n);
-  assert.deepEqual([a, b].map(paidTo), [250_000n, 250_000n]);
-  // No new fees: before, the 500000 would have been split again, 250000 more each for a and b.
-  const second = await pass(1_000_000n);
-  assert.deepEqual([a, b].map(paidTo), [250_000n, 250_000n]);
-  assert.equal(second.out.atoms, 0n);
-  const line = second.lines.find((l) => l.tag === "rewards");
-  assert.equal(line.carried, 500_000n);
-  assert.equal(line.noAta, 1);
-  // It opens a quote account: paid its 500000, in one transfer.
-  quoteAccount(chain, m, noAccount);
-  await pass(1_000_000n);
-  assert.deepEqual([a, b, noAccount].map(paidTo), [250_000n, 250_000n, 500_000n]);
+  assert.deepEqual([a, b].map(paidTo), [700_000n, 300_000n]);
+  assert.ok(ledger.allocationRows.every((r) => r.status === "paid"));
+});
+
+test("a holder whose transfer keeps failing keeps one unpaid row, not one more per round", async () => {
+  const [a, stuck] = [key(), key()];
+  const authority = Keypair.generate();
+  const poison = new Set();
+  const chain = fakeChain({ poison });
+  const m = rewardMarket(chain, authority.publicKey, { owed: 3_000_000n, held: 3_000_000n });
+  for (const w of [a, stuck]) {
+    holdBase(chain, m, w, TOKENS);
+    quoteAccount(chain, m, w);
+  }
+  // Its account looks usable, but every transfer to it fails in simulation.
+  poison.add(getAssociatedTokenAddressSync(m.quoteMint, stuck, false, TOKEN_2022_PROGRAM_ID).toBase58());
+  const ledger = payoutLedger();
+  ledger.models.set(m.pool.toBase58(), { feeModel: "holders" });
+  const paidTo = (w) => chain.balance(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID));
+  for (let i = 1n; i <= 3n; i++) await rewardsPass({ chain, markets: [m], authority, ledger, distributed: i * 1_000_000n });
+  const stuckRows = ledger.allocationRows.filter((r) => r.recipient === stuck.toBase58());
+  assert.deepEqual(stuckRows.map((r) => [r.round, r.amount, r.status]), [[1, 500_000n, "unpaid"]]);
+  // a: half of the first round, then all of the next two.
+  assert.equal(paidTo(a), 2_500_000n);
+  assert.equal(paidTo(stuck), 0n);
 });
 
 test("the crank key, the Vault admin and the keys the crank excludes are never paid as holders (holders, diamond, lpFarm on the curve)", async () => {

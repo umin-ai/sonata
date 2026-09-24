@@ -32,16 +32,19 @@
 //                      lpFarm, split; modules/payout.mjs payAllocated). An
 //                      allocated but unpaid amount stays its recipient's.
 //   balance_snapshots, balance_snapshot_rows  the balances each pass saw
-//                      (diamond tenure, lpFarm position liquidity).
+//                      (diamond tenure, lpFarm position liquidity, topBuyers
+//                      balances at a round's start).
 //   lp_nft_holders     where a moved LP position NFT was found.
-// (modules/ledger-schema.mjs creates the last four.)
+//   lp_position_holders the last wallet seen holding the NFT of an LP
+//                      position that is owed a position row.
+// (modules/ledger-schema.mjs creates the last five.)
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync, unpackAccount } from "@solana/spl-token";
 import { VAULT_ADMIN, errText, toJson } from "./modules/common.mjs";
 import { payShares, verdict } from "./modules/payout.mjs";
 import { DEFAULT_FEE_MODEL, resolveFeeModels } from "./modules/fee-model.mjs";
 import { runBuyback } from "./modules/buyback.mjs";
-import { runTopBuyers } from "./modules/top-buyers.mjs";
+import { observeTopBuyers, runTopBuyers } from "./modules/top-buyers.mjs";
 import { observeLpFarm, runLpFarm } from "./modules/lp-farm.mjs";
 import { runSplit } from "./modules/split.mjs";
 import { observeDiamond, runDiamond } from "./modules/diamond.mjs";
@@ -65,7 +68,7 @@ export {
 export const DEFAULT_REWARD_MIN_ATOMS = 100_000n;
 const LEDGER_TABLES = [
   "reward_payouts", "reward_pending", "market_fee_models", "airdrop_state", "airdrop_payouts",
-  "reward_allocations", "balance_snapshots", "balance_snapshot_rows", "lp_nft_holders",
+  "reward_allocations", "balance_snapshots", "balance_snapshot_rows", "lp_nft_holders", "lp_position_holders",
 ];
 const big = (v) => (v == null ? null : BigInt(v));
 
@@ -191,6 +194,27 @@ export function pgLedger(db) {
       );
       return rows.map(allocationRow);
     },
+    // When the pool's newest round of `module` was allocated (unix seconds), or null.
+    async lastRoundAt(pool, module) {
+      const row = await first(
+        "select floor(extract(epoch from max(created_at)))::bigint::text as at from reward_allocations where pool = $1 and module = $2",
+        [pool, module],
+      );
+      return row?.at == null ? null : Number(row.at);
+    },
+    // Deletes the unpaid rows of `kind` for `recipients` allocated at least
+    // olderThanSeconds ago (a pending or paid row is never touched), so their
+    // amount is owed to the pool again; returns the deleted rows.
+    async releaseAllocations(pool, { kind, recipients, olderThanSeconds }) {
+      const { rows } = await db.query(
+        `delete from reward_allocations
+          where pool = $1 and kind = $2 and status = 'unpaid' and recipient = any($3::text[])
+            and created_at <= now() - $4::int * interval '1 second'
+          returning round, recipient, kind, module, amount::text as atoms, weight::text as weight`,
+        [pool, kind, recipients, olderThanSeconds],
+      );
+      return rows.map(allocationRow);
+    },
     // Wallets whose quote account a payout of this pool created (or is creating).
     async createdAccounts(pool) {
       const { rows } = await db.query(
@@ -254,7 +278,52 @@ export function pgLedger(db) {
       for (const r of rows) (out.get(r.holder) ?? out.set(r.holder, new Map()).get(r.holder)).set(Number(r.d), BigInt(r.low));
       return out;
     },
+    // The least each of `holders` held at every snapshot before `at` from the
+    // newest one taken at or before `since` (unix seconds; if there is none,
+    // or since is null, from the oldest) on: { snapshots (how many), lows
+    // (Map holder → least) }. A holder missing from any of them is not in
+    // lows.
+    async heldSince(pool, kind, since, at, holders) {
+      const { rows } = await db.query(
+        `with start as (
+           select coalesce(
+             (select max(taken_at) from balance_snapshots where pool = $1 and kind = $2 and taken_at <= to_timestamp($3::bigint) and taken_at < to_timestamp($4::bigint)),
+             (select min(taken_at) from balance_snapshots where pool = $1 and kind = $2)) as since),
+         span as (
+           select s.taken_at from balance_snapshots s, start
+            where s.pool = $1 and s.kind = $2 and s.taken_at >= start.since and s.taken_at < to_timestamp($4::bigint)),
+         lows as (
+           select r.holder, min(r.amount)::text as low
+             from balance_snapshot_rows r join span on r.taken_at = span.taken_at
+            where r.pool = $1 and r.kind = $2 and r.holder = any($5::text[])
+            group by r.holder
+           having count(*) = (select count(*) from span))
+         select (select count(*) from span)::int as snaps, lows.holder, lows.low from (select 1) one left join lows on true`,
+        [pool, kind, since, at, holders],
+      );
+      return {
+        snapshots: Number(rows[0]?.snaps ?? 0),
+        lows: new Map(rows.filter((r) => r.holder != null).map((r) => [r.holder, BigInt(r.low)])),
+      };
+    },
     // ---- LP position NFT holders (modules/lp-farm.mjs) ----
+    // The last wallet seen holding each position's NFT: Map position → { owner, seenAt }.
+    async positionHolders(positions) {
+      const { rows } = await db.query(
+        "select position, owner, floor(extract(epoch from seen_at))::bigint::text as seen from lp_position_holders where position = any($1::text[])",
+        [positions],
+      );
+      return new Map(rows.map((r) => [r.position, { owner: r.owner, seenAt: Number(r.seen) }]));
+    },
+    // entries: [position, owner] seen this pass.
+    async savePositionHolders(pool, entries) {
+      await db.query(
+        `insert into lp_position_holders (position, pool, owner, seen_at)
+         select t.position, $1, t.owner, now() from unnest($2::text[], $3::text[]) as t(position, owner)
+         on conflict (position) do update set owner = excluded.owner, seen_at = excluded.seen_at`,
+        [pool, entries.map(([p]) => p), entries.map(([, o]) => o)],
+      );
+    },
     async nftHolders(mints) {
       const { rows } = await db.query(
         "select nft_mint, account, owner, floor(extract(epoch from checked_at))::bigint::text as checked from lp_nft_holders where nft_mint = any($1::text[])",
@@ -475,7 +544,11 @@ export async function resolvePending({ ledger, connection, rpc, log }) {
 const MODULES = { holders: payHolders, buyback: runBuyback, topBuyers: runTopBuyers, lpFarm: runLpFarm, split: runSplit, diamond: runDiamond };
 // Modules that keep a per-pass record (balance snapshots) even on a pass that
 // does not pay the market, so their history has no gaps.
-const OBSERVERS = { diamond: observeDiamond, lpFarm: observeLpFarm };
+const OBSERVERS = { diamond: observeDiamond, lpFarm: observeLpFarm, topBuyers: observeTopBuyers };
+// Modules whose markets get one more reading after every market of the pass
+// has been paid: an LP Farm position must still be in place after its payout
+// to count at the next one (modules/lp-farm.mjs).
+const REREADS = { lpFarm: observeLpFarm };
 
 /**
  * Pays every reward market what it is owed, by its fee module. `markets` are
@@ -546,6 +619,7 @@ export async function payRewards({
   }
 
   const rows = [];
+  const rereads = [];
   for (const m of markets) {
     const pool = m.pool.toBase58();
     const line = { pool, model: models.get(pool)?.feeModel };
@@ -641,6 +715,7 @@ export async function payRewards({
     } catch (e) {
       error = errText(e);
     }
+    if (REREADS[model.feeModel] && !dryRun) rereads.push(ctx);
     out.txs += result.txs;
     out.atoms += result.paid;
     out.recipients += result.recipients;
@@ -665,6 +740,15 @@ export async function payRewards({
       reason: error ?? outcome.skip ?? undefined,
       note,
     });
+  }
+  // The extra readings, after every payout of the pass, while its time lasts.
+  for (const ctx of rereads) {
+    if (Date.now() > deadline) break;
+    try {
+      await REREADS[ctx.model.feeModel](ctx);
+    } catch (e) {
+      log("rewards", { pool: ctx.line.pool, model: ctx.model.feeModel, action: "snapshot", result: "failed", reason: errText(e) });
+    }
   }
   return out;
 }

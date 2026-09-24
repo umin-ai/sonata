@@ -1,6 +1,6 @@
 // Tables for the payout ledger's allocation rounds, balance snapshots and the
-// LP Farm's position-NFT holder cache (indexer/modules/payout.mjs,
-// holders.mjs, diamond.mjs, lp-farm.mjs; read and written through
+// LP Farm's position-NFT holder caches (indexer/modules/payout.mjs,
+// holders.mjs, diamond.mjs, lp-farm.mjs, top-buyers.mjs; read and written through
 // indexer/rewards.mjs pgLedger). Called at the end of sonata-indexer's
 // migrate(); every statement is idempotent.
 export async function migrateLedgerTables(db) {
@@ -34,10 +34,11 @@ export async function migrateLedgerTables(db) {
     );
     create index if not exists reward_allocations_open on reward_allocations (pool) where status <> 'paid';
     create index if not exists reward_allocations_signature on reward_allocations (signature);
-    -- Balances seen by the crank each pass: kind 'holders' (Diamond Hands:
-    -- each holder wallet's base-token balance) or 'lp' (LP Farm: each DAMM v2
-    -- position's unlocked liquidity). A snapshot row with no balance rows
-    -- means nobody held anything, so absence is known, not guessed.
+    -- Balances seen by the crank each pass: kind 'holders' (Diamond Hands and
+    -- Top Buyer Bounty: each holder wallet's base-token balance) or 'lp' (LP
+    -- Farm: each DAMM v2 position's unlocked liquidity). A snapshot row with
+    -- no balance rows means nobody held anything, so absence is known, not
+    -- guessed.
     create table if not exists balance_snapshots (
       pool text not null,
       kind text not null check (kind in ('holders', 'lp')),
@@ -61,6 +62,15 @@ export async function migrateLedgerTables(db) {
       account text,
       owner text,
       checked_at timestamptz not null default now()
+    );
+    -- The last wallet seen holding the NFT of an LP Farm position that is owed
+    -- a position row (reward_allocations kind 'position'): once the position
+    -- is closed (its NFT burned), its rows are paid to that wallet.
+    create table if not exists lp_position_holders (
+      position text primary key,
+      pool text not null,
+      owner text not null,
+      seen_at timestamptz not null default now()
     );
   `);
 }

@@ -96,15 +96,16 @@ test("each weighted round is allocated once; the module's ledger rows carry its 
   holdBase(chain, m, b, 10n ** 12n);
   quoteAccount(chain, m, a);
   await pass(T0, 0n);
-  await pass(T0 + 7 * D, 800_000n);
-  // a and b both 3x; b has no quote account, so its half stays allocated to it.
+  const first = await pass(T0 + 7 * D, 800_000n);
+  // a and b both 3x; b has no quote account, so the round is a's alone and b gets no row.
+  assert.equal(first.result.skipped.missing, 1);
   const rows = ledger.allocationRows.filter((r) => r.module === "diamond");
-  assert.deepEqual(rows.map((r) => [r.recipient, r.amount, r.status]).sort(), [[a.toBase58(), 400_000n, "paid"], [b.toBase58(), 400_000n, "unpaid"]].sort());
+  assert.deepEqual(rows.map((r) => [r.recipient, r.amount, r.status]), [[a.toBase58(), 800_000n, "paid"]]);
   assert.deepEqual(ledger.payouts.map((p) => p.detail), [{ multipliers: { 1: 0, 1.5: 0, 2: 0, 3: 2 } }]);
-  // Later b opens its account: it gets its 400000, and a gets nothing of it.
+  // Later b opens its account: it shares the next round, still at 3x.
   quoteAccount(chain, m, b);
-  await pass(T0 + 7 * D + H, 800_000n);
-  assert.deepEqual([a, b].map((w) => chain.balance(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID))), [400_000n, 400_000n]);
+  await pass(T0 + 7 * D + H, 1_600_000n);
+  assert.deepEqual([a, b].map((w) => chain.balance(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID))), [1_200_000n, 400_000n]);
 });
 
 test("a pass that does not pay a diamond market still records its holders", async () => {

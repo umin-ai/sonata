@@ -6,29 +6,55 @@
 // DBC's two graduation positions are permanently locked (no unlocked
 // liquidity), so they earn nothing here.
 //
-// Liquidity counts only once it has stayed a whole pass: each pass records
-// every position's unlocked liquidity (ledger kind 'lp'), and a position's
-// weight is the lesser of now and the previous recorded pass, so liquidity
-// added just before a pass and removed after it earns nothing. Payouts go by
-// allocation rounds (payout.mjs payAllocated): a position whose NFT holder is
-// not found yet is allocated its share by position address and paid once the
-// holder is found, never re-split to the others.
+// Liquidity counts only as far as it stayed in place: every pass records each
+// position's unlocked liquidity (ledger kind 'lp'), whether or not it pays,
+// and a paying pass takes one more reading after every market has been paid
+// (rewards.mjs). A position's weight is the least it held at any reading since
+// the market's last allocation round and now; a position missing from any of
+// those readings counts 0. So liquidity added just before a payout, or taken
+// out after one and put back before the next, earns nothing for that time.
+// (Every reading is taken during a crank pass. An LP whose liquidity is in
+// place for every pass, and only then, still counts; readings between passes
+// would need a process that runs between them, such as the indexer.)
+//
+// Dust: a position holding less than 0.01% of the pool's liquidity earns
+// nothing, and if the eligible positions together hold less than 0.1% of it,
+// the round goes to holders instead, as when there are no LPs. Right after
+// graduation nearly all liquidity is DBC's locked positions, so a tiny
+// position would otherwise take the whole pot.
+//
+// Payouts go by allocation rounds (payout.mjs payAllocated): a position whose
+// NFT holder is not found yet is allocated its share by position address and
+// paid once the holder is found, never re-split to the others. Such a row is
+// paid to the NFT's holder found later, whatever the position's liquidity by
+// then, or, once the position is closed (its NFT burned), to the last holder
+// the crank saw. A row whose position has no payable holder (none known, or
+// the known one is off curve or one of Sonata's keys) is released after
+// POSITION_RELEASE_SECONDS: its amount goes back to what the market owes.
 import bs58 from "bs58";
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, unpackAccount } from "@solana/spl-token";
 import { CP_AMM_PROGRAM_ID, derivePositionNftAccount, positionByPoolFilter } from "@meteora-ag/cp-amm-sdk";
-import { CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, errText, keySet, onCurve } from "./common.mjs";
+import { CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, errText, keySet, onCurve, parseKey } from "./common.mjs";
 import { amm, graduatedPool, readDammPool, readDbc } from "./meteora.mjs";
 import { payAllocated, rewardShares } from "./payout.mjs";
 
 export const MAX_LPS = 200;
 // Position NFTs moved out of their original account are found with
 // getTokenLargestAccounts, one call each; at most this many per market per
-// pass, those never looked up (or looked up longest ago) first, and where each
-// was found is cached, so every position is found within a few passes.
+// pass, positions owed an earlier round's row first, then those never looked
+// up (or looked up longest ago), and where each was found is cached, so every
+// position is found within a few passes.
 export const MAX_NFT_LOOKUPS = 20;
 // Position snapshots older than this are dropped (the newest of them is kept).
 export const LP_SNAPSHOT_KEEP_SECONDS = 24 * 3600;
+// A position needs at least pool liquidity / LP_MIN_POSITION_DIVISOR (0.01%)
+// to earn; the eligible positions together need pool liquidity /
+// LP_MIN_TOTAL_DIVISOR (0.1%), else holders are paid.
+export const LP_MIN_POSITION_DIVISOR = 10_000n;
+export const LP_MIN_TOTAL_DIVISOR = 1_000n;
+// A position row with no payable holder is released this long after it was allocated.
+export const POSITION_RELEASE_SECONDS = 24 * 3600;
 const POSITION_DISCRIMINATOR = Buffer.from(amm._program.coder.accounts.accountDiscriminator("position"));
 
 /** The NFT holder from a Token-2022 account that holds exactly one of the NFT, else null. */
@@ -43,31 +69,32 @@ export function nftHolder(address, info, nftMint) {
 }
 
 /**
- * Each position's liquidity that stayed through the last pass: the lesser of
- * its unlocked liquidity now and at the previous recorded pass (`previous`
- * maps position address → unlocked; a position it does not list earns 0).
+ * Each position's liquidity that stayed in place: the lesser of its unlocked
+ * liquidity now and `lows` (position address → the least it held at every
+ * reading since the last round, as ledger.heldSince returns it). A position
+ * `lows` does not list (missing from some reading, or no reading yet) earns 0.
  */
-export function heldLiquidity(positions, previous) {
+export function heldLiquidity(positions, lows) {
   return positions.map((p) => {
-    const before = previous?.get(p.address.toBase58()) ?? 0n;
+    const before = lows?.get(p.address.toBase58()) ?? 0n;
     return { ...p, unlocked: p.unlocked < before ? p.unlocked : before };
   });
 }
 
 /**
  * LP weights: unlocked liquidity summed per NFT holder. Positions with no
- * unlocked liquidity, and holders that are excluded (Sonata's payout bot, the
- * Vault, its admin, `excluded`) or not wallets (off curve), are left out. A
- * position whose holder could not be found this pass (owner null) is weighed
- * on its own, by position address, so its share is allocated to it and paid
- * once its holder is found. Largest first (ties by address), at most `max`;
- * returns { lps, total }.
+ * unlocked liquidity or less than `minLiquidity`, and holders that are
+ * excluded (Sonata's payout bot, the Vault, its admin, `excluded`) or not
+ * wallets (off curve), are left out. A position whose holder could not be
+ * found this pass (owner null) is weighed on its own, by position address, so
+ * its share is allocated to it and paid once its holder is found. Largest
+ * first (ties by address), at most `max`; returns { lps, total }.
  */
-export function lpWeights(positions, { excluded = [], max = MAX_LPS } = {}) {
+export function lpWeights(positions, { excluded = [], max = MAX_LPS, minLiquidity = 1n } = {}) {
   const skip = keySet([CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, ...excluded]);
   const byOwner = new Map();
   for (const p of positions) {
-    if (p.unlocked <= 0n) continue;
+    if (p.unlocked <= 0n || p.unlocked < minLiquidity) continue;
     const key = p.owner ? p.owner.toBase58() : `unknown:${p.address.toBase58()}`;
     if (p.owner && (skip.has(key) || !onCurve(p.owner))) continue;
     byOwner.set(key, { owner: p.owner, ...(p.owner ? {} : { position: p.address }), balance: (byOwner.get(key)?.balance ?? 0n) + p.unlocked, key });
@@ -105,15 +132,19 @@ export async function listPositions({ rpc, connection }, dammPool) {
 }
 
 /**
- * The graduated pool's positions with each open position's NFT holder (owner,
- * or null if not found this pass): from DAMM v2's own NFT account, else where
- * an earlier pass found it (ledger.nftHolders), else looked up (at most
- * MAX_NFT_LOOKUPS, least recently looked up first) and cached.
+ * The graduated pool's positions with the NFT holder (owner, or null if not
+ * found this pass) of each open position and of each position in `wanted`
+ * (addresses owed an earlier round's row, whatever their liquidity now): from
+ * DAMM v2's own NFT account, else where an earlier pass found it
+ * (ledger.nftHolders), else looked up (at most MAX_NFT_LOOKUPS, `wanted`
+ * first, then least recently looked up) and cached. A lookup that finds no
+ * account holding the NFT marks the position `nftGone`.
  */
-export async function readPositions(ctx, dammPool) {
+export async function readPositions(ctx, dammPool, { wanted = new Set() } = {}) {
   const { rpc, connection, fetchAll, ledger, dryRun } = ctx;
   const positions = await listPositions(ctx, dammPool);
-  const open = positions.filter((p) => p.unlocked > 0n);
+  const isWanted = (p) => wanted.has(p.address.toBase58());
+  const open = positions.filter((p) => p.unlocked > 0n || isWanted(p));
   // Most NFTs stay in the account DAMM v2 minted them to.
   const nftAccounts = open.map((p) => derivePositionNftAccount(p.nftMint));
   const infos = open.length ? await fetchAll(nftAccounts) : [];
@@ -128,7 +159,7 @@ export async function readPositions(ctx, dammPool) {
   const checkedAt = (p) => cachedOf(p)?.checkedAt ?? -Infinity;
   const unresolved = moved
     .filter((p) => !p.owner)
-    .sort((a, b) => checkedAt(a) - checkedAt(b) || (a.address.toBase58() < b.address.toBase58() ? -1 : 1));
+    .sort((a, b) => Number(isWanted(b)) - Number(isWanted(a)) || checkedAt(a) - checkedAt(b) || (a.address.toBase58() < b.address.toBase58() ? -1 : 1));
   for (const p of unresolved.slice(0, MAX_NFT_LOOKUPS)) {
     let account = null;
     try {
@@ -138,7 +169,7 @@ export async function readPositions(ctx, dammPool) {
         const [info] = await fetchAll([holder.address]);
         p.owner = nftHolder(holder.address, info, p.nftMint);
         if (p.owner) account = holder.address;
-      }
+      } else p.nftGone = true;
     } catch (e) {
       p.error = errText(e);
     }
@@ -156,20 +187,75 @@ export async function recordPositions(ledger, pool, at, positions) {
 
 const passTime = (ctx) => Math.floor((ctx.now ?? Date.now)() / 1000);
 
-/** The graduated DAMM v2 pool, or null while the market is on its curve. */
-async function graduated(ctx) {
+const need = (ledger, names, what) => {
+  for (const n of names) if (typeof ledger[n] !== "function") throw Error(`ledger has no ${n} (${what}); nothing paid`);
+};
+
+/** The graduated DAMM v2 pool: { dammPool, pool (its state, liquidity included) }, or null while the market is on its curve. */
+export async function graduated(ctx) {
   const { m, fetchAll } = ctx;
   const [poolInfo, configInfo] = await fetchAll([m.pool, m.config]);
   const dbcState = readDbc(m, poolInfo, configInfo);
   if (!dbcState.graduated) return null;
   const dammPool = graduatedPool(m, dbcState.config);
   const [dammInfo] = await fetchAll([dammPool]);
-  readDammPool(m, dammInfo);
-  return dammPool;
+  return { dammPool, pool: readDammPool(m, dammInfo) };
+}
+
+/**
+ * Position rows (an LP position allocated its share while its NFT holder was
+ * unknown): who each is paid to, and which are released. A position's holder
+ * is the NFT's holder found this pass; once the position account is closed or
+ * a lookup finds nobody holding its NFT, the last holder the crank saw (saved
+ * whenever one is found); otherwise unknown this pass (its rows wait). Rows
+ * of a position whose holder is a payable wallet are paid to it and never
+ * released. Rows of a position whose holder is none or not payable (off
+ * curve, or one of Sonata's keys) are deleted once POSITION_RELEASE_SECONDS
+ * old, so their amount is owed to the market again and a later round splits
+ * it; each release is logged. Returns resolve(row) for payAllocated.
+ */
+async function positionRows(ctx, { pool, rows, positions }) {
+  const { ledger, dryRun, log, fields, authority, excludedOwners = [] } = ctx;
+  const wanted = [...new Set(rows.filter((r) => r.kind === "position").map((r) => r.recipient))];
+  const current = new Map(positions.filter((p) => p.owner).map((p) => [p.address.toBase58(), p.owner]));
+  if (!wanted.length) return (row) => current.get(row.recipient) ?? null;
+  need(ledger, ["positionHolders", "savePositionHolders", "releaseAllocations"], "lp_position_holders");
+  const listed = new Map(positions.map((p) => [p.address.toBase58(), p]));
+  const last = await ledger.positionHolders(wanted);
+  const banned = keySet([CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, authority.publicKey, ...excludedOwners]);
+  const payable = (k) => !banned.has(k.toBase58()) && onCurve(k);
+  const holders = new Map(), seen = [], release = [];
+  for (const position of wanted) {
+    const p = listed.get(position);
+    // PublicKey; null: nobody can be paid; undefined: not known this pass.
+    let holder;
+    if (p?.owner) {
+      holder = p.owner;
+      seen.push([position, p.owner.toBase58()]);
+    } else if (!p || p.nftGone) holder = parseKey(last.get(position)?.owner ?? "");
+    if (holder) holders.set(position, holder);
+    if (holder === null || (holder && !payable(holder))) release.push(position);
+  }
+  if (!dryRun && seen.length) await ledger.savePositionHolders(pool, seen);
+  if (!dryRun && release.length) {
+    const released = await ledger.releaseAllocations(pool, { kind: "position", recipients: release, olderThanSeconds: POSITION_RELEASE_SECONDS });
+    const byPosition = new Map();
+    for (const r of released) byPosition.set(r.recipient, [...(byPosition.get(r.recipient) ?? []), r]);
+    for (const [position, list] of byPosition) {
+      const holder = holders.get(position);
+      log("rewards", {
+        pool, model: "lpFarm", action: "release", position, rounds: list.map((r) => r.round).join(","), amount: list.reduce((s, r) => s + r.amount, 0n),
+        reason: holder ? `the position's NFT holder ${holder.toBase58()} cannot be paid (off curve or excluded)` : listed.has(position) ? "the position's NFT is held by nobody and no earlier holder is known" : "the position is closed and no holder of it was ever found",
+        note: "owed to the market again; a later round splits it",
+      });
+    }
+    if (released.length) fields.released = released.reduce((s, r) => s + r.amount, 0n);
+  }
+  return (row) => holders.get(row.recipient) ?? current.get(row.recipient) ?? null;
 }
 
 export async function runLpFarm(ctx) {
-  const { m, fields, ledger, dryRun, excludedOwners = [], authority } = ctx;
+  const { m, fields, ledger, dryRun, excludedOwners = [], authority, result } = ctx;
   const pool = m.pool.toBase58();
   const setStatus = async (status) => {
     fields.paidTo = status;
@@ -179,36 +265,56 @@ export async function runLpFarm(ctx) {
     await setStatus("holders");
     return ctx.payHolders({ module: "lpFarm", detail: { paidTo: "holders" }, ...extra });
   };
-  const dammPool = await graduated(ctx);
-  if (!dammPool) return holders();
+  const g = await graduated(ctx);
+  if (!g) return holders();
+  const { dammPool } = g;
+  need(ledger, ["allocations", "lastRoundAt", "heldSince"], "allocation rounds and LP snapshots");
   const at = passTime(ctx);
-  const positions = await readPositions(ctx, dammPool);
-  const previous = await ledger.previousSnapshot(pool, "lp", at);
+  const rows = await ledger.allocations(pool);
+  const positions = await readPositions(ctx, dammPool, { wanted: new Set(rows.filter((r) => r.kind === "position").map((r) => r.recipient)) });
+  const resolve = await positionRows(ctx, { pool, rows, positions });
+  // Every reading since the last round (the one taken at it included), before this pass's.
+  const since = await ledger.lastRoundAt(pool, "lpFarm");
+  const history = await ledger.heldSince(pool, "lp", since, at, positions.map((p) => p.address.toBase58()));
   if (!dryRun) await recordPositions(ledger, pool, at, positions);
-  const weights = lpWeights(heldLiquidity(positions, previous?.amounts), { excluded: [authority.publicKey, ...excludedOwners] });
-  // A position row (holder not found when it was allocated) is paid to whoever holds its NFT now.
-  const owners = new Map(positions.filter((p) => p.owner).map((p) => [p.address.toBase58(), p.owner]));
-  const resolve = (row) => owners.get(row.recipient) ?? null;
+  const liquidity = BigInt(g.pool.liquidity.toString());
+  const minTotal = liquidity / LP_MIN_TOTAL_DIVISOR;
+  const weights = lpWeights(heldLiquidity(positions, history.lows), { excluded: [authority.publicKey, ...excludedOwners], minLiquidity: liquidity / LP_MIN_POSITION_DIVISOR });
   const detailOf = () => ({ paidTo: "lps", dammPool: dammPool.toBase58() });
   Object.assign(fields, { positions: positions.length, lps: weights.lps.length });
-  if (!weights.lps.length) {
-    if (!previous && positions.some((p) => p.unlocked > 0n)) {
-      // The pool's first recorded pass: its LPs earn from the next one. Earlier rounds are still paid.
-      await payAllocated(ctx, { module: "lpFarm", allocate: async () => [], resolve, detailOf, emptyNote: "first LP snapshot taken; LPs earn from the next pass, funds stay owed" });
-      return {};
-    }
-    return { ...(await holders({ resolve })), note: "no eligible LP positions; paid holders" };
+  if (!history.snapshots && positions.some((p) => p.unlocked > 0n)) {
+    // The pool's first reading: its LPs earn from the next pass. Earlier rounds are still paid.
+    await payAllocated(ctx, { module: "lpFarm", allocate: async () => [], resolve, detailOf, emptyNote: "first LP snapshot taken; LPs earn from the next pass, funds stay owed" });
+    return {};
   }
+  if (!weights.lps.length) return { ...(await holders({ resolve })), note: "no eligible LP positions; paid holders" };
+  if (weights.total < minTotal)
+    return { ...(await holders({ resolve })), note: `eligible LP liquidity ${weights.total} is below 0.1% of the pool's ${liquidity}; paid holders` };
   await setStatus("lps");
   const unknown = weights.lps.filter((l) => !l.owner).length;
   if (unknown) fields.unknownNft = unknown;
-  await payAllocated(ctx, { module: "lpFarm", emptyNote: "no LP has a quote account", resolve, detailOf, allocate: async (amount) => lpShares(weights, amount) });
+  await payAllocated(ctx, {
+    module: "lpFarm", emptyNote: "no LP has a quote account", resolve, detailOf,
+    allocate: async (amount, { unpaid = new Set() } = {}) => {
+      // An LP wallet whose earlier row is still unpaid (it cannot receive) sits this round out.
+      const lps = weights.lps.filter((l) => !l.owner || !unpaid.has(l.owner.toBase58()));
+      if (lps.reduce((s, l) => s + l.balance, 0n) < minTotal) {
+        result.note = "the LPs who can be paid hold below 0.1% of the pool; funds stay owed";
+        return [];
+      }
+      return lpShares({ lps }, amount);
+    },
+  });
   return {};
 }
 
-/** A pass that does not pay a graduated market still records its positions, so the next pass can weigh them. */
+/**
+ * A reading of a graduated market's positions without paying it: on a pass
+ * that does not pay the market, and after every market of a pass that did
+ * (rewards.mjs), so liquidity must stay in place between payouts to count.
+ */
 export async function observeLpFarm(ctx) {
   if (ctx.dryRun) return;
-  const dammPool = await graduated(ctx);
-  if (dammPool) await recordPositions(ctx.ledger, ctx.m.pool.toBase58(), passTime(ctx), await listPositions(ctx, dammPool));
+  const g = await graduated(ctx);
+  if (g) await recordPositions(ctx.ledger, ctx.m.pool.toBase58(), passTime(ctx), await listPositions(ctx, g.dammPool));
 }

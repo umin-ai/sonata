@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
 import { MAX_TX_BYTES } from "./payout.mjs";
@@ -14,7 +14,7 @@ import {
   rankTopBuyers,
   runTopBuyers,
 } from "./top-buyers.mjs";
-import { fakeChain, key, memLedger, moduleContext, pda, rewardMarket, tokenAccount } from "./testkit.mjs";
+import { fakeChain, holdBase, key, memLedger, moduleContext, payoutLedger, pda, rewardMarket, rewardsPass, tokenAccount, withOwnerLookup } from "./testkit.mjs";
 
 const NOW = 1_900_000_000; // unix seconds
 const at = (s) => new Date(s * 1000).toISOString();
@@ -77,31 +77,24 @@ test("the top three net buyers win 50/30/20; the creator, Sonata's keys and non-
   // Ties by address; no one with a zero or negative net.
   const [x, y] = [key(), key()].map(String).sort();
   assert.deepEqual(rankTopBuyers([{ trader: y, net: 5n }, { trader: x, net: 5n }, { trader: key().toBase58(), net: 0n }]).map((w) => w.trader), [x, y]);
+  // Nor anyone whose net base bought is zero or negative, whatever their quote net.
+  const [flip, dump, buyer] = [key(), key(), key()].map(String);
+  const ranked = rankTopBuyers([{ trader: flip, net: 300n, base: 0n }, { trader: dump, net: 200n, base: -5n }, { trader: buyer, net: 100n, base: 1n }]);
+  assert.deepEqual(ranked.map((w) => [w.trader, w.rank]), [[buyer, 1]]);
 });
 
-// getTokenAccountsByOwner(owner, { mint }) as the RPC answers it, over the
-// test chain's accounts (fakeChain has no such method).
-function withOwnerLookup(chain) {
-  chain.connection.getTokenAccountsByOwner = async (owner, { mint }) => {
-    chain.calls.push("getTokenAccountsByOwner");
-    const value = [...chain.accounts]
-      .filter(([, i]) => (i.owner.equals(TOKEN_PROGRAM_ID) || i.owner.equals(TOKEN_2022_PROGRAM_ID)) && i.data.length >= 165)
-      .filter(([, i]) => new PublicKey(i.data.subarray(0, 32)).equals(mint) && new PublicKey(i.data.subarray(32, 64)).equals(owner))
-      .map(([k, account]) => ({ pubkey: new PublicKey(k), account }));
-    return { context: { slot: 1 }, value };
-  };
-  return chain;
-}
-
-// `held`: [wallet, base atoms] classic SPL base-token accounts (one each).
+// `held`: [wallet, base atoms] classic SPL base-token accounts (one each) now.
+// `before`: [wallet, base atoms], the balances at a snapshot taken at
+// `snapshotAt` (by default before any round here starts); null takes none.
 // `indexedThrough`: the ledger's indexer progress (a value, or a function of the pool).
-async function bounty({ trades = [], owed = 1_000_000n, withAta = [], now = NOW * 1000, ledger, held = [], indexedThrough }) {
+async function bounty({ trades = [], owed = 1_000_000n, withAta = [], now = NOW * 1000, ledger, held = [], before = [], snapshotAt = NOW - 5000, indexedThrough }) {
   const authority = Keypair.generate();
   const chain = withOwnerLookup(fakeChain());
   const m = rewardMarket(chain, authority.publicKey, { owed, held: owed * 3n });
   for (const w of withAta) chain.put(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID), tokenAccount({ owner: w, mint: m.quoteMint }));
-  for (const [w, amount] of held) chain.put(key(), tokenAccount({ owner: w, mint: m.baseMint, amount, program: TOKEN_PROGRAM_ID }));
-  const l = ledger ?? memLedger();
+  for (const [w, amount] of held) holdBase(chain, m, w, amount);
+  const l = payoutLedger(ledger ?? memLedger());
+  if (before) await l.recordSnapshot(m.pool.toBase58(), "holders", snapshotAt, before.map(([w, a]) => [w.toBase58(), a]));
   if (indexedThrough !== undefined) l.indexedThrough = async (pool) => (typeof indexedThrough === "function" ? indexedThrough(pool) : indexedThrough);
   l.trades.push(...trades.map((t) => ({ ...t, pool: m.pool.toBase58() })));
   const ctx = await moduleContext({ chain, m, authority, owed, ledger: l, now: () => now, model: { feeModel: "topBuyers" } });
@@ -113,12 +106,13 @@ test("a round pays its top three in one transaction and the next round starts at
   const [a, b, c, d] = [key(), key(), key(), key()];
   const t0 = NOW - 1800;
   const trades = [
-    trade("", a, "buy", 5_000, t0), trade("", a, "sell", 1_000, t0 + 1), // 4000
-    trade("", b, "buy", 3_000, t0 + 2), // 3000
-    trade("", c, "buy", 2_000, t0 + 3), // 2000
-    trade("", d, "buy", 1_000, t0 + 4), // 1000, fourth
+    trade("", a, "buy", 5_000, t0, 50_000), trade("", a, "sell", 1_000, t0 + 1, 10_000), // 4000
+    trade("", b, "buy", 3_000, t0 + 2, 30_000), // 3000
+    trade("", c, "buy", 2_000, t0 + 3, 20_000), // 2000
+    trade("", d, "buy", 1_000, t0 + 4, 10_000), // 1000, fourth
   ];
-  const { chain, m, ctx, ledger } = await bounty({ trades, withAta: [a, b, c, d] });
+  const held = [[a, 40_000n], [b, 30_000n], [c, 20_000n], [d, 10_000n]];
+  const { chain, m, ctx, ledger } = await bounty({ trades, withAta: [a, b, c, d], held });
   assert.deepEqual(await runTopBuyers(ctx), {});
   assert.equal(chain.sent.length, 1);
   assert.ok(chain.sent[0].bytes <= MAX_TX_BYTES);
@@ -146,13 +140,16 @@ test("a round pays its top three in one transaction and the next round starts at
 test("with fewer than three net buyers only their shares are paid; with none the pot rolls over and the round does not end", async () => {
   const [a, b, seller] = [key(), key(), key()];
   const t = NOW - 600;
-  const two = await bounty({ trades: [trade("", a, "buy", 900, t), trade("", b, "buy", 800, t), trade("", seller, "sell", 5_000, t)], withAta: [a, b, seller] });
+  const two = await bounty({
+    trades: [trade("", a, "buy", 900, t, 9_000), trade("", b, "buy", 800, t, 8_000), trade("", seller, "sell", 5_000, t, 50_000)],
+    withAta: [a, b, seller], held: [[a, 9_000n], [b, 8_000n]],
+  });
   await runTopBuyers(two.ctx);
   assert.deepEqual([a, b, seller].map((w) => quoteOf(two.chain, two.m, w)), [500_000n, 300_000n, 0n]);
   assert.equal(two.ctx.result.paid, 800_000n);
   assert.equal(two.ctx.fund.owed, 200_000n);
 
-  const none = await bounty({ trades: [trade("", seller, "sell", 5_000, t), trade("", a, "buy", 10, t - 4000)] });
+  const none = await bounty({ trades: [trade("", seller, "sell", 5_000, t, 50_000), trade("", a, "buy", 10, t - 4000, 100)] });
   const r = await runTopBuyers(none.ctx);
   assert.match(r.skip, /no net buyers/);
   assert.equal(none.chain.sent.length, 0);
@@ -162,14 +159,15 @@ test("with fewer than three net buyers only their shares are paid; with none the
 test("a winner without a quote account is skipped and their share rolls over; if nobody can be paid the round continues", async () => {
   const [a, b, c] = [key(), key(), key()];
   const t = NOW - 600;
-  const trades = [trade("", a, "buy", 3, t), trade("", b, "buy", 2, t), trade("", c, "buy", 1, t)];
-  const some = await bounty({ trades, withAta: [a, c] });
+  const trades = [trade("", a, "buy", 3, t, 30), trade("", b, "buy", 2, t, 20), trade("", c, "buy", 1, t, 10)];
+  const held = [[a, 30n], [b, 20n], [c, 10n]];
+  const some = await bounty({ trades, withAta: [a, c], held });
   await runTopBuyers(some.ctx);
   assert.deepEqual([a, b, c].map((w) => quoteOf(some.chain, some.m, w)), [500_000n, null, 200_000n]);
   assert.equal(some.ctx.result.skipped.missing, 1);
   assert.deepEqual(some.ledger.payouts[0].detail.winners.map((w) => w.rank), [1, 3]);
 
-  const nobody = await bounty({ trades });
+  const nobody = await bounty({ trades, held });
   await runTopBuyers(nobody.ctx);
   assert.equal(nobody.chain.sent.length, 0);
   assert.match(nobody.ctx.result.note, /round continues/);
@@ -192,16 +190,20 @@ test("a round ends no later than the indexer's progress, so a trade indexed late
   const m = rewardMarket(chain, authority.publicKey, { owed: 2_000_000n, held: 6_000_000n });
   const [a, b] = [key(), key()];
   for (const w of [a, b]) chain.put(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID), tokenAccount({ owner: w, mint: m.quoteMint }));
+  holdBase(chain, m, a, 10_000n);
+  holdBase(chain, m, b, 50_000n);
   const pool = m.pool.toBase58();
-  const ledger = memLedger();
+  const ledger = payoutLedger(memLedger());
+  // Nobody held any before the first round.
+  await ledger.recordSnapshot(pool, "holders", NOW - 5000, []);
   let progress = NOW - 600;
   ledger.indexedThrough = async (p) => (p === pool ? progress : null);
-  ledger.trades.push(trade(pool, a, "buy", 1_000, NOW - 900));
+  ledger.trades.push(trade(pool, a, "buy", 1_000, NOW - 900, 10_000));
   const pass = async (now, owed) => runTopBuyers(await moduleContext({ chain, m, authority, owed, ledger, now: () => now * 1000, model: { feeModel: "topBuyers" } }));
   assert.deepEqual(await pass(NOW, 1_000_000n), {});
   assert.equal(ledger.payouts[0].detail.roundEnd, NOW - 600, "the round ends where the indexer is, not a minute ago");
   // b's buy landed before the old end (now − 60s) but was indexed only after that round closed.
-  ledger.trades.push(trade(pool, b, "buy", 5_000, NOW - 300));
+  ledger.trades.push(trade(pool, b, "buy", 5_000, NOW - 300, 50_000));
   progress = NOW + 700;
   assert.deepEqual(await pass(NOW + 900, 1_000_000n), {});
   const second = ledger.payouts[1].detail;
@@ -212,14 +214,14 @@ test("a round ends no later than the indexer's progress, so a trade indexed late
 
 test("with no, stale or unreadable indexer progress the round stays open and nothing is paid", async () => {
   const a = key();
-  const trades = [trade("", a, "buy", 1_000, NOW - 1200)];
+  const trades = [trade("", a, "buy", 1_000, NOW - 1200, 10_000)];
   const cases = [
     [null, /has not read this pool's trades yet/],
     [NOW - INDEX_STALE_SECONDS - 1, new RegExp(`indexer is ${INDEX_STALE_SECONDS + 1}s behind`)],
     [() => { throw Error("relation missing"); }, /indexer progress unreadable \(relation missing\)/],
   ];
   for (const [indexedThrough, reason] of cases) {
-    const run = await bounty({ trades, withAta: [a], indexedThrough });
+    const run = await bounty({ trades, withAta: [a], held: [[a, 10_000n]], indexedThrough });
     const r = await runTopBuyers(run.ctx);
     assert.match(r.skip, reason);
     assert.match(r.skip, /round stays open, the pot rolls over/);
@@ -227,13 +229,13 @@ test("with no, stale or unreadable indexer progress the round stays open and not
     assert.equal(await run.ledger.lastRoundEnd(run.m.pool.toBase58()), null);
   }
   // Ten minutes behind is still current.
-  const current = await bounty({ trades, withAta: [a], indexedThrough: NOW - INDEX_STALE_SECONDS });
+  const current = await bounty({ trades, withAta: [a], held: [[a, 10_000n]], indexedThrough: NOW - INDEX_STALE_SECONDS });
   assert.deepEqual(await runTopBuyers(current.ctx), {});
   assert.equal(current.ledger.payouts[0].detail.roundEnd, NOW - INDEX_STALE_SECONDS);
   assert.equal(current.ctx.fields.indexedThrough, NOW - INDEX_STALE_SECONDS);
 });
 
-// ---- Winners must still hold what they bought ---------------------------------
+// ---- Winners must have kept what they bought -----------------------------------
 
 test("a winner who moved away the tokens they bought is not paid: their share rolls over, nobody moves up", async () => {
   const [a, b, c, d, e] = [key(), key(), key(), key(), key()];
@@ -255,7 +257,7 @@ test("a winner who moved away the tokens they bought is not paid: their share ro
   // Another token does not count.
   run.chain.put(key(), tokenAccount({ owner: a, mint: key(), amount: 5_000_000n, program: TOKEN_PROGRAM_ID }));
   const r = await runTopBuyers(run.ctx);
-  assert.ok(r.note.includes(`rank 1 ${a.toBase58()} (holds 999999 of the 1000000 base atoms bought)`), r.note);
+  assert.ok(r.note.includes(`rank 1 ${a.toBase58()} (kept 999999 of the 1000000 base atoms bought (holds 999999, held 0 before the round))`), r.note);
   assert.deepEqual([a, b, c, d, e].map((w) => quoteOf(run.chain, run.m, w)), [0n, 0n, 300_000n, 200_000n, 0n]);
   assert.equal(run.ctx.result.paid, 500_000n);
   assert.equal(run.ctx.fund.owed, 500_000n, "rank 1's 50% stays owed for the next round");
@@ -277,4 +279,71 @@ test("if no winner still holds, nothing is paid and the round stays open; a ledg
   assert.match(b.skip, /no winner still holds/);
   assert.match(b.note, /base bought unknown/);
   assert.equal(blind.chain.sent.length, 0);
+});
+
+test("a round trip or a net sell is not a buy: it never wins, and the real buyer takes the rank", async () => {
+  const [flipper, dumper, buyer] = [key(), key(), key()];
+  const t = NOW - 600;
+  const trades = [
+    // Buys 1000000 for 10000 and sells all of it back for 9700: net 300 quote, 0 base.
+    trade("", flipper, "buy", 10_000, t, 1_000_000), trade("", flipper, "sell", 9_700, t + 1, 1_000_000),
+    // Buys 1000000 for 10000 and sells 1500000 for 9000: net 1000 quote, -500000 base.
+    trade("", dumper, "buy", 10_000, t + 2, 1_000_000), trade("", dumper, "sell", 9_000, t + 3, 1_500_000),
+    trade("", buyer, "buy", 250, t + 4, 25_000),
+  ];
+  const run = await bounty({ trades, withAta: [flipper, dumper, buyer], held: [[flipper, 5_000_000n], [dumper, 5_000_000n], [buyer, 25_000n]], indexedThrough: NOW - 60 });
+  assert.deepEqual(await runTopBuyers(run.ctx), {});
+  assert.deepEqual([flipper, dumper, buyer].map((w) => quoteOf(run.chain, run.m, w)), [0n, 0n, 500_000n]);
+  assert.deepEqual(run.ledger.payouts[0].detail.winners.map((w) => [w.trader, w.rank]), [[buyer.toBase58(), 1]]);
+});
+
+test("tokens held before the round do not count as kept: buying with one wallet while another sells the same amount does not win", async () => {
+  const [a, b, c] = [key(), key(), key()];
+  const t = NOW - 600;
+  // a already held 10000000. It buys 5000000 and sends them to b, which sells them.
+  const trades = [trade("", a, "buy", 5_000, t, 5_000_000), trade("", b, "sell", 4_900, t + 1, 5_000_000), trade("", c, "buy", 3_000, t + 2, 3_000_000)];
+  const run = await bounty({ trades, withAta: [a, b, c], held: [[a, 10_000_000n], [c, 3_000_000n]], before: [[a, 10_000_000n]], indexedThrough: NOW - 60 });
+  const r = await runTopBuyers(run.ctx);
+  // a's 50% rolls over; c keeps its rank and 30%.
+  assert.deepEqual([a, b, c].map((w) => quoteOf(run.chain, run.m, w)), [0n, 0n, 300_000n]);
+  assert.match(r.note, /rank 1 \S+ \(kept 0 of the 5000000 base atoms bought \(holds 10000000, held 10000000 before the round\)\)/);
+  assert.equal(run.ctx.fields.balancesAt, NOW - 5000);
+});
+
+test("buys between the round-start snapshot and the round's start cannot be counted as kept twice", async () => {
+  const [a, b, c] = [key(), key(), key()];
+  // The last round ended at NOW - 900; the newest snapshot before it is from NOW - 1500.
+  const ledger = payoutLedger(memLedger());
+  const last = { signature: "s0", pool: null, amount: 1n, recipients: 1, lastValidBlockHeight: 1, module: "topBuyers", detail: { roundEnd: NOW - 900 } };
+  // a bought 5000000 at NOW - 1200 (the last round's) and still holds it. This round it buys
+  // 5000000 more and b sells 5000000 of a's: a's gain since the snapshot is only the first 5000000.
+  const trades = [trade("", a, "buy", 5_000, NOW - 1200, 5_000_000), trade("", a, "buy", 5_000, NOW - 600, 5_000_000), trade("", b, "sell", 4_900, NOW - 599, 5_000_000), trade("", c, "buy", 1_000, NOW - 598, 1_000_000)];
+  const run = await bounty({ ledger, trades, withAta: [a, b, c], held: [[a, 5_000_000n], [c, 1_000_000n]], before: [], snapshotAt: NOW - 1500, indexedThrough: NOW - 60 });
+  await ledger.begin({ ...last, pool: run.m.pool.toBase58() });
+  await ledger.confirm("s0");
+  const r = await runTopBuyers(run.ctx);
+  assert.equal(run.ctx.fields.roundStart, NOW - 900);
+  assert.deepEqual([a, c].map((w) => quoteOf(run.chain, run.m, w)), [0n, 300_000n]);
+  assert.match(r.note, /kept 5000000 of the 10000000 base atoms bought/);
+});
+
+test("with no balance snapshot from before the round's start the round stays open; every pass records the balances, paid or not", async () => {
+  const a = key();
+  const run = await bounty({ trades: [trade("", a, "buy", 1_000, NOW - 600, 10_000)], withAta: [a], held: [[a, 10_000n]], before: null, indexedThrough: NOW - 60 });
+  const r = await runTopBuyers(run.ctx);
+  assert.equal(run.chain.sent.length, 0);
+  assert.match(r.skip, /no balance snapshot from before the round's start yet; the round stays open, the pot rolls over/);
+  // This pass's balances are recorded, a later round's start.
+  const pool = run.m.pool.toBase58();
+  assert.deepEqual([...run.ledger.snapshots.get(`${pool}|holders`)].map(([t, s]) => [t, [...s]]), [[NOW, [[a.toBase58(), 10_000n]]]]);
+  // A pass that does not pay the market (owed below the minimum) records them too.
+  run.ledger.models.set(pool, { feeModel: "topBuyers" });
+  await rewardsPass({ chain: run.chain, markets: [run.m], authority: run.authority, ledger: run.ledger, distributed: 50_000n, minAtoms: 100_000n, now: () => (NOW + 900) * 1000 });
+  assert.deepEqual([...run.ledger.snapshots.get(`${pool}|holders`).keys()], [NOW, NOW + 900]);
+  // A ledger without snapshots cannot check anyone: nothing is paid.
+  const bare = await bounty({ trades: [trade("", a, "buy", 1_000, NOW - 600, 10_000)], withAta: [a], held: [[a, 10_000n]], indexedThrough: NOW - 60 });
+  for (const f of ["recordSnapshot", "previousSnapshot"]) delete bare.ledger[f];
+  const b = await runTopBuyers(bare.ctx);
+  assert.equal(bare.chain.sent.length, 0);
+  assert.match(b.skip, /ledger has no balance snapshots/);
 });
