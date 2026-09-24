@@ -18,6 +18,10 @@ const MODULES: Record<string, [LucideIcon, string, string]> = {
 };
 
 type Badge = { key: string; Icon: LucideIcon; title: string; line: string; tone?: string };
+// The treasury snapshot's launch fields. Mode and backing are optional, so a
+// list that reads only the DBC config (the Pools page) can show the icons too.
+type BadgeData = Pick<TreasurySnapshot, "airdrop" | "volatilityFee"> &
+  Partial<Pick<TreasurySnapshot, "mode" | "floor">>;
 
 export function MarketBadges({
   market,
@@ -26,7 +30,7 @@ export function MarketBadges({
   quote,
 }: {
   market: Market;
-  data: TreasurySnapshot | null;
+  data: BadgeData | null;
   feeModel?: string;
   quote: string;
 }) {
@@ -36,7 +40,7 @@ export function MarketBadges({
       key: "backed",
       Icon: ShieldCheck,
       title: "Backed token",
-      line: `${data ? `${formatUnits(data.floor)} ${quote} of backing. ` : ""}Any holder can burn for their share.`,
+      line: `${data?.floor !== undefined ? `${formatUnits(data.floor)} ${quote} of backing. ` : ""}Any holder can burn for their share.`,
       tone: "backed",
     });
   if (isRewardMarket(market)) {

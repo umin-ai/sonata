@@ -239,3 +239,41 @@
 .sr-app .market-badge:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
 .sr-app .market-badge[data-tone=backed]{color:#3fcf8e;border-color:color-mix(in srgb,#3fcf8e 45%,var(--border));background:color-mix(in srgb,#3fcf8e 10%,transparent)}
 .sr-app .market-badge[data-tone=model]{color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,var(--border));background:color-mix(in srgb,var(--primary) 10%,transparent)}
+/* Pools (/earn): a grid of graduated DAMM v2 pools, then the selected pool's actions. */
+.sr-app .pool-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:12px;margin:0 0 24px}
+.sr-app .pool-card{display:flex;flex-direction:column;min-width:0;border:1px solid var(--border);border-radius:14px;background:var(--card)}
+.sr-app .pool-card[data-selected=true]{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary)}
+.sr-app .pool-card-select{display:grid;gap:10px;min-width:0;padding:14px 14px 10px;border:0;border-radius:14px 14px 0 0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.sr-app .pool-card-select:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+.sr-app .pool-pair{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}
+.sr-app .pool-pair>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-app .pool-pair .token-image{border-radius:999px}
+.sr-app .pool-stats{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.sr-app .pool-stats small{display:block;font-size:11px;color:var(--muted-foreground)}
+.sr-app .pool-stats strong{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.sr-app .pool-tags{display:flex;flex-wrap:wrap;gap:6px}
+.sr-app .pool-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted-foreground)}
+.sr-app .pool-tag[data-tone=farm]{color:#3fcf8e;border-color:color-mix(in srgb,#3fcf8e 45%,var(--border));background:color-mix(in srgb,#3fcf8e 10%,transparent)}
+.sr-app .pool-tag[data-tone=mine]{color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,var(--border))}
+.sr-app .pool-card-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:auto;padding:8px 14px 12px;border-top:1px solid var(--border);font-size:13px}
+.sr-app .pool-card-foot .market-badges{margin-left:0}
+.sr-app .pool-card-foot>a{display:inline-flex;align-items:center;gap:4px;color:var(--primary)}
+.sr-app .pool-card-foot>a:first-of-type{margin-left:auto}
+.sr-app .pool-detail{scroll-margin-top:80px}
+.sr-app .pool-detail-top{flex-wrap:wrap;margin-bottom:12px}
+.sr-app .pool-detail-top h2{margin-top:6px}
+.sr-app .pool-links{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+.sr-app .pool-facts{gap:0;padding-top:8px;padding-bottom:8px}
+.sr-app .pool-add,.sr-app .pool-positions{gap:12px}
+.sr-app .pool-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.sr-app .pool-detail-grid>.sr-panel{margin-bottom:0;min-width:0}
+.sr-app .pool-amount{display:flex;gap:8px}
+.sr-app .pool-amount [data-slot=input]{flex:1;min-width:0}
+.sr-app .pool-position{display:grid;gap:2px;min-width:0;padding:12px 14px;border:1px solid var(--border);border-radius:12px}
+.sr-app .pool-position-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;font-size:13px;color:var(--muted-foreground)}
+.sr-app .pool-position .sr-detail-row{padding:8px 0}
+.sr-app .pool-position .sr-detail-row>span{display:inline-flex;align-items:center;gap:4px}
+.sr-app .pool-position-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.sr-app .pool-position-actions .segmented button{padding:6px 12px}
+.sr-app .pools-empty{display:grid;justify-items:start;gap:10px}
+@media(max-width:900px){.sr-app .pool-detail-grid{grid-template-columns:1fr}}
