@@ -110,7 +110,9 @@ test("decodes a real Devnet DAMM v2 swap: EvtSwap2 as the deployed program emits
   assert.equal(rest.length, 0);
   assert.equal(t.pool, "Ae7PTx64j3q12VWBq849R9SRiYAtVzQHvszfqiN5jLEr");
   assert.equal(t.side, "sell");
-  assert.equal(t.trader, "GctMdSxFUCLnRx2tytbaha2qNqLqHQxFmnXUxdcCNxuJ"); // the swap's payer, not the fee payer 22MmJKBP…
+  // This swap's payer GctMdSxF… is a program address (off the ed25519 curve), so the
+  // trade is the transaction signer's, 22MmJKBP…, not the program's.
+  assert.equal(t.trader, "22MmJKBP8BXHdPEEuJuwq9AMq2Q5eP8VjYDq2E5Mtz4b");
   assert.equal(t.baseAmount, "684932000000000");
   assert.equal(t.quoteAmount, "686612765");
   assert.equal(t.fee, "14012506");
@@ -182,4 +184,16 @@ test("an event whose caller is not a swap on its pool is the fee payer's, never 
   const msg = dbc.transaction.message;
   msg.instructions[2].accounts[2] = msg.accountKeys.push(Keypair.generate().publicKey.toBase58()) - 1;
   assert.equal(decodeTrades(dbc, "sig")[0].trader, FIXTURE_FEE_PAYER);
+});
+
+test("a swap whose payer is a program address (an aggregator route) is the transaction signer's", () => {
+  // Jupiter's shared-accounts route swaps with its own PDA as payer; the user signs.
+  const [pda] = PublicKey.findProgramAddressSync([Buffer.from("shared")], Keypair.generate().publicKey);
+  assert.equal(PublicKey.isOnCurve(pda.toBytes()), false);
+  for (const options of [{}, { routed: true }, { heights: false }]) {
+    const trades = decodeTrades(dbcSwapTx({ payers: [pda], ...options }), "sig");
+    assert.equal(trades[0].trader, FIXTURE_FEE_PAYER, JSON.stringify(options));
+  }
+  const feePayer = Keypair.generate().publicKey;
+  assert.equal(decodeDammTrades(dammSwapTx({ direction: 1, payer: pda, feePayer }), "sig")[0].trader, feePayer.toBase58());
 });

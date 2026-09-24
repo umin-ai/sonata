@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import anchor from "@coral-xyz/anchor";
 import bs58 from "bs58";
 import { CpAmmIdl } from "@meteora-ag/cp-amm-sdk";
+import { PublicKey } from "@solana/web3.js";
 
 const dbcIdl = JSON.parse(
   readFileSync(new URL("../lib/treasury/dbc.json", import.meta.url), "utf8"),
@@ -108,8 +109,20 @@ function swapTrader(tx, keys, group, position, pool, layout) {
       if (h === height - 1) caller = group.instructions[k];
       if (h == null || h < height) break;
     }
-  return (isSwap(caller) && keys[caller.accounts[layout.payer]]) || keys[0];
+  const payer = isSwap(caller) ? keys[caller.accounts[layout.payer]] : null;
+  // A payer that is not a wallet is a program's own address: an aggregator's
+  // shared-accounts route, or a program swapping for its PDA. The trade is then
+  // the transaction signer's (the fee payer's), as before, so a user routing
+  // through Jupiter keeps their trade and nobody hides trades behind a PDA.
+  return payer && isWallet(payer) ? payer : keys[0];
 }
+const isWallet = (key) => {
+  try {
+    return PublicKey.isOnCurve(new PublicKey(key).toBytes());
+  } catch {
+    return false;
+  }
+};
 
 // One trade per DBC swap event in a successful transaction, booked to the
 // swap's payer (swapTrader). swap2 emits both the legacy evtSwap and evtSwap2
