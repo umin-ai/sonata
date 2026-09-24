@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
-import { airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, migratedState, syncer } from "./index.mjs";
+import { BACKFILL_TRANSACTIONS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, migratedState, syncer } from "./index.mjs";
 import { HEAD_LAG_SECONDS, indexProgress } from "./modules/indexer-schema.mjs";
 import { dammPoolAccount, dammSwapTx, dbcAccounts, key } from "./modules/testkit.mjs";
 
@@ -33,7 +33,7 @@ function memDb() {
       if (p && !p.damm_pool) p.damm_pool = args[1];
       return { rows: [], rowCount: 1 };
     }
-    if (s.startsWith("select pool, last_signature, damm_pool, damm_last_signature from pools")) return { rows: sorted().map((p) => ({ ...p })) };
+    if (s.startsWith("select pool, last_signature, damm_pool, damm_last_signature, synced_at, damm_synced_at from pools")) return { rows: sorted().map((p) => ({ ...p })) };
     if (s.startsWith("insert into trades")) {
       const k = `${args[0]}/${args[1]}`;
       if (trades.has(k)) return { rows: [], rowCount: 0 };
@@ -105,11 +105,15 @@ function market(chain, { pool = key(), migrated = false, dammReadable = true } =
 // A successful transaction with no swap events (fees, liquidity, migration...).
 const quietTx = (blockTime) => ({ blockTime, slot: 1, meta: { err: null, innerInstructions: [] }, transaction: { message: { accountKeys: [key().toBase58()], instructions: [] } } });
 
-function loop(chain, db, clock) {
+// The sync loop on `clock` (unix seconds). With `slow`, every sleep moves the clock on, as a real loop's time passes.
+function loop(chain, db, clock, { slow = false, ...over } = {}) {
   const state = { pools: 0, trades: 0, lastError: null };
-  const s = syncer({ db, conn: chain.conn, rpc: (fn) => fn(), sleep: async () => {}, state, now: () => clock.now * 1000, txRetries: 1, txRetryMs: 0 });
+  const sleep = slow ? async (ms) => void (clock.now += ms / 1000) : async () => {};
+  const s = syncer({ db, conn: chain.conn, rpc: (fn) => fn(), sleep, state, now: () => clock.now * 1000, txRetries: 1, txRetryMs: 0, ...over });
   return { ...s, state };
 }
+// Markets on `chain`, in the order the loop reads them (by pool address).
+const markets = (chain, n, opts) => Array.from({ length: n }, () => key()).sort((a, b) => (a.toBase58() < b.toBase58() ? -1 : 1)).map((pool) => market(chain, { pool, ...opts }));
 
 test("after graduation the DAMM v2 pool's swaps are indexed under the market's DBC pool, from their own cursor", async () => {
   const chain = memChain(), db = memDb(), clock = { now: T };
@@ -206,7 +210,112 @@ test("a market that migrated before its DAMM v2 pool can be read keeps its earli
   await run.syncAll();
   assert.equal(db.trades.size, 1);
   assert.equal(indexProgress(row()), T + 300 - HEAD_LAG_SECONDS);
-  assert.deepEqual(cursorsOf(row()).map((c) => [c.venue, c.address, c.last]), [["dbc", m.pool.toBase58(), null], ["damm", m.damm.toBase58(), "d1"]]);
+  assert.deepEqual(cursorsOf(row()).map((c) => [c.venue, c.address, c.last, c.caughtUp]), [["dbc", m.pool.toBase58(), null, true], ["damm", m.damm.toBase58(), "d1", true]]);
+});
+
+test("each address is stamped with the time its own sync started, so pools read late in a slow loop are not stale", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const [busy, second, third] = markets(chain, 3);
+  // 30 transactions at 10 s each: the first pool alone takes 300 s of the loop.
+  for (let i = 0; i < 30; i++) chain.land(`b${i}`, [busy.pool], quietTx(T - 1000 + i));
+  chain.land("s1", [second.pool], quietTx(T - 500));
+  chain.land("t1", [third.pool], quietTx(T - 400));
+  const run = loop(chain, db, clock, { slow: true, spacingMs: 10_000 });
+  await run.syncAll();
+  assert.equal(run.state.lastError, null);
+  const progress = (m) => indexProgress(db.pools.get(m.pool.toBase58()));
+  assert.equal(progress(busy), T - HEAD_LAG_SECONDS);
+  // The others from their own starts, 300.2 s and 310.4 s into the loop (10 s per transaction, 0.2 s between addresses), not the loop's.
+  assert.equal(progress(second), T + 300 - HEAD_LAG_SECONDS);
+  assert.equal(progress(third), T + 310 - HEAD_LAG_SECONDS);
+  assert.ok(Math.abs(db.pools.get(third.pool.toBase58()).synced_at - (T + 310.4)) < 1e-3);
+  // Next loop the same: each pool is as current as its own read.
+  const start = clock.now;
+  for (let i = 30; i < 60; i++) chain.land(`b${i}`, [busy.pool], quietTx(start - 60 + i));
+  await run.syncAll();
+  assert.equal(progress(busy), Math.floor(start - HEAD_LAG_SECONDS));
+  assert.equal(progress(third), Math.floor(start + 300.4 - HEAD_LAG_SECONDS));
+});
+
+test("a DBC pool that migrates during the loop, after the graduation check, is not stamped past its migration", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const [first, late] = markets(chain, 2);
+  const run = loop(chain, db, clock, { slow: true, spacingMs: 10_000 });
+  await run.syncAll();
+  const row = () => db.pools.get(late.pool.toBase58());
+  const earlier = indexProgress(row());
+  assert.equal(earlier, Math.floor(T + 0.2 - HEAD_LAG_SECONDS));
+  // Next loop: 20 transactions on the first pool (200 s). As its first one is read, the late pool
+  // migrates and trades on DAMM v2 at T + 101, after findGraduated saw it on the curve.
+  clock.now = T + 100;
+  for (let i = 0; i < 20; i++) chain.land(`f${i}`, [first.pool], quietTx(T + 50 + i));
+  const getTransaction = chain.conn.getTransaction;
+  chain.conn.getTransaction = async (signature, opts) => {
+    if (signature === "f0" && !chain.accounts.has(late.damm.toBase58())) {
+      late.graduate();
+      chain.land("d1", [late.damm], dammSwapTx({ direction: 1, pool: late.damm, blockTime: T + 101 }));
+    }
+    return getTransaction(signature, opts);
+  };
+  await run.syncAll();
+  assert.equal(run.state.lastError, null);
+  assert.equal(row().damm_pool, null, "recorded next loop");
+  // Its own start was T + 300.2, but the DAMM v2 trade at T + 101 is not indexed yet: progress stays.
+  assert.equal(indexProgress(row()), earlier);
+  assert.ok(indexProgress(row()) <= T + 101);
+  // Next loop records the DAMM v2 pool and reads its trade; progress resumes.
+  clock.now = T + 400;
+  await run.syncAll();
+  assert.equal(row().damm_pool, late.damm.toBase58());
+  assert.deepEqual(db.rows().map((t) => [t.signature, t.venue, t.block_time]), [["d1", "damm", T + 101]]);
+  assert.equal(indexProgress(row()), Math.floor(T + 400.2 - HEAD_LAG_SECONDS));
+});
+
+test("a first-run backfill reads at most 100 transactions per address per loop; later pools go on, and progress waits until it has caught up", async () => {
+  assert.equal(BACKFILL_TRANSACTIONS, 100);
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const [graduated, later] = markets(chain, 2);
+  graduated.graduate();
+  chain.land("m1", [graduated.pool], quietTx(T - 5000));
+  const swap = (i, blockTime) => chain.land(`d${i}`, [graduated.damm], dammSwapTx({ direction: 1, pool: graduated.damm, blockTime, slot: i }));
+  for (let i = 0; i < 250; i++) swap(i, T - 4000 + i);
+  chain.land("l1", [later.pool], quietTx(T - 50));
+  const run = loop(chain, db, clock);
+  const dammReads = () => chain.calls.filter((c) => /^getTransaction d\d+$/.test(c)).length;
+  const row = (m) => db.pools.get(m.pool.toBase58());
+  const next = async (at) => {
+    clock.now = at;
+    chain.calls.length = 0;
+    await run.syncAll();
+    assert.equal(run.state.lastError, null);
+  };
+
+  await next(T);
+  // The 100 oldest, then the cursor waits there.
+  assert.equal(dammReads(), 100);
+  assert.equal(row(graduated).damm_last_signature, "d99");
+  assert.equal(db.trades.size, 100);
+  assert.equal(row(graduated).damm_synced_at, null);
+  assert.equal(indexProgress(row(graduated)), null, "no progress while its backfill has not caught up");
+  assert.equal(indexProgress(row(later)), T - HEAD_LAG_SECONDS, "the pool after it is read and stamped in the same loop");
+
+  await next(T + 30);
+  assert.equal(dammReads(), 100);
+  assert.equal(row(graduated).damm_last_signature, "d199");
+  assert.equal(indexProgress(row(graduated)), null);
+
+  await next(T + 60);
+  assert.equal(dammReads(), 50);
+  assert.equal(db.trades.size, 250, "every swap indexed once");
+  assert.equal(new Set(db.rows().map((t) => t.signature)).size, 250);
+  assert.equal(indexProgress(row(graduated)), T + 60 - HEAD_LAG_SECONDS);
+
+  // Caught up: a burst larger than the cap is read in one loop, as before.
+  for (let i = 250; i < 400; i++) swap(i, T + 61);
+  await next(T + 90);
+  assert.equal(dammReads(), 150);
+  assert.equal(db.trades.size, 400);
+  assert.equal(indexProgress(row(graduated)), T + 90 - HEAD_LAG_SECONDS);
 });
 
 test("graduation is read from the DBC pool and config and checked against the DAMM v2 pool's tokens", () => {

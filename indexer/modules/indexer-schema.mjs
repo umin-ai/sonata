@@ -11,21 +11,26 @@
 //                     cursor. One DAMM v2 pool belongs to one market.
 //   pools.synced_at, pools.synced_through (and damm_synced_*) the last sync of
 //                     that address that completed without error: when that
-//                     indexer loop started (before any of its reads), and the
-//                     block_time of the newest signature it processed (for
-//                     operators; progress does not rely on it, see below).
+//                     address's own sync started (before any of its reads),
+//                     and the block_time of the newest signature it processed
+//                     (for operators; progress does not rely on it, see below).
 //
 // Progress: every trade with block_time before indexProgress(row) is in the
 // trades table. A sync that completed has read every signature confirmed
-// before its loop started, so an address is complete up to that start less
+// before it started, so an address is complete up to that start less
 // HEAD_LAG_SECONDS (confirmation, RPC node lag and block-time drift). That also
-// holds for a quiet pool, whose newest block_time can be days old. A market is
-// as far as its slowest address, and has no progress until each has completed
-// once (a DAMM v2 pool just found). While its DBC pool has migrated but the
-// DAMM v2 pool is not recorded yet, the indexer leaves the DBC pool's synced_at
-// where it was: it was taken before a check that saw no migration, so no DAMM
-// v2 trade can be older. (The newest block_time is not a safe bound there: the
-// DBC pool's own history can move past the migration within one loop.)
+// holds for a quiet pool, whose newest block_time can be days old. Each
+// address is stamped with its own start, so one read late in a long loop is as
+// current as one read first. A market is as far as its slowest address, and
+// has no progress until each has completed once: an address that never has (a
+// DAMM v2 pool just found) backfills at most BACKFILL_TRANSACTIONS per loop
+// (indexer/index.mjs) and is stamped only once it has caught up. Until its
+// DAMM v2 pool is recorded, a market's DBC stamp also stands for its DAMM v2
+// trades, so the indexer stamps it only when the pool's account, read after
+// the sync's start, is still on the curve (no DAMM v2 trade can be older);
+// once the pool has migrated, synced_at stays where it was until the DAMM v2
+// pool is recorded. (The newest block_time is not a safe bound there: the DBC
+// pool's own history can move past the migration within one loop.)
 
 export const HEAD_LAG_SECONDS = 60;
 

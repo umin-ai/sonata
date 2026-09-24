@@ -23,6 +23,9 @@ const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PORT = Number(process.env.INDEXER_PORT || 8790);
 const POLL_MS = Number(process.env.INDEXER_POLL_MS || 20_000);
 const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+// Printed once every table and column is in place (migrate() and
+// migrateIndexerSchema()); deploy/lightsail/setup.sh waits for it.
+export const MIGRATED_LINE = "indexer migrated";
 const treasuryIdl = JSON.parse(
   readFileSync(new URL("../lib/treasury/stockroom_treasury.json", import.meta.url), "utf8"),
 );
@@ -200,13 +203,22 @@ export function holdsMarket(info, { baseMint, quoteMint }) {
   }
 }
 
-/** The addresses a market's trades are read from: its DBC pool, and its DAMM v2 pool once recorded. */
+/**
+ * The addresses a market's trades are read from: its DBC pool, and its DAMM v2
+ * pool once recorded. `caughtUp` is whether a sync of that address has ever
+ * completed (its progress is stamped); until then it is backfilling.
+ */
 export function cursorsOf(row) {
   return [
-    { pool: row.pool, venue: "dbc", address: row.pool, last: row.last_signature ?? null },
-    ...(row.damm_pool ? [{ pool: row.pool, venue: "damm", address: row.damm_pool, last: row.damm_last_signature ?? null }] : []),
+    { pool: row.pool, venue: "dbc", address: row.pool, last: row.last_signature ?? null, caughtUp: row.synced_at != null },
+    ...(row.damm_pool ? [{ pool: row.pool, venue: "damm", address: row.damm_pool, last: row.damm_last_signature ?? null, caughtUp: row.damm_synced_at != null }] : []),
   ];
 }
+
+// Transactions an address that has never caught up (a first-run backfill, such
+// as a DAMM v2 pool just recorded) reads per loop, so a long backfill does not
+// hold up every pool after it; it carries on from its cursor next loop.
+export const BACKFILL_TRANSACTIONS = 100;
 
 // Column names per venue (fixed strings, never input).
 const COLUMNS = {
@@ -217,9 +229,10 @@ const COLUMNS = {
 /**
  * The sync loop over `db` (pg) and `conn` (a web3.js Connection). `now` is the
  * clock progress is stamped with; `txRetries` and `txRetryMs` bound the wait
- * for a listed transaction that the RPC does not serve yet.
+ * for a listed transaction that the RPC does not serve yet; `backfillCap` is
+ * BACKFILL_TRANSACTIONS.
  */
-export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000 }) {
+export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS }) {
   // Markets are the pools that have a Sonata treasury.
   async function discoverPools() {
     const accounts = await conn.getProgramAccounts(TREASURY_PROGRAM, {
@@ -278,8 +291,11 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   }
 
   // Reads one address's new signatures and files its swaps under the market's
-  // DBC pool. Returns the rows inserted and the newest signature's block_time.
-  async function syncCursor({ pool, venue, address, last }) {
+  // DBC pool. Returns the rows inserted, the newest signature's block_time, and
+  // whether it read everything listed (`complete`). An address that has not
+  // caught up yet reads at most `backfillCap` transactions, oldest first, and
+  // is incomplete until the rest are read in later loops.
+  async function syncCursor({ pool, venue, address, last, caughtUp = true }) {
     const col = COLUMNS[venue];
     const decode = venue === "damm" ? decodeDammTrades : decodeTrades;
     const signatures = [];
@@ -292,12 +308,13 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
       if (page.length < 1000) break;
       before = page.at(-1).signature;
     }
-    if (!signatures.length) return { inserted: 0, newest: null };
+    if (!signatures.length) return { inserted: 0, newest: null, complete: true };
     let inserted = 0;
     // Oldest first, so the cursor only advances past processed transactions.
     const ordered = [...signatures].reverse().filter((s) => !s.err);
+    const todo = caughtUp ? ordered : ordered.slice(0, backfillCap);
     // One transaction at a time: the public RPC limits getTransaction per caller.
-    for (const { signature } of ordered) {
+    for (const { signature } of todo) {
       const tx = await transaction(signature);
       for (const t of decode(tx, signature)) {
         if (t.pool !== address || !t.blockTime) continue;
@@ -311,10 +328,12 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
       await db.query(`update pools set ${col.last} = $2, updated_at = now() where pool = $1`, [pool, signature]);
       await sleep(spacingMs);
     }
+    // The rest next loop, from the cursor just saved.
+    if (todo.length < ordered.length) return { inserted, newest: null, complete: false };
     // Failed transactions at the head still move the cursor forward.
     await db.query(`update pools set ${col.last} = $2, updated_at = now() where pool = $1`, [pool, signatures[0].signature]);
     const times = signatures.map((s) => s.blockTime).filter((t) => Number.isFinite(t));
-    return { inserted, newest: times.length ? Math.max(...times) : null };
+    return { inserted, newest: times.length ? Math.max(...times) : null, complete: true };
   }
 
   // Stamps an address's progress (modules/indexer-schema.mjs) once its sync completed.
@@ -326,22 +345,35 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
     );
   }
 
+  // Whether a DBC pool is off the curve, read now.
+  async function migratedNow(pool) {
+    const [info] = await rpc(() => conn.getMultipleAccountsInfo([new PublicKey(pool)], "confirmed"));
+    return migratedState(info) !== null;
+  }
+
   // One loop over every market. An address whose sync fails (after the RPC
   // backoff) keeps its cursor and progress and is read again next loop; the
   // other addresses go on.
   async function syncAll() {
     state.pools = await rpc(() => discoverPools());
-    // Taken before any read below, so progress never claims more than was read.
-    const startedAt = now();
     const waiting = await findGraduated();
-    const { rows } = await db.query("select pool, last_signature, damm_pool, damm_last_signature from pools order by pool");
+    const { rows } = await db.query("select pool, last_signature, damm_pool, damm_last_signature, synced_at, damm_synced_at from pools order by pool");
     const errors = [];
     for (const row of rows) {
       for (const cursor of cursorsOf(row)) {
         try {
-          const { inserted, newest } = await syncCursor(cursor);
+          // Each address's own start, taken before any read of it, so its
+          // progress never claims more than was read, and an address synced
+          // late in a long loop is not stamped with the loop's start.
+          const startedAt = now();
+          // Until its DAMM v2 pool is recorded, a market's DBC progress also
+          // stands for its DAMM v2 trades (none can predate the migration), so
+          // it is stamped only if the pool is still on the curve, read after
+          // startedAt; a pool that migrated keeps its earlier progress.
+          const stamp = cursor.venue === "damm" || row.damm_pool != null || (!waiting.has(row.pool) && !(await migratedNow(row.pool)));
+          const { inserted, newest, complete } = await syncCursor(cursor);
           state.trades += inserted;
-          if (!(cursor.venue === "dbc" && waiting.has(row.pool))) await synced(cursor, newest, startedAt);
+          if (complete && stamp) await synced(cursor, newest, startedAt);
         } catch (e) {
           errors.push(`${cursor.venue} ${cursor.address}: ${String(e?.message ?? e)}`);
         }
@@ -566,6 +598,8 @@ if (isMain) {
   await migrate();
   // The indexer's own columns: the DAMM v2 venue, its cursor, and progress.
   await migrateIndexerSchema(db);
+  // deploy/lightsail/setup.sh waits for this line before it starts the crank's timer.
+  console.log(MIGRATED_LINE);
   const { syncAll } = syncer({ db, conn, rpc, sleep, state });
   for (;;) {
     try {
