@@ -4,6 +4,7 @@ import { Keypair } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
 import { MAX_TX_BYTES } from "./payout.mjs";
+import { pgLedger } from "../rewards.mjs";
 import {
   BOUNTY_MAX_WINDOW_SECONDS,
   BOUNTY_SETTLE_SECONDS,
@@ -22,21 +23,27 @@ const trade = (pool, trader, side, quote, time, base) => ({
   pool, trader: trader.toBase58?.() ?? trader, side, quote_amount: String(quote), block_time: at(time), ...(base === undefined ? {} : { base_amount: String(base) }),
 });
 
-test("net is buys minus sells per trader, inside the window only, largest first, with the base bought", () => {
-  const [a, b, c, d] = [key(), key(), key(), key()].map(String);
+test("net base is base bought minus base sold per trader, inside the window only, most base first, with the net quote", () => {
+  const [a, b, c, d, e, f] = [key(), key(), key(), key(), key(), key()].map(String);
   const trades = [
     trade("p", a, "buy", 500, 100, 5_000),
-    trade("p", a, "sell", 200, 150, 1_500), // a: 300 quote, 3500 base
-    trade("p", b, "buy", 400, 120, 4_000), // b: 400
+    trade("p", a, "sell", 200, 150, 1_500), // a: 3500 base, 300 quote
+    trade("p", b, "buy", 400, 120, 4_000), // b: 4000
     trade("p", c, "buy", 900, 130, 9_000),
-    trade("p", c, "sell", 950, 140, 9_000), // c: -50, out
+    trade("p", c, "sell", 950, 140, 9_000), // c: 0 base, out
     trade("p", d, "buy", 1_000, 99, 1), // before the window
     trade("p", d, "buy", 1_000, 200, 1), // at its end: the next round's
-    trade("p", d, "sell", 10, 199, 1), // d: -10
+    trade("p", d, "sell", 10, 199, 1), // d: -1 base, out
+    // e flips: buys 1000000 for 10000 and sells 999999 for 9700. 300 quote, but 1 base kept.
+    trade("p", e, "buy", 10_000, 110, 1_000_000), trade("p", e, "sell", 9_700, 111, 999_999),
+    // f buys cheaply: least quote, more base than e.
+    trade("p", f, "buy", 100, 112, 2_000),
   ];
-  assert.deepEqual(netByTrader(trades, { start: 100, end: 200 }), [{ trader: b, net: 400n, base: 4_000n }, { trader: a, net: 300n, base: 3_500n }]);
-  // Rows without base amounts count none.
-  assert.deepEqual(netByTrader([trade("p", a, "buy", 5, 100)], { start: 0, end: 200 }), [{ trader: a, net: 5n, base: 0n }]);
+  assert.deepEqual(netByTrader(trades, { start: 100, end: 200 }), [
+    { trader: b, net: 400n, base: 4_000n }, { trader: a, net: 300n, base: 3_500n }, { trader: f, net: 100n, base: 2_000n }, { trader: e, net: 300n, base: 1n },
+  ]);
+  // Rows without base amounts count none, so they never rank.
+  assert.deepEqual(netByTrader([trade("p", a, "buy", 5, 100)], { start: 0, end: 200 }), []);
 });
 
 test("the window starts where the last paid round ended, never more than an hour back, and ends a minute ago", () => {
@@ -55,16 +62,16 @@ test("the top three net buyers win 50/30/20; the creator, Sonata's keys and non-
   const creator = key(), crank = key();
   const [w1, w2, w3, w4] = [key(), key(), key(), key()];
   const nets = [
-    { trader: creator.toBase58(), net: 10_000n },
-    { trader: crank.toBase58(), net: 9_000n },
-    { trader: VAULT_ADMIN.toBase58(), net: 8_000n },
-    { trader: SONATA_VAULT.toBase58(), net: 7_500n },
-    { trader: pda().toBase58(), net: 7_000n },
-    { trader: "not-an-address", net: 6_500n },
-    { trader: w2.toBase58(), net: 5_000n },
-    { trader: w1.toBase58(), net: 6_000n },
-    { trader: w3.toBase58(), net: 4_000n },
-    { trader: w4.toBase58(), net: 3_000n },
+    { trader: creator.toBase58(), net: 10_000n, base: 10_000n },
+    { trader: crank.toBase58(), net: 9_000n, base: 9_000n },
+    { trader: VAULT_ADMIN.toBase58(), net: 8_000n, base: 8_000n },
+    { trader: SONATA_VAULT.toBase58(), net: 7_500n, base: 7_500n },
+    { trader: pda().toBase58(), net: 7_000n, base: 7_000n },
+    { trader: "not-an-address", net: 6_500n, base: 6_500n },
+    { trader: w2.toBase58(), net: 5_000n, base: 5_000n },
+    { trader: w1.toBase58(), net: 6_000n, base: 6_000n },
+    { trader: w3.toBase58(), net: 4_000n, base: 4_000n },
+    { trader: w4.toBase58(), net: 3_000n, base: 3_000n },
   ];
   const winners = rankTopBuyers(nets, { excluded: [creator, crank] });
   assert.deepEqual(winners.map((w) => [w.trader, w.rank]), [[w1.toBase58(), 1], [w2.toBase58(), 2], [w3.toBase58(), 3]]);
@@ -74,13 +81,15 @@ test("the top three net buyers win 50/30/20; the creator, Sonata's keys and non-
   assert.deepEqual(bountyShares(winners.slice(0, 2), 1_000_000n).map((w) => w.amount), [500_000n, 300_000n]);
   assert.deepEqual(bountyShares(winners.slice(0, 1), 1_000_000n).map((w) => w.amount), [500_000n]);
   assert.deepEqual(bountyShares([], 1_000_000n), []);
-  // Ties by address; no one with a zero or negative net.
+  // Ties by address; no one with a zero, negative or unknown net base.
   const [x, y] = [key(), key()].map(String).sort();
-  assert.deepEqual(rankTopBuyers([{ trader: y, net: 5n }, { trader: x, net: 5n }, { trader: key().toBase58(), net: 0n }]).map((w) => w.trader), [x, y]);
-  // Nor anyone whose net base bought is zero or negative, whatever their quote net.
-  const [flip, dump, buyer] = [key(), key(), key()].map(String);
-  const ranked = rankTopBuyers([{ trader: flip, net: 300n, base: 0n }, { trader: dump, net: 200n, base: -5n }, { trader: buyer, net: 100n, base: 1n }]);
-  assert.deepEqual(ranked.map((w) => [w.trader, w.rank]), [[buyer, 1]]);
+  assert.deepEqual(rankTopBuyers([{ trader: y, net: 5n, base: 5n }, { trader: x, net: 5n, base: 5n }, { trader: key().toBase58(), net: 9n, base: 0n }, { trader: key().toBase58(), net: 9n }]).map((w) => w.trader), [x, y]);
+  // Ranked by the base kept, whatever the quote: net quote plays no part.
+  const [flip, dump, buyer, cheap] = [key(), key(), key(), key()].map(String);
+  const ranked = rankTopBuyers([
+    { trader: flip, net: 300n, base: 1n }, { trader: dump, net: 200n, base: -5n }, { trader: buyer, net: 100n, base: 25_000n }, { trader: cheap, net: -50n, base: 400n },
+  ]);
+  assert.deepEqual(ranked.map((w) => [w.trader, w.rank, w.base]), [[buyer, 1, 25_000n], [cheap, 2, 400n], [flip, 3, 1n]]);
 });
 
 // `held`: [wallet, base atoms] classic SPL base-token accounts (one each) now.
@@ -272,12 +281,11 @@ test("if no winner still holds, nothing is paid and the round stays open; a ledg
   assert.match(r.skip, /no winner still holds what they bought this round; the pot rolls over/);
   assert.equal(moved.chain.sent.length, 0);
   assert.equal(await moved.ledger.lastRoundEnd(moved.m.pool.toBase58()), null);
-  // Rows without the base bought (a ledger that does not report it) cannot be checked.
+  // Rows without the base bought (a ledger that does not report it) never rank.
   const blind = await bounty({ withAta: [a], held: [[a, 10n ** 12n]] });
   blind.ledger.buyerNets = async () => [{ trader: a.toBase58(), net: 5_000n }];
   const b = await runTopBuyers(blind.ctx);
-  assert.match(b.skip, /no winner still holds/);
-  assert.match(b.note, /base bought unknown/);
+  assert.match(b.skip, /no net buyers this round/);
   assert.equal(blind.chain.sent.length, 0);
 });
 
@@ -324,7 +332,8 @@ test("buys between the round-start snapshot and the round's start cannot be coun
   const r = await runTopBuyers(run.ctx);
   assert.equal(run.ctx.fields.roundStart, NOW - 900);
   assert.deepEqual([a, c].map((w) => quoteOf(run.chain, run.m, w)), [0n, 300_000n]);
-  assert.match(r.note, /kept 5000000 of the 10000000 base atoms bought/);
+  // a held 5000000 at the round's start (none at the snapshot, plus the 5000000 bought after it).
+  assert.match(r.note, /kept 0 of the 5000000 base atoms bought \(holds 5000000, held 5000000 before the round\)/);
 });
 
 test("with no balance snapshot from before the round's start the round stays open; every pass records the balances, paid or not", async () => {
@@ -346,4 +355,86 @@ test("with no balance snapshot from before the round's start the round stays ope
   const b = await runTopBuyers(bare.ctx);
   assert.equal(bare.chain.sent.length, 0);
   assert.match(b.skip, /ledger has no balance snapshots/);
+});
+
+// ---- Ranking by base kept, and the balance at the round's start -----------------
+
+test("a flipper ranks on the tokens it kept, not its quote net: buying 1000000 and selling 999999 ranks last", async () => {
+  const [flipper, b1, b2, b3] = [key(), key(), key(), key()];
+  const t = NOW - 600;
+  const trades = [
+    // Net 300 quote (more than any real buyer spent) but 1 base atom kept.
+    trade("", flipper, "buy", 10_000, t, 1_000_000), trade("", flipper, "sell", 9_700, t + 1, 999_999),
+    trade("", b1, "buy", 250, t + 2, 25_000), trade("", b2, "buy", 200, t + 3, 20_000), trade("", b3, "buy", 150, t + 4, 15_000),
+  ];
+  const run = await bounty({ trades, withAta: [flipper, b1, b2, b3], held: [[flipper, 1n], [b1, 25_000n], [b2, 20_000n], [b3, 15_000n]], indexedThrough: NOW - 60 });
+  assert.deepEqual(await runTopBuyers(run.ctx), {});
+  assert.deepEqual([flipper, b1, b2, b3].map((w) => quoteOf(run.chain, run.m, w)), [0n, 500_000n, 300_000n, 200_000n]);
+  assert.deepEqual(run.ledger.payouts[0].detail.winners.map((w) => [w.trader, w.rank, w.base]), [
+    [b1.toBase58(), 1, 25_000n], [b2.toBase58(), 2, 20_000n], [b3.toBase58(), 3, 15_000n],
+  ]);
+});
+
+test("a winner who sold before the round keeps its bounty when it kept this round's buy: the round-start balance counts every trade since the snapshot", async () => {
+  // The snapshot is from NOW - 5000; this round starts at NOW - 3660.
+  const [a, e, d] = [key(), key(), key()];
+  const gapAt = NOW - 4000, t = NOW - 600;
+  const trades = [
+    // a held 10000000 at the snapshot, sold 1000000 after it, then bought 5000000 in the round and kept them all.
+    trade("", a, "sell", 1_000, gapAt, 1_000_000), trade("", a, "buy", 5_000, t, 5_000_000),
+    // e held 10000000 too and moved 2000000 to another wallet after the snapshot (a transfer, not a trade),
+    // then bought 4000000 and kept them: transfers are seen only by snapshots, so e is refused (its share stays owed).
+    trade("", e, "buy", 4_000, t + 1, 4_000_000),
+    // d was outside the snapshot, sold 1000000 it held before the round, bought 3000000 in the round and moved
+    // 1000000 of them away: its round-start balance is never below 0, so it must still hold all 3000000.
+    trade("", d, "sell", 1_000, gapAt, 1_000_000), trade("", d, "buy", 3_000, t + 2, 3_000_000),
+  ];
+  const run = await bounty({
+    trades, withAta: [a, e, d], indexedThrough: NOW - 60,
+    before: [[a, 10_000_000n], [e, 10_000_000n]],
+    held: [[a, 14_000_000n], [e, 12_000_000n], [d, 2_000_000n]],
+  });
+  const r = await runTopBuyers(run.ctx);
+  assert.deepEqual([a, e, d].map((w) => quoteOf(run.chain, run.m, w)), [500_000n, 0n, 0n]);
+  assert.equal(run.ctx.fund.owed, 500_000n, "ranks 2 and 3 stay owed");
+  assert.ok(r.note.includes(`rank 2 ${e.toBase58()} (kept 2000000 of the 4000000 base atoms bought (holds 12000000, held 10000000 before the round))`), r.note);
+  assert.ok(r.note.includes(`rank 3 ${d.toBase58()} (kept 2000000 of the 3000000 base atoms bought (holds 2000000, held 0 before the round))`), r.note);
+  assert.equal(run.ctx.fields.balancesAt, NOW - 5000);
+});
+
+test("tokens bought after the snapshot and before the round count as held before it, whatever their quote net", async () => {
+  // After the snapshot a buys 5000000 for 5000 and sells 1000000 for 6000: net quote -1000, net base +4000000.
+  // In the round it buys 4000000 more and moves them to b, which sells them: a holds only the 4000000 from before.
+  const [a, b, c] = [key(), key(), key()];
+  const trades = [
+    trade("", a, "buy", 5_000, NOW - 4000, 5_000_000), trade("", a, "sell", 6_000, NOW - 3900, 1_000_000),
+    trade("", a, "buy", 4_000, NOW - 600, 4_000_000), trade("", b, "sell", 3_900, NOW - 599, 4_000_000),
+    trade("", c, "buy", 1_000, NOW - 598, 1_000_000),
+  ];
+  const run = await bounty({ trades, withAta: [a, b, c], held: [[a, 4_000_000n], [c, 1_000_000n]], indexedThrough: NOW - 60 });
+  const r = await runTopBuyers(run.ctx);
+  assert.deepEqual([a, b, c].map((w) => quoteOf(run.chain, run.m, w)), [0n, 0n, 300_000n]);
+  assert.ok(r.note.includes(`rank 1 ${a.toBase58()} (kept 0 of the 4000000 base atoms bought (holds 4000000, held 4000000 before the round))`), r.note);
+});
+
+test("a ledger that cannot read net base per wallet pays nobody; the round stays open and the balances are still recorded", async () => {
+  const a = key();
+  const run = await bounty({ trades: [trade("", a, "buy", 1_000, NOW - 600, 10_000)], withAta: [a], held: [[a, 10_000n]], indexedThrough: NOW - 60 });
+  delete run.ledger.netBase;
+  const r = await runTopBuyers(run.ctx);
+  assert.match(r.skip, /ledger cannot read a wallet's net base before the round, so no winner can be checked; the round stays open, the pot rolls over/);
+  assert.equal(run.chain.sent.length, 0);
+  assert.equal(await run.ledger.lastRoundEnd(run.m.pool.toBase58()), null);
+  assert.ok(run.ledger.snapshots.get(`${run.m.pool.toBase58()}|holders`).has(NOW));
+});
+
+test("the database ledger reads the round's buyers by net base, up to 200, and the winners' signed net base with no filter or limit", async () => {
+  const queries = [];
+  const ledger = pgLedger({ query: async (sql, args) => (queries.push({ sql: sql.replace(/\s+/g, " "), args }), { rows: [] }) });
+  assert.deepEqual(await ledger.buyerNets("p", 1, 2), []);
+  assert.deepEqual(queries[0].args, ["p", 1, 2, 200]);
+  assert.match(queries[0].sql, /having sum\(case when side = 'buy' then base_amount else -base_amount end\) > 0 order by sum\(case when side = 'buy' then base_amount else -base_amount end\) desc, trader limit \$4/);
+  assert.deepEqual([...(await ledger.netBase("p", ["w"], 1, 2))], [["w", 0n]]);
+  assert.deepEqual(queries[1].args, ["p", ["w"], 1, 2]);
+  assert.doesNotMatch(queries[1].sql, /having|limit/);
 });

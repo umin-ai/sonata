@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { HEAD_LAG_SECONDS, buyerNets, indexProgress, indexedThrough, migrateIndexerSchema } from "./indexer-schema.mjs";
+import { BUYER_NETS_LIMIT, HEAD_LAG_SECONDS, buyerNets, indexProgress, indexedThrough, migrateIndexerSchema, netBase } from "./indexer-schema.mjs";
 
 const T = 1_790_000_000;
 const fakeDb = (rows = []) => {
@@ -35,10 +35,39 @@ test("indexedThrough reads the pool's row; buyerNets reports net quote and net b
     { trader: "B", net: 5n, base: -3n },
   ]);
   const { sql, args } = nets.queries[0];
-  assert.deepEqual(args, ["P", 100, 200, 50]);
   assert.match(sql, /sum\(case when side = 'buy' then base_amount else -base_amount end\)::text as base/);
   assert.match(sql, /block_time >= to_timestamp\(\$2\) and block_time < to_timestamp\(\$3\)/);
   assert.doesNotMatch(sql, /venue/, "every venue counts");
+  assert.equal(args[3], BUYER_NETS_LIMIT);
+});
+
+test("buyerNets keeps and orders traders by net base bought, not net quote, and reads up to 200 of them", async () => {
+  const db = fakeDb([]);
+  await buyerNets(db, "P", 100, 200);
+  const { sql, args } = db.queries[0];
+  const netBaseSql = String.raw`sum\(case when side = 'buy' then base_amount else -base_amount end\)`;
+  // A flipper (buys 1000000, sells 999999) is ranked on the 1 atom it kept, a net seller not at all.
+  assert.match(sql, new RegExp(`having ${netBaseSql} > 0\\s+order by ${netBaseSql} desc, trader\\s+limit \\$4`));
+  assert.doesNotMatch(sql, /having sum\(case when side = 'buy' then quote_amount/);
+  assert.deepEqual(args, ["P", 100, 200, 200]);
+  assert.equal(BUYER_NETS_LIMIT, 200);
+  await buyerNets(db, "P", 100, 200, 7);
+  assert.equal(db.queries[1].args[3], 7);
+});
+
+test("netBase is each wallet's signed net base in a window, with no sign or quote filter and no limit; 0 without trades", async () => {
+  const db = fakeDb([{ trader: "A", base: "-1000000" }, { trader: "B", base: "12345678901234567890" }]);
+  const got = await netBase(db, "P", ["A", "B", "C"], 100, 200);
+  assert.deepEqual([...got], [["A", -1_000_000n], ["B", 12_345_678_901_234_567_890n], ["C", 0n]]);
+  const { sql, args } = db.queries[0];
+  assert.deepEqual(args, ["P", ["A", "B", "C"], 100, 200]);
+  assert.match(sql, /sum\(case when side = 'buy' then base_amount else -base_amount end\)::text as base/);
+  assert.match(sql, /where pool = \$1 and trader = any\(\$2::text\[\]\) and block_time >= to_timestamp\(\$3\) and block_time < to_timestamp\(\$4\)/);
+  assert.doesNotMatch(sql, /having|limit|quote_amount|venue/i);
+  // No wallets, no query.
+  const none = fakeDb([]);
+  assert.deepEqual([...(await netBase(none, "P", [], 1, 2))], []);
+  assert.equal(none.queries.length, 0);
 });
 
 test("the schema only adds columns and an index, each guarded, so it runs on every start", async () => {

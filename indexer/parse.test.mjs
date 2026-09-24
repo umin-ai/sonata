@@ -118,3 +118,68 @@ test("decodes a real Devnet DAMM v2 swap: EvtSwap2 as the deployed program emits
   assert.equal(t.blockTime, 1790254905);
   assert.equal(t.ixIndex, 7);
 });
+
+// ---- Who a trade is booked to: the swap's payer, not the fee payer -----------
+
+// The Devnet buy in app-buy.json with its DBC swap signed by `payers` (one
+// swap each, the fixture's own swap copied) while the fee payer stays the
+// fixture's GX3N5UED…. `routed` moves the swaps inside another program's
+// instruction (as an aggregator does); `heights: false` drops the stack
+// heights, as older RPC responses do.
+const FIXTURE_FEE_PAYER = "GX3N5UEDE4YBSC46ZND8YZbxP8ynZWtyQNtp5EqjezQ3";
+const DBC_SWAP_PAYER = 9; // swap / swap2 accounts: … baseMint, quoteMint, payer
+function dbcSwapTx({ payers, routed = false, heights = true }) {
+  const tx = structuredClone(fixture("app-buy.json"));
+  const msg = tx.transaction.message;
+  const at = (k) => (msg.accountKeys.includes(k) ? msg.accountKeys.indexOf(k) : msg.accountKeys.push(k) - 1);
+  const swap = msg.instructions[2];
+  const group = tx.meta.innerInstructions.find((g) => g.index === 2);
+  const emitted = group.instructions;
+  const swaps = payers.map((p) => ({ ...swap, accounts: swap.accounts.map((a, i) => (i === DBC_SWAP_PAYER ? at(p.toBase58()) : a)) }));
+  if (routed) {
+    msg.instructions[2] = { accounts: [at(Keypair.generate().publicKey.toBase58())], data: "1", programIdIndex: at(Keypair.generate().publicKey.toBase58()), stackHeight: 1 };
+    group.instructions = swaps.flatMap((s) => [{ ...s, stackHeight: 2 }, ...emitted.map((i) => ({ ...i, stackHeight: 3 }))]);
+  } else {
+    assert.equal(payers.length, 1, "a direct swap is the top-level instruction");
+    msg.instructions[2] = swaps[0];
+  }
+  if (!heights) for (const g of tx.meta.innerInstructions) for (const i of g.instructions) delete i.stackHeight;
+  return tx;
+}
+
+test("a DBC trade is the swap payer's, not the fee payer's: direct, routed through another program, and without stack heights", () => {
+  const payer = Keypair.generate().publicKey;
+  // The fixture as recorded: the app's trader signs the swap and pays the fee.
+  assert.equal(decodeTrades(dbcSwapTx({ payers: [new PublicKey(FIXTURE_FEE_PAYER)] }), "sig")[0].trader, FIXTURE_FEE_PAYER);
+  for (const options of [{}, { routed: true }, { heights: false }, { routed: true, heights: false }]) {
+    const trades = decodeTrades(dbcSwapTx({ payers: [payer], ...options }), "sig");
+    assert.equal(trades.length, 1, JSON.stringify(options));
+    assert.equal(trades[0].trader, payer.toBase58(), `a relayer paying the fee is not the buyer (${JSON.stringify(options)})`);
+    assert.equal(trades[0].baseAmount, "1905864930164");
+  }
+});
+
+test("two DBC swaps routed in one instruction are each booked to their own payer", () => {
+  const [p, q] = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+  for (const heights of [true, false]) {
+    const trades = decodeTrades(dbcSwapTx({ payers: [p, q], routed: true, heights }), "sig");
+    assert.deepEqual(trades.map((t) => t.trader), [p.toBase58(), q.toBase58()], `heights: ${heights}`);
+    assert.equal(new Set(trades.map((t) => t.ixIndex)).size, 2);
+  }
+});
+
+test("an event whose caller is not a swap on its pool is the fee payer's, never an earlier swap's payer", () => {
+  // DAMM v2: the event's caller (one level up) is another program's
+  // instruction, after a real swap by someone else in the same routed instruction.
+  const [payer, feePayer] = [Keypair.generate().publicKey, Keypair.generate().publicKey];
+  const tx = dammSwapTx({ direction: 1, routed: true, payer, feePayer });
+  const keys = tx.transaction.message.accountKeys;
+  const inner = tx.meta.innerInstructions[0].instructions;
+  inner.splice(inner.length - 1, 0, { accounts: [], data: "1", programIdIndex: keys.push(Keypair.generate().publicKey.toBase58()) - 1, stackHeight: 2 });
+  assert.equal(decodeDammTrades(tx, "sig")[0].trader, feePayer.toBase58());
+  // DBC: a swap on another pool is not this event's swap.
+  const dbc = dbcSwapTx({ payers: [payer] });
+  const msg = dbc.transaction.message;
+  msg.instructions[2].accounts[2] = msg.accountKeys.push(Keypair.generate().publicKey.toBase58()) - 1;
+  assert.equal(decodeTrades(dbc, "sig")[0].trader, FIXTURE_FEE_PAYER);
+});

@@ -804,3 +804,24 @@ export function withOwnerLookup(chain) {
   };
   return chain;
 }
+
+// ---- Appended for the Top Buyer Bounty fixes ---------------------------------
+
+import { netBaseOf } from "./top-buyers.mjs";
+
+/**
+ * Adds pgLedger's netBase to an in-memory ledger: each wallet's signed net
+ * base in [start, end) from the ledger's `trades`, as
+ * modules/indexer-schema.mjs netBase reads the trades table. Adding it twice
+ * is a no-op.
+ */
+export function withNetBase(ledger) {
+  ledger.netBase ??= async (pool, traders, start, end) => netBaseOf((ledger.trades ?? []).filter((t) => t.pool === pool), traders, { start, end });
+  return ledger;
+}
+
+// Every in-memory ledger answers netBase, as pgLedger does: memLedger (and so
+// the default ledger of payoutLedger, lpFarmLedger and moduleContext) comes
+// with it.
+const memLedgerWithoutNetBase = memLedger;
+memLedger = (options) => withNetBase(memLedgerWithoutNetBase(options));
