@@ -1,14 +1,14 @@
 # Sonata
 
-## Current local app — 23 September 2026
+## Current local app — 24 September 2026
 
 **Live on Solana Devnet: https://sonata.umin.ai** (AWS Lightsail; setup in [deploy/lightsail/](deploy/lightsail/README.md)).
 
 **Current status, on-chain evidence, security model and Meteora references are in the protocol repository's [HANDOFF.md](https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md).** Read it before relying on anything below.
 
-Open http://localhost:5173/ . Sonata's connected Devnet core supports market creation with an optional Stock Floor and token profile (image, description, links), trading with market-cap charts and recent trades from the trade indexer (`indexer/`), burning tokens for their share of a Stock Floor, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, holder-reward rounds and funded reward claims. One signing wallet connects Portfolio and Activity. All assets are valueless test tokens.
+Open http://localhost:5173/ . Sonata's connected Devnet core supports one-page market creation with an optional token profile (image, description, links), trading with market-cap charts and recent trades from the trade indexer (`indexer/`), automatic creator payouts from the payout crank (`indexer/crank.mjs`, every 15 minutes on the server), burning tokens for their share of a Stock Floor, fee collection/allocation, creator reserve deployment, native LP compounding and withdrawal, holder-reward rounds and funded reward claims. One signing wallet connects Portfolio and Activity, and the chosen wallet reconnects silently after each page load. All assets are valueless test tokens.
 
-- `/create` and `/onchain?pool=…`: Meteora DBC launch and Sonata treasury operations. Each launch creates its own DBC config.
+- `/create` and `/onchain?pool=…`: Meteora DBC launch and Sonata treasury operations. Each launch creates its own DBC config. The launch is one page: only a name and ticker are required. Defaults are mSPY (or the stock picked on the home page, via `/create?quote=`), a 1% fee, graduation at $100K, and all net fees to the creator's payout wallet (Refrain: 80% of the trading fee, after Meteora's 20%). The creator can pick the Stock Floor instead, and "More options" holds the fee, the graduation target ($25K, $50K or $100K) and the payout wallet.
 - `/capital`: atomically deploy a creator reserve into the supported ROOM/mSPY strategy, with matching ROOM from the creator wallet.
 - `/earn`: native Meteora LP positions, swaps, compounding and partial/full withdrawal.
 - `/rewards` (also `/community`): holder-reward policies and rounds, and funded fixed-recipient campaigns with one-time claims.
@@ -20,7 +20,7 @@ The connected Devnet demonstration is verified. Production issuer integration, u
 
 Separate simulations remain at `/lab`, `/lab/create`, `/lab/portfolio`, `/lab/activity`, `/lab/community` and `/vaults/...`; the earlier credit sandbox remains at `/devnet`. Do not combine those features with the live implementation claims.
 
-Current checks: 92 frontend tests (`npm test`) and 3 indexer tests (`npm run test:indexer`), TypeScript checking and production build pass. The protocol suite passes 37 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
+Current checks: 95 frontend tests (`npm test`) and 12 indexer tests (`npm run test:indexer`: trade parser 3, payout crank 9), TypeScript checking and production build pass. The protocol suite passes 38 compiled-program tests and six math tests. New wallets need Devnet SOL and the project's mock assets; public faucet SOL alone does not supply mSPY or ROOM.
 
 ## Historical credit implementation
 
@@ -83,7 +83,7 @@ npx tsc --noEmit
 git diff --check
 ```
 
-`npm test` runs 92 tests across 21 files. `lib/server/stockroom.test.ts` is excluded and the file says why. The 16 calculation, ledger and adapter tests in `finance`, `credit` and `jupiter-data` cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
+`npm test` runs 95 tests across 21 files. `lib/server/stockroom.test.ts` is excluded and the file says why. The 16 calculation, ledger and adapter tests in `finance`, `credit` and `jupiter-data` cover API rate/amount normalization, strict mint and owner checks, unavailable prices, scaled token units, rounding, interest accrual, partial repayment without double-counting, balance conservation, fees, debt risk factors, opening limits, collateral release, and invalid inputs. See [validation notes](docs/rebuild-validation.md) for browser checks, integration evidence and unresolved execution work.
 
 ## Unreleased execution work
 
