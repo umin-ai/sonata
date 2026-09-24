@@ -18,6 +18,7 @@ import {
   floorShare,
   pendingFloor,
 } from "@/lib/treasury/floor";
+import { PAYOUT_BOT_V2 } from "@/lib/features";
 import { useLive } from "./live-context";
 
 // A Backed token's backing (the program's Stock Floor): its share of net trading
@@ -88,8 +89,9 @@ export function StockFloor({
       )}
       {data?.migrated ? (
         <p className="stock-floor-note">
-          This market graduated. Sonata&apos;s bot keeps adding the pool&apos;s fees about every 15 minutes, and
-          holders can still burn for their share.
+          {PAYOUT_BOT_V2
+            ? "This market graduated. Sonata's bot keeps adding the pool's fees about every 15 minutes, and holders can still burn for their share."
+            : "This market graduated. Its backing no longer grows, but holders can still burn for their share."}
         </p>
       ) : (
         toAdd > 0n && (

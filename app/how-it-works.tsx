@@ -1,6 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { PAYOUT_BOT_V2 } from "@/lib/features";
 
 // What each part of Sonata is built on, what state it is in, and where to check
 // it. Kept factual: every "Live" item has transactions in HANDOFF.md.
@@ -10,10 +11,10 @@ const explorer = (a: string) => `https://explorer.solana.com/address/${a}?cluste
 const parts: [string, string, string, string][] = [
   ["Launch", "Meteora Dynamic Bonding Curve", "Quick launch: name, ticker, image, go, on the default curve (opens at $5,000, graduates at $75,000, 1.25% fee, 0.5% to you). Advanced: five steps to pick the stock (S&P 500, Nasdaq 100, Tesla, Microsoft, Amazon, Meta, McDonald's or pre-IPO Anthropic), the curve shape (Classic, Steady, Rocket or Whale wall), the graduation target ($25K, $50K or $75K), the fee (1.25%, 2% or 3%), the extras and the fee model. Either way it is one wallet approval, with an optional dev buy of up to 75% of the supply in the same transaction that creates the pool, so nothing trades before you.", "Live on Devnet"],
   ["Fee model", "Sonata treasury program", "A 1.25% trading fee. Meteora keeps 0.25%. Standard token: 0.5% to the creator (or to a fee module), 0.5% to Sonata. Reward token: the creator's 0.5% is paid to holders instead. Backed token: 0.25% to the creator and 0.25% into a stock reserve holders can cash out. No extra tax on transfers.", "Live on Devnet"],
-  ["Fee modules", "Sonata payout bot", "Instead of keeping it, a Standard token's creator can send their 0.5% to Buyback & burn (buys the token and burns it), Top Buyer Bounty (each 15-minute round's 3 biggest net buyers win 50% / 30% / 20%), LP Farm (holders on the curve, liquidity providers after graduation), Split (up to 5 wallets) or Diamond Hands (holders, weighted up to 3× by how long they hold; selling restarts the clock). The choice is written into the token's metadata at launch and can't be changed.", "Live on Devnet"],
-  ["Paid automatically", "Sonata payout bot", "Every 15 minutes a bot collects each market's fees and sends them out, in the stock: to the creator's wallet, pro rata to holders, or into the chosen fee module. Destinations are fixed on-chain or in the token's metadata; for Reward tokens and fee modules the bot holds the funds briefly while it pays them.", "Live on Devnet"],
-  ["Launch extras", "Meteora Dynamic Bonding Curve", "Volatility fee: Meteora's dynamic fee raises the fee by up to 20% while the price moves fast; the extra is split like the rest of the fee. Graduation airdrop: 5% of the supply is kept off the curve; at graduation Sonata's payout bot withdraws it from Meteora and airdrops it to holders, pro rata. Both are set in the token's Meteora config at launch.", "Live on Devnet"],
-  ["After graduation", "Meteora DAMM v2", "When a curve fills, the market moves to a DAMM v2 pool with its liquidity locked forever, split half to the creator and half to Sonata. The creator claims their half's fees with one click. Sonata's half is collected every 15 minutes and split like the fees on the curve (for a Standard token, half to the fee model and half to Sonata), so creator payouts, holder rewards, fee modules and the Backed token's backing keep going after graduation.", "Live on Devnet"],
+  ["Fee modules", "Sonata payout bot", "Instead of keeping it, a Standard token's creator can send their 0.5% to Buyback & burn (buys the token and burns it), Top Buyer Bounty (each 15-minute round's 3 biggest net buyers win 50% / 30% / 20%), LP Farm (holders on the curve, liquidity providers after graduation), Split (up to 5 wallets) or Diamond Hands (holders, weighted up to 3× by how long they hold; selling restarts the clock). The choice is written into the token's metadata at launch and can't be changed.", PAYOUT_BOT_V2 ? "Live on Devnet" : "Next update"],
+  ["Paid automatically", "Sonata payout bot", `Every 15 minutes a bot collects each market's fees and sends them out, in the stock: to the creator's wallet, pro rata to holders${PAYOUT_BOT_V2 ? ", or into the chosen fee module" : " for Reward tokens"}. Destinations are fixed on-chain or in the token's metadata; for Reward tokens${PAYOUT_BOT_V2 ? " and fee modules" : ""} the bot holds the funds briefly while it pays them.`, "Live on Devnet"],
+  ["Launch extras", "Meteora Dynamic Bonding Curve", `Volatility fee: Meteora's dynamic fee raises the fee by up to 20% while the price moves fast; the extra is split like the rest of the fee. ${PAYOUT_BOT_V2 ? "Graduation airdrop: 5% of the supply is kept off the curve; at graduation Sonata's payout bot withdraws it from Meteora and airdrops it to holders, pro rata. Both are set" : "Curve shapes: Classic, Steady, Rocket or Whale wall. Both are set"} in the token's Meteora config at launch.`, "Live on Devnet"],
+  ["After graduation", "Meteora DAMM v2", `When a curve fills, the market moves to a DAMM v2 pool with its liquidity locked forever, split half to the creator and half to Sonata. The creator claims their half's fees with one click.${PAYOUT_BOT_V2 ? " Sonata's half is collected every 15 minutes and split like the fees on the curve (for a Standard token, half to the fee model and half to Sonata), so creator payouts, holder rewards, fee modules and the Backed token's backing keep going after graduation." : ""}`, PAYOUT_BOT_V2 ? "Live on Devnet" : "Proven on Devnet"],
   ["Dollar targets", "Jupiter, checked by Pyth", "Graduation targets are set in US dollars and converted at the price of the real tokenized stock on Solana (xStocks such as SPYx or MSFTx, or PreStocks for Anthropic). For stocks Pyth covers, its equity feed is an independent check: a gap above 1% blocks the launch.", "Live on Devnet"],
   ["Backed token", "Sonata treasury program", "The stock reserve is held by the program: any holder can burn tokens for their exact share, one holder cashing out never lowers anyone else's share, and the creator can never withdraw it.", "Live on Devnet"],
   ["Charts and trades", "Sonata trade indexer", "Every swap on a Sonata market is read from Meteora's own swap events into a database, which powers the charts, recent trades and 24h volume.", "Live on Devnet"],
@@ -28,6 +29,11 @@ const programs: [string, string][] = [
 ];
 
 const notYet = [
+  ...(PAYOUT_BOT_V2
+    ? []
+    : [
+        "Fee modules (Buyback & burn, Top Buyer Bounty, LP Farm, Split, Diamond Hands), the graduation airdrop, and collecting Sonata's half of the fees after graduation: built and tested, going live with the next payout-bot update.",
+      ]),
   "Mainnet, and real stock tokens as the quote asset (they need a Meteora token badge).",
   "Cheaper launches: about 0.032 SOL today, mostly token metadata; switching to Token-2022 tokens removes most of it.",
   "NVIDIA as a paired stock (no Devnet test token yet).",

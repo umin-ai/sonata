@@ -37,6 +37,7 @@ import {
   type Market,
 } from "@/lib/treasury/runtime";
 import { MAX_SPLIT, normalizeLinks, type FeeModel } from "@/lib/token-profile";
+import { PAYOUT_BOT_V2 } from "@/lib/features";
 import { LiveWallet, useLive } from "./live-session";
 import { WalletConnectButton } from "./wallet-connect";
 
@@ -776,7 +777,8 @@ export function LiveLaunch() {
         </div>
         <p className="sr-note">
           On every buy and sell: 40% to your fee model, 40% to Sonata, 20% to Meteora. No transfer tax. After
-          graduation: a 1% pool fee. Half the locked pool is yours, and the fees from Sonata&apos;s half are split like the fees above.
+          graduation: a 1% pool fee, and half the locked pool is yours
+          {PAYOUT_BOT_V2 ? "; the fees from Sonata's half are split like the fees above" : ""}.
         </p>
       </fieldset>
       <fieldset>
@@ -795,21 +797,24 @@ export function LiveLaunch() {
                 `${AIRDROP_PERCENT}% of the supply is kept off the curve and airdropped to holders, pro rata, the moment the token graduates.`,
               ],
             ] as const
-          ).map(([key, title, line]) => (
-            <button
-              type="button"
-              role="switch"
-              key={key}
-              aria-checked={!!settings[key]}
-              onClick={() => setSettings((s) => ({ ...s, [key]: !s[key] }))}
-            >
-              <span className="launch-switch" aria-hidden />
-              <div>
-                <strong>{title}</strong>
-                <span>{line}</span>
-              </div>
-            </button>
-          ))}
+          )
+            // The airdrop is sent by the new payout bot.
+            .filter(([key]) => key !== "airdrop" || PAYOUT_BOT_V2)
+            .map(([key, title, line]) => (
+              <button
+                type="button"
+                role="switch"
+                key={key}
+                aria-checked={!!settings[key]}
+                onClick={() => setSettings((s) => ({ ...s, [key]: !s[key] }))}
+              >
+                <span className="launch-switch" aria-hidden />
+                <div>
+                  <strong>{title}</strong>
+                  <span>{line}</span>
+                </div>
+              </button>
+            ))}
         </div>
       </fieldset>
     </section>
@@ -849,7 +854,7 @@ export function LiveLaunch() {
           </p>
         </>
       )}
-      {model === "standard" && (
+      {model === "standard" && PAYOUT_BOT_V2 && (
         <>
           <Label>Send your {share} to</Label>
           <div className="launch-options module-options" role="radiogroup" aria-label="Send your share to">
@@ -1059,7 +1064,10 @@ export function LiveLaunch() {
             ["Fee → Meteora", half],
             ["Cadence", cadence],
             ...(settings.airdrop ? [["Graduation airdrop", `${AIRDROP_PERCENT}% of supply to holders`]] : []),
-            ["After graduation", "1% pool fee · half the locked pool is yours · fee model keeps running"],
+            [
+              "After graduation",
+              `1% pool fee · half the locked pool is yours${PAYOUT_BOT_V2 ? " · fee model keeps running" : ""}`,
+            ],
             ...(devBuyTokens ? [["Dev buy", `${amount(devBuy)} ${q} · ≈ ${devBuyTokens.percent.toFixed(2)}%`]] : []),
             ["Launch cost", `${LAUNCH_COST_SOL} · rent only`],
           ] as [string, string][]
