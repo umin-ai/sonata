@@ -1,12 +1,13 @@
-# Runs sonata-crank.service 2 minutes after boot, then every 15 minutes.
+# Runs sonata-crank.service every 15 minutes on the clock (:00, :15, :30, :45).
+# A calendar schedule survives setup.sh stopping and restarting the timer; the
+# old OnUnitActiveSec= schedule came back "elapsed" with no next run after a
+# deploy. Persistent= runs a pass missed while the timer was stopped or the
+# instance was down, as soon as it starts again.
 [Unit]
 Description=Sonata creator payout crank every 15 minutes
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=15min
-# systemd applies Persistent= only to OnCalendar= timers; OnBootSec= covers
-# runs missed while the instance was down.
+OnCalendar=*:0/15
 Persistent=true
 Unit=sonata-crank.service
 
