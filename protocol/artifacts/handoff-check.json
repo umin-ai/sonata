@@ -1,9 +1,9 @@
 {
   "file": "HANDOFF.md",
-  "checkedAt": "2026-09-24T08:28:57.019Z",
-  "transactions": 70,
+  "checkedAt": "2026-09-24T11:05:50.028Z",
+  "transactions": 91,
   "expectedRefusals": 1,
-  "accounts": 31,
+  "accounts": 46,
   "linksChecked": 0,
   "labelErrors": [],
   "txFailures": [],

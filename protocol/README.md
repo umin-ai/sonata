@@ -2,20 +2,21 @@
 
 Anchor programs behind Sonata, a Solana launchpad where community tokens trade against a tokenized stock on Meteora's Dynamic Bonding Curve. Devnet only; mock tokens have no monetary value.
 
-- `programs/stockroom-treasury` registers a treasury for a DBC pool whose config names the Sonata vault PDA as `fee_claimer`, claims partner trading fees into program-owned custody, and pays them out by a mode fixed at registration: 100% to the fixed payout recipient (Refrain, the app's default); 50% to it and 50% kept as a creator reserve (Duet); or 50% to it and 50% kept as a Stock Floor that holders redeem by burning tokens and the creator cannot withdraw (Floor).
+- `programs/stockroom-treasury` registers a treasury for a DBC pool whose config names the Sonata vault PDA as `fee_claimer`, claims partner trading fees into program-owned custody, and pays them out by a mode fixed at registration. New launches use the two modes added on 24 September, split by the permissionless `distribute_split`: 50% to the fixed payout recipient and 50% to Sonata, paid to the Vault admin (Standard, the app's default; also used for Reward tokens, whose payout recipient is Sonata's payout bot); or 25% to the recipient, 25% kept as a Stock Floor that holders redeem by burning tokens and the creator cannot withdraw, and 50% to Sonata (StandardFloor, the app's "Backed token"). Earlier markets keep their modes, split by `distribute`: 100% to the recipient (Refrain); 50% to it and 50% kept as a creator reserve (Duet); or 50% to it and 50% kept as a Stock Floor (Floor).
 - `programs/stockroom-rewards` holds holder-reward policies and funded reward campaigns paid from a treasury's retained fees.
 - `scripts/verify-configurable-launch.mjs` deploys a per-launch DBC config, registers a treasury against it, and reads the resulting state back.
 - `scripts/verify-deployed-bytes.mjs` compares each deployed program with its local build. It is read-only and needs no keys.
 - `scripts/verify-fee-path.mjs` exercises the fee path on a per-launch pool in Duet or Refrain mode, reading the mode and fee: a buy, the claim, then a 50/50 split and a creator withdrawal (Duet) or 100% to the payout recipient (Refrain).
 - `scripts/verify-graduation.mjs` exercises DBC → DAMM v2 graduation on a per-launch pool; `scripts/read-graduation.mjs` re-verifies a graduation read-only.
 - `scripts/verify-stock-floor.mjs` proves the Stock Floor on a Floor-mode launch: a separate holder buys, fees split 50/50, the holder burns for an exact share, and the creator's withdrawal is refused on-chain.
+- `scripts/verify-creator-position.mjs` proves that creators keep earning after graduation: a launch whose locked liquidity is split 50/50 graduates to DAMM v2, and the creator claims their locked position's fees with the app's own claim code (`artifacts/creator-position-proof.json`).
 - `scripts/verify-handoff.mjs` re-checks every transaction, account and label in HANDOFF.md (read-only; `--links` also checks every other link).
 
 **Try the app on Devnet: https://sonata.umin.ai** (source: [umin-ai/sonata](https://github.com/umin-ai/sonata)).
 
 **Read [HANDOFF.md](HANDOFF.md) for status, on-chain evidence, the security model and Meteora references.** In short: all four deployed programs match the source in this repository byte for byte (run `scripts/verify-deployed-bytes.mjs` to check; history in HANDOFF.md §6.1); all four are upgradeable by one key; and no program has been audited. Program crates keep the working name "stockroom"; HANDOFF.md §11 explains why.
 
-Tests: `node --test tests/*.test.mjs` runs 38 compiled-program tests (credit 12, rewards 11, treasury 5, treasury Stock Floor 8, treasury partner metadata 1, treasury registration 1), and `cargo test -p credit-math` runs 6.
+Tests: `node --test tests/*.test.mjs` runs 56 compiled-program tests (credit 12, rewards 11, treasury 5, treasury Stock Floor 8, treasury partner metadata 1, treasury registration 1, treasury platform split 18), and `cargo test -p credit-math` runs 6.
 
 ## Historical credit prototype
 
