@@ -1,6 +1,6 @@
 {
   "network": "solana:devnet",
-  "checkedAt": "2026-09-23T20:58:37.778Z",
+  "checkedAt": "2026-09-24T10:02:39.174Z",
   "method": "sha256 of ProgramData bytes [45, 45 + local length), remainder required to be zero",
   "results": [
     {
@@ -10,9 +10,9 @@
       "upgradeAuthority": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
       "local": {
         "path": "target/deploy/stockroom_treasury.so",
-        "bytes": 339904,
-        "sha256": "b3e4f665c5af00827ce1abcba4bb337ae58c69ce8ab0f9d3f06d5fa46a691686",
-        "deployedWindowSha256": "b3e4f665c5af00827ce1abcba4bb337ae58c69ce8ab0f9d3f06d5fa46a691686",
+        "bytes": 363848,
+        "sha256": "3f0cde8ffb43a3f87bdddbf9e3ea93cc8ac28fc824c957cae2eb6192865562e9",
+        "deployedWindowSha256": "3f0cde8ffb43a3f87bdddbf9e3ea93cc8ac28fc824c957cae2eb6192865562e9",
         "tailIsZero": true,
         "matches": true
       }
@@ -25,8 +25,8 @@
       "local": {
         "path": "target/deploy/stockroom_rewards.so",
         "bytes": 329552,
-        "sha256": "2552f2b1fbdb29f99c1d589906d2ff97d21e7347185bff8619a49eea65feccb0",
-        "deployedWindowSha256": "2552f2b1fbdb29f99c1d589906d2ff97d21e7347185bff8619a49eea65feccb0",
+        "sha256": "9b860dabee5a921ec0be8be4fea8c4a42b8e83987fbaa44167018ca1aac33868",
+        "deployedWindowSha256": "9b860dabee5a921ec0be8be4fea8c4a42b8e83987fbaa44167018ca1aac33868",
         "tailIsZero": true,
         "matches": true
       }

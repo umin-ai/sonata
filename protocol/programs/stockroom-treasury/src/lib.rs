@@ -9,7 +9,7 @@ declare_id!("GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj");
 pub const VAULT_SEED: &[u8] = b"stockroom";
 pub const TREASURY_SEED: &[u8] = b"treasury";
 
-/// Payout share in basis points, fixed at treasury creation.
+/// How claimed fees are split, fixed at treasury creation.
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
     /// 100% paid out now, nothing retained (StonkFun-style).
@@ -21,16 +21,48 @@ pub enum Mode {
     /// Stock Floor: 50% paid out, 50% retained as a floor that holders redeem by
     /// burning the community token. The creator can never withdraw it.
     Floor,
+    // Variants are appended only, so every existing Treasury account decodes unchanged.
+    /// Sonata platform share: 50% to the creator, 50% to Sonata. Split by
+    /// `distribute_split`, not `distribute`.
+    Standard,
+    /// Sonata platform share with a Stock Floor: 25% to the creator, 25% retained
+    /// as a floor that holders redeem (the creator can never withdraw it), 50% to
+    /// Sonata. Split by `distribute_split`, not `distribute`.
+    StandardFloor,
 }
 
 impl Mode {
+    /// Share of each distribution paid to the payout owner, in basis points.
     pub fn payout_bps(&self) -> u64 {
         match self {
             Mode::Refrain => 10_000,
             Mode::Duet => 5_000,
             Mode::Sustain => 0,
             Mode::Floor => 5_000,
+            Mode::Standard => 5_000,
+            Mode::StandardFloor => 2_500,
         }
+    }
+
+    /// (creator_bps, floor_bps) for the modes split by `distribute_split`; the
+    /// platform takes the rest, including rounding. None for the modes split by
+    /// `distribute`.
+    pub fn split_bps(&self) -> Option<(u64, u64)> {
+        match self {
+            Mode::Standard => Some((5_000, 0)),
+            Mode::StandardFloor => Some((2_500, 2_500)),
+            Mode::Refrain | Mode::Duet | Mode::Sustain | Mode::Floor => None,
+        }
+    }
+
+    /// Whether distributions pay a share to the Sonata platform (Vault admin).
+    pub fn has_platform_share(&self) -> bool {
+        self.split_bps().is_some()
+    }
+
+    /// Whether the retained balance is a Stock Floor redeemable by holders.
+    pub fn has_floor(&self) -> bool {
+        matches!(self, Mode::Floor | Mode::StandardFloor)
     }
 }
 
@@ -60,7 +92,9 @@ pub struct Treasury {
     /// Raw quote units retained in the treasury token account, lifetime.
     pub total_retained: u64,
     /// Raw quote units that left the retained balance, lifetime: to the creator, or in
-    /// Floor mode to holders who redeemed. Not a credit or yield position.
+    /// Floor mode to holders who redeemed. Not a credit or yield position. In Standard
+    /// and StandardFloor modes the platform share is counted as retained and withdrawn
+    /// in the same instruction, so retained - withdrawn stays the floor.
     pub total_withdrawn: u64,
     pub last_claim_ts: i64,
 }
@@ -216,6 +250,10 @@ pub mod stockroom_treasury {
 
     /// Split what has been claimed but not yet allocated: payout share out, remainder retained.
     pub fn distribute(ctx: Context<Distribute>) -> Result<()> {
+        require!(
+            !ctx.accounts.treasury.mode.has_platform_share(),
+            TreasuryError::UseDistributeSplit
+        );
         let (pool, bump, unallocated, payout_bps) = {
             let t = &ctx.accounts.treasury;
             let unallocated = t
@@ -264,10 +302,88 @@ pub mod stockroom_treasury {
         Ok(())
     }
 
+    /// Standard and StandardFloor: split what has been claimed but not yet allocated
+    /// three ways. The creator share (rounded down) goes to the payout owner, the floor
+    /// share (rounded down) stays in custody as the Stock Floor, and the platform takes
+    /// the rest, paid to a token account of the Vault admin. Permissionless: every
+    /// destination is pinned. The platform share is booked as retained and withdrawn
+    /// at once, so retained - withdrawn remains the floor and custody still covers
+    /// unallocated + (retained - withdrawn).
+    pub fn distribute_split(ctx: Context<DistributeSplit>) -> Result<()> {
+        let (pool, bump, unallocated, (creator_bps, floor_bps)) = {
+            let t = &ctx.accounts.treasury;
+            let split = t.mode.split_bps().ok_or(TreasuryError::UseDistribute)?;
+            let unallocated = t
+                .total_claimed
+                .saturating_sub(t.total_distributed)
+                .saturating_sub(t.total_retained);
+            (t.pool, t.bump, unallocated, split)
+        };
+        require!(unallocated > 0, TreasuryError::NothingToDistribute);
+        let share = |bps: u64| -> Result<u64> {
+            u64::try_from((unallocated as u128) * (bps as u128) / 10_000)
+                .map_err(|_| error!(TreasuryError::Math))
+        };
+        let creator = share(creator_bps)?;
+        let floor = share(floor_bps)?;
+        let platform = unallocated
+            .checked_sub(creator)
+            .and_then(|v| v.checked_sub(floor))
+            .ok_or(TreasuryError::Math)?;
+        let seeds: &[&[u8]] = &[TREASURY_SEED, pool.as_ref(), &[bump]];
+        for (amount, to) in [
+            (creator, ctx.accounts.payout_quote.to_account_info()),
+            (platform, ctx.accounts.platform_quote.to_account_info()),
+        ] {
+            if amount > 0 {
+                anchor_spl::token_interface::transfer_checked(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_quote_program.key(),
+                        anchor_spl::token_interface::TransferChecked {
+                            from: ctx.accounts.treasury_quote.to_account_info(),
+                            mint: ctx.accounts.quote_mint.to_account_info(),
+                            to,
+                            authority: ctx.accounts.treasury.to_account_info(),
+                        },
+                        &[seeds],
+                    ),
+                    amount,
+                    ctx.accounts.quote_mint.decimals,
+                )?;
+            }
+        }
+        let t = &mut ctx.accounts.treasury;
+        t.total_distributed = t
+            .total_distributed
+            .checked_add(creator)
+            .ok_or(TreasuryError::Math)?;
+        t.total_retained = t
+            .total_retained
+            .checked_add(floor)
+            .and_then(|v| v.checked_add(platform))
+            .ok_or(TreasuryError::Math)?;
+        t.total_withdrawn = t
+            .total_withdrawn
+            .checked_add(platform)
+            .ok_or(TreasuryError::Math)?;
+        emit!(SplitDistributed {
+            pool,
+            creator,
+            floor,
+            platform
+        });
+        Ok(())
+    }
+
     /// Return only retained stock to its creator. This is not a yield or collateral position.
     pub fn withdraw_retained(ctx: Context<WithdrawRetained>, amount: u64) -> Result<()> {
         let t = &ctx.accounts.treasury;
-        require!(t.mode != Mode::Floor, TreasuryError::FloorLocked);
+        require!(!t.mode.has_floor(), TreasuryError::FloorLocked);
+        // Standard: the retained balance is only the platform share, already paid out.
+        require!(
+            !t.mode.has_platform_share(),
+            TreasuryError::NoCreatorReserve
+        );
         require!(
             amount > 0
                 && amount
@@ -309,7 +425,7 @@ pub mod stockroom_treasury {
     /// remaining token.
     pub fn redeem(ctx: Context<Redeem>, amount: u64) -> Result<()> {
         let t = &ctx.accounts.treasury;
-        require!(t.mode == Mode::Floor, TreasuryError::NotFloor);
+        require!(t.mode.has_floor(), TreasuryError::NotFloor);
         let floor = t
             .total_retained
             .checked_sub(t.total_withdrawn)
@@ -490,6 +606,25 @@ pub struct Distribute<'info> {
     pub token_quote_program: Interface<'info, TokenInterface>,
 }
 
+#[derive(Accounts)]
+pub struct DistributeSplit<'info> {
+    #[account(seeds = [VAULT_SEED], bump = vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds = [TREASURY_SEED, treasury.pool.as_ref()], bump = treasury.bump, has_one = quote_mint)]
+    pub treasury: Box<Account<'info, Treasury>>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, constraint = payout_quote.owner == treasury.payout_owner @ TreasuryError::InvalidRecipient)]
+    pub payout_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    /// `dup`: when the payout owner is the Vault admin this is the same account as
+    /// `payout_quote`. Token accounts are never serialized by this program, so the
+    /// alias is harmless, and the owner check keeps it distinct from `treasury_quote`.
+    #[account(mut, dup, token::mint = quote_mint, constraint = platform_quote.owner == vault.admin @ TreasuryError::InvalidPlatformRecipient)]
+    pub platform_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub token_quote_program: Interface<'info, TokenInterface>,
+}
+
 #[event]
 pub struct Claimed {
     pub pool: Pubkey,
@@ -500,6 +635,14 @@ pub struct Distributed {
     pub pool: Pubkey,
     pub payout: u64,
     pub retained: u64,
+}
+
+#[event]
+pub struct SplitDistributed {
+    pub pool: Pubkey,
+    pub creator: u64,
+    pub floor: u64,
+    pub platform: u64,
 }
 
 #[event]
@@ -536,4 +679,13 @@ pub enum TreasuryError {
     FloorLocked,
     #[msg("Amount too small to redeem any stock")]
     NothingToRedeem,
+    // Appended so existing error codes are unchanged.
+    #[msg("This mode shares fees with Sonata; use distribute_split")]
+    UseDistributeSplit,
+    #[msg("This mode has no platform share; use distribute")]
+    UseDistribute,
+    #[msg("The platform share goes only to the Vault admin")]
+    InvalidPlatformRecipient,
+    #[msg("This mode keeps no creator-withdrawable reserve")]
+    NoCreatorReserve,
 }

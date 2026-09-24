@@ -1040,7 +1040,7 @@
     {
       "name": "Mode",
       "docs": [
-        "Payout share in basis points, fixed at treasury creation."
+        "How claimed fees are split, fixed at treasury creation."
       ],
       "type": {
         "kind": "enum",
@@ -1056,6 +1056,12 @@
           },
           {
             "name": "Floor"
+          },
+          {
+            "name": "Standard"
+          },
+          {
+            "name": "StandardFloor"
           }
         ]
       }
@@ -1126,7 +1132,9 @@
             "name": "total_withdrawn",
             "docs": [
               "Raw quote units that left the retained balance, lifetime: to the creator, or in",
-              "Floor mode to holders who redeemed. Not a credit or yield position."
+              "Floor mode to holders who redeemed. Not a credit or yield position. In Standard",
+              "and StandardFloor modes the platform share is counted as retained and withdrawn",
+              "in the same instruction, so retained - withdrawn stays the floor."
             ],
             "type": "u64"
           },
