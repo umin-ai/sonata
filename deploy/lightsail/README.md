@@ -322,9 +322,17 @@ each Reward token's metadata once (one batched RPC call plus one HTTPS request
 per token). After the restart the indexer records each graduated market's
 DAMM v2 pool and reads that pool's history once: at most 100 transactions per
 address per indexer loop, oldest first, so the other pools keep being read.
-A market's indexed progress, which Top Buyer rounds wait for, moves only once
-that backfill has caught up; after that each address's progress is the time
-its own last complete read started.
+The same goes for a new market's DBC pool, and on this upgrade for every
+existing pool's first read. A backfill covers the history listed when it
+started (listed once; each loop goes on from where the last one stopped).
+Once it has read that listing's newest transaction, the address's progress
+is stamped with the time the backfill started, and what arrived since is read
+at once, uncapped, as for any caught-up address, so even a busy pool catches
+up. A market's indexed progress, which Top Buyer rounds wait for, moves only
+once that backfill has caught up; after that each address's progress is the
+time its own last complete read started. If the check of whether a DBC pool
+has migrated fails, that pool's trades are still read and only its progress
+waits for a later loop.
 
 **Run once now:** `sudo systemctl start sonata-crank`.
 **Stop it:** `sudo systemctl disable --now sonata-crank.timer` (re-running

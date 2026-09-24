@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
-import { BACKFILL_TRANSACTIONS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, migratedState, syncer } from "./index.mjs";
+import { BACKFILL_TRANSACTIONS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, migratedState, retrying, syncer } from "./index.mjs";
 import { HEAD_LAG_SECONDS, indexProgress } from "./modules/indexer-schema.mjs";
 import { dammPoolAccount, dammSwapTx, dbcAccounts, key } from "./modules/testkit.mjs";
 
@@ -317,6 +317,144 @@ test("a first-run backfill reads at most 100 transactions per address per loop; 
   assert.equal(dammReads(), 150);
   assert.equal(db.trades.size, 400);
   assert.equal(indexProgress(row(graduated)), T + 90 - HEAD_LAG_SECONDS);
+});
+
+// ---- Backfill liveness and the migration read (round 3 review) ----------------
+
+// Many DAMM v2 buys in `pool`: one built swap, copied with each one's time and slot (building each is slow).
+const swaps = (pool) => {
+  const tx = dammSwapTx({ direction: 1, pool });
+  return (blockTime, slot) => ({ ...tx, blockTime, slot });
+};
+
+test("a new pool with 2 successful transactions a second finishes its backfill, is stamped, and stays current", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const [g] = markets(chain, 1);
+  g.graduate();
+  // Swaps land every 0.5 s, also while the loop runs (every sleep moves the clock on).
+  const swap = swaps(g.damm);
+  let n = 0, next = T - 60;
+  const arrive = () => {
+    for (; next <= clock.now; next += 0.5, n++) chain.land(`d${n}`, [g.damm], swap(Math.floor(next), n));
+  };
+  arrive();
+  const sleep = async (ms) => {
+    clock.now += ms / 1000;
+    arrive();
+  };
+  // Real spacing: 350 ms per transaction, 200 ms per address; 20 s between loops.
+  const run = loop(chain, db, clock, { sleep, spacingMs: 350 });
+  const row = () => db.pools.get(g.pool.toBase58());
+  let stampedAt = null;
+  for (let k = 0; k < 40; k++) {
+    const start = clock.now;
+    await run.syncAll();
+    assert.equal(run.state.lastError, null);
+    if (stampedAt === null && row().damm_synced_at != null) stampedAt = k;
+    // Once caught up, every loop is stamped with its own start.
+    if (stampedAt !== null && k > stampedAt) assert.equal(indexProgress(row()), Math.floor(start - HEAD_LAG_SECONDS));
+    await sleep(20_000);
+  }
+  assert.ok(stampedAt !== null && stampedAt <= 2, `stamped at loop ${stampedAt}`);
+  // Every swap read once, and the backlog stays about one loop's worth (2 a second).
+  assert.equal(new Set(db.rows().map((t) => t.signature)).size, db.trades.size);
+  assert.ok(n - db.trades.size < 200, `backlog ${n - db.trades.size}`);
+  assert.ok(clock.now - indexProgress(row()) < 180, `progress ${clock.now - indexProgress(row())} s behind`);
+});
+
+test("a backfill lists the history once, then goes on from where it stopped: 3,000 signatures take a few listing calls", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const [g] = markets(chain, 1);
+  g.graduate();
+  const swap = swaps(g.damm);
+  for (let i = 0; i < 3000; i++) chain.land(`d${i}`, [g.damm], swap(T - 9000 + i, i));
+  const run = loop(chain, db, clock);
+  const listings = () => chain.calls.filter((c) => c === `getSignaturesForAddress ${g.damm.toBase58()}`).length;
+  let loops = 0;
+  do {
+    clock.now += 60;
+    await run.syncAll();
+    assert.equal(run.state.lastError, null);
+    loops++;
+  } while (db.pools.get(g.pool.toBase58()).damm_synced_at == null && loops < 100);
+  assert.equal(loops, 30, "100 transactions per loop");
+  assert.equal(db.trades.size, 3000);
+  // One listing of the whole history (3 full pages and an empty one), one call per page when
+  // its turn comes, and one for what is newer than the head once that is read.
+  assert.equal(listings(), 4 + 3 + 1);
+});
+
+test("a backfill across pages with failed transactions (at page edges and at the head) reads each successful one once, in order, and survives a restart", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const [g] = markets(chain, 1);
+  g.graduate();
+  // Newest first, the history's indices 0, 1000 and 2000 start a listing page: those, and every 7th, failed.
+  const total = 2600;
+  const failed = (i) => i % 7 === 0 || [0, 1000, 2000].includes(total - 1 - i);
+  const ok = [], swap = swaps(g.damm);
+  for (let i = 0; i < total; i++) {
+    if (failed(i)) chain.land(`d${i}`, [g.damm], null, { err: { InstructionError: [0, "x"] } });
+    else {
+      chain.land(`d${i}`, [g.damm], swap(T - 9000 + i, i));
+      ok.push(`d${i}`);
+    }
+  }
+  const reads = () => chain.calls.filter((c) => /^getTransaction d\d+$/.test(c)).map((c) => c.slice("getTransaction ".length));
+  let run = loop(chain, db, clock);
+  for (let k = 0; k < 7; k++) await run.syncAll();
+  // The indexer restarts mid-backfill: it goes on from the saved cursor.
+  run = loop(chain, db, clock);
+  for (let k = 0; k < 30 && db.pools.get(g.pool.toBase58()).damm_synced_at == null; k++) await run.syncAll();
+  assert.equal(run.state.lastError, null);
+  assert.deepEqual(reads(), ok, "every successful transaction read once, oldest first");
+  assert.equal(db.trades.size, ok.length);
+  assert.equal(db.pools.get(g.pool.toBase58()).damm_last_signature, `d${total - 1}`, "the failed head moves the cursor");
+  assert.equal(indexProgress(db.pools.get(g.pool.toBase58())), T - HEAD_LAG_SECONDS);
+});
+
+test("the migration read before a DBC pool's sync retries a 503, and if it still fails the pool's trades are read anyway; only its stamp waits", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const m = market(chain, { pool: new PublicKey("9iuQLtqQETzEjGrPVycWFoANL22W9s3MoNfTt2dfxong") });
+  chain.land("b2", [m.pool], fixture("app-buy.json"));
+  // findGraduated's read goes through; the next `failures` reads of this pool alone fail with a 503.
+  let failures = 0, seen = 0;
+  const read = chain.conn.getMultipleAccountsInfo;
+  chain.conn.getMultipleAccountsInfo = async (keys, c) => {
+    if (keys.length === 1 && keys[0].equals(m.pool) && seen++ > 0 && failures > 0) {
+      failures--;
+      throw Error("503 Service Unavailable: node is behind");
+    }
+    return read(keys, c);
+  };
+  const waits = [];
+  const rpc = retrying(async (ms) => void waits.push(ms));
+  const run = loop(chain, db, clock, { rpc });
+  // Two 503s: retried, and the loop goes on as usual.
+  failures = 2;
+  await run.syncAll();
+  assert.equal(run.state.lastError, null);
+  assert.equal(waits.length, 2);
+  assert.equal(db.trades.size, 1);
+  assert.equal(indexProgress(db.pools.get(m.pool.toBase58())), T - HEAD_LAG_SECONDS);
+  // Failing past the retries: the trades are still read, the stamp is not moved.
+  chain.land("q1", [m.pool], quietTx(T + 10));
+  chain.land("b3", [m.pool], { ...fixture("app-buy.json"), blockTime: T + 20 });
+  clock.now = T + 30;
+  seen = 0;
+  failures = 100;
+  await run.syncAll();
+  assert.match(run.state.lastError, /dbc 9iuQ.*503 Service Unavailable/);
+  assert.equal(db.pools.get(m.pool.toBase58()).last_signature, "b3");
+  assert.deepEqual(db.rows().map((t) => t.signature).sort(), ["b2", "b3"]);
+  assert.equal(indexProgress(db.pools.get(m.pool.toBase58())), T - HEAD_LAG_SECONDS, "progress waits for a loop whose migration read succeeds");
+  // Only transient errors are retried, a bounded number of times.
+  const flaky = (errors) => async () => {
+    if (errors.length) throw Error(errors.shift());
+    return "ok";
+  };
+  assert.equal(await retrying(async () => {})(flaky(["429 Too Many Requests", "502 Bad Gateway", "504 Gateway Timeout", "fetch failed"])), "ok");
+  await assert.rejects(retrying(async () => {})(flaky(["400 Bad Request", "x"])), /400 Bad Request/);
+  await assert.rejects(retrying(async () => {}, { attempts: 2 })(flaky(Array(3).fill("503 Service Unavailable"))), /503/);
 });
 
 test("graduation is read from the DBC pool and config and checked against the DAMM v2 pool's tokens", () => {
