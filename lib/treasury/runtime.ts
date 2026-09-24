@@ -36,6 +36,11 @@ import { isProfileUrl } from "../token-profile";
 // "floor": 50% to the payout wallet, 50% Stock Floor that only holders redeem.
 export type TreasuryMode = "standard" | "standardFloor" | "refrain" | "duet" | "floor";
 const MODES: TreasuryMode[] = ["standard", "standardFloor", "refrain", "duet", "floor"];
+// Reward tokens are Standard-mode markets whose payout owner is Sonata's payout
+// bot: it receives the creator's share and pays it to holders pro rata.
+export const REWARDS_WALLET = "Fb83XLPdUM11FrUUBNaB1JXJ2feJacNkcPGUzP8dtGz";
+export const isRewardMarket = (m: { payoutOwner: string; mode?: TreasuryMode }) =>
+  m.payoutOwner === REWARDS_WALLET && m.mode === "standard";
 /** Modes whose retained balance is a holder-redeemable Stock Floor. */
 export const hasFloor = (mode?: TreasuryMode) => mode === "floor" || mode === "standardFloor";
 export type Market = typeof initialMarket & {
@@ -875,6 +880,8 @@ export type LaunchCurve = {
   floor?: boolean;
   // Optional first buy, in quote tokens.
   devBuy?: number;
+  // Reward token: the creator's share is paid to holders by Sonata's payout bot.
+  reward?: boolean;
 };
 const MAX_TX_BYTES = 1232;
 function txBytes(tx: Transaction, feePayer: PublicKey) {
@@ -916,6 +923,8 @@ export async function prepareLaunch(
     );
   if (!/^[A-Z][A-Z0-9]{1,9}$/.test(symbol))
     throw Error("Use a 2–10 character uppercase ticker.");
+  // A reward token's payout owner is always Sonata's payout bot.
+  if (curve.reward) payout = REWARDS_WALLET;
   const owner = pk(wallet),
     recipient = pk(payout);
   if (!PublicKey.isOnCurve(recipient.toBytes()))
@@ -954,7 +963,7 @@ export async function prepareLaunch(
     creator: wallet,
     payoutOwner: payout,
     // Creator 50% / Sonata 50% of claimed fees, or creator 25% / floor 25% / Sonata 50%.
-    mode: curve.floor ? "standardFloor" : "standard",
+    mode: curve.floor && !curve.reward ? "standardFloor" : "standard",
     fee: curve.fee,
     ...(uri ? { uri } : {}),
     baseVault: deriveDbcTokenVaultAddress(pool, mint.publicKey).toBase58(),

@@ -20,6 +20,7 @@ import {
 import { ArrowUpRight, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
+  isRewardMarket,
   connection,
   market,
   explorer,
@@ -569,7 +570,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   : review.liquidity
                     ? "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
                     : review.action === "launch"
-                      ? `${review.bundle ? `One approval, ${review.bundle.length + 1} transactions sent in order: this launch's Meteora config, then the token and its pool${review.devBuy ? `, with your first buy of ${review.devBuy.quoteAmount} ${review.devBuy.quote} for about ${review.devBuy.percent.toFixed(2)}% of the supply as its very first trade, in the same transaction, so nothing trades before you` : ""}, then the Sonata treasury. ` : "Create a permanent token and its own Meteora pool with the trading fee you chose. "}Net collected fees go ${review.market?.mode === "standardFloor" ? "25% to your fixed recipient, 25% to the Stock Floor, which only holders can redeem, and 50% to Sonata" : review.market?.mode === "standard" ? "50% to your fixed recipient and 50% to Sonata" : review.market?.mode === "floor" ? "50% to your fixed recipient and 50% to the Stock Floor, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. At graduation you get half of the locked pool, which keeps earning fees.${review.bundle ? "" : " A second signature activates the treasury."}`
+                      ? `${review.bundle ? `One approval, ${review.bundle.length + 1} transactions sent in order: this launch's Meteora config, then the token and its pool${review.devBuy ? `, with your first buy of ${review.devBuy.quoteAmount} ${review.devBuy.quote} for about ${review.devBuy.percent.toFixed(2)}% of the supply as its very first trade, in the same transaction, so nothing trades before you` : ""}, then the Sonata treasury. ` : "Create a permanent token and its own Meteora pool with the trading fee you chose. "}Net collected fees go ${review.market && isRewardMarket(review.market) ? "50% to holders, paid out by Sonata's payout bot in the stock, and 50% to Sonata" : review.market?.mode === "standardFloor" ? "25% to your fixed recipient, 25% to the Stock Floor, which only holders can redeem, and 50% to Sonata" : review.market?.mode === "standard" ? "50% to your fixed recipient and 50% to Sonata" : review.market?.mode === "floor" ? "50% to your fixed recipient and 50% to the Stock Floor, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. At graduation you get half of the locked pool, which keeps earning fees.${review.bundle ? "" : " A second signature activates the treasury."}`
                       : review.action === "register"
                         ? review.market?.mode === "standard" || review.market?.mode === "standardFloor"
                           ? "Register the creator, immutable recipient and fee split in Sonata, and create its custody accounts."

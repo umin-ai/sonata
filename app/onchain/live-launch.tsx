@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
-import { ArrowUpRight, ShieldCheck, Wallet } from "lucide-react";
+import { ArrowUpRight, Info } from "lucide-react";
 import Link from "@/app/plain-link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,11 @@ export function LiveLaunch() {
   );
   const [targetUsd, setTargetUsd] = useState(DEFAULT_TARGET_USD);
   const [devBuyText, setDevBuyText] = useState("");
+  // Fee model: standard (creator earns), reward (holders earn), backed (a stock reserve).
+  const model = settings.reward ? "reward" : settings.floor ? "backed" : "standard";
+  // Switching model starts from the default 1.25% fee; More options can change it.
+  const setModel = (m: "standard" | "reward" | "backed") =>
+    setSettings((s) => ({ ...s, fee: 125, reward: m === "reward", floor: m === "backed" }));
   const [name, setName] = useState(""),
     [symbol, setSymbol] = useState(""),
     [payout, setPayout] = useState(""),
@@ -288,7 +293,7 @@ export function LiveLaunch() {
   const launch = () =>
     void execute(async () => {
       const go = (uri: string) =>
-        prepareLaunch(address, name.trim(), symbol, payout.trim() || address, { ...settings, devBuy: devBuy || 0 }, uri);
+        prepareLaunch(address, name.trim(), symbol, payout.trim() || address, { ...settings, reward: model === "reward", devBuy: devBuy || 0 }, uri);
       // Publish the metadata first so its URI is fixed into the token. Every launch
       // gets one, naming Sonata. Without a profile it is optional: a failed upload,
       // or a name too long to fit a URI in the transaction, launches with no URI.
@@ -378,58 +383,57 @@ export function LiveLaunch() {
           <Card className="sr-panel launch-form">
             <section className="launch-section">
               <span className="sr-eyebrow">1 · FEE MODEL</span>
-              <div className="earnings-cards" role="radiogroup" aria-label="Fee model">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={!settings.floor}
-                  onClick={() => setSettings((s) => ({ ...s, floor: false }))}
-                >
-                  <strong>
-                    <Wallet size={16} /> Standard token
-                  </strong>
-                  <span>You earn {pct(settings.fee * 0.4)} of every trade, in {q}.</span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settings.floor}
-                  onClick={() => setSettings((s) => ({ ...s, floor: true }))}
-                >
-                  <strong>
-                    <ShieldCheck size={16} /> Stock Floor token
-                  </strong>
-                  <span>
-                    You earn {pct(settings.fee * 0.2)}. Another {pct(settings.fee * 0.2)} builds a {q} floor holders can
-                    cash out.
-                  </span>
-                </button>
+              <div className="segmented" role="radiogroup" aria-label="Fee model">
+                {(
+                  [
+                    ["standard", "Standard token"],
+                    ["reward", "Reward token"],
+                    ["backed", "Backed token"],
+                  ] as const
+                ).map(([key, title]) => (
+                  <button type="button" role="radio" key={key} aria-checked={model === key} onClick={() => setModel(key)}>
+                    {title}
+                  </button>
+                ))}
               </div>
-              <div className="holder-rewards">
-                <span>Holder rewards</span>
-                <div className="holder-rewards-options" role="radiogroup" aria-label="Holder rewards">
-                  {[false, true].map((floor) => (
-                    <button
-                      type="button"
-                      role="radio"
-                      key={String(floor)}
-                      aria-checked={settings.floor === floor}
-                      onClick={() => setSettings((s) => ({ ...s, floor }))}
-                    >
-                      {floor ? pct(settings.fee * 0.2) : "None"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="sr-note">
-                {settings.floor
-                  ? `${pct(settings.fee * 0.2)} of every trade builds a ${q} floor holders cash out by burning. No extra tax on trades.`
-                  : "A standard token has no holder rewards. Pick a share to launch a Stock Floor token instead."}
-              </p>
-              <p className="per-thousand">
-                Fee {pct(settings.fee)}: you {pct(settings.fee * (settings.floor ? 0.2 : 0.4))}
-                {settings.floor ? ` · floor ${pct(settings.fee * 0.2)}` : ""} · Sonata {pct(settings.fee * 0.4)} ·
-                Meteora {pct(settings.fee * 0.2)}
+              {model !== "backed" && (
+                <>
+                  <Label>Holder rewards</Label>
+                  <div className="segmented" role="radiogroup" aria-label="Holder rewards">
+                    {([0, 125, 300] as const).map((fee) => (
+                      <button
+                        type="button"
+                        role="radio"
+                        key={fee}
+                        aria-checked={fee === 0 ? model === "standard" : model === "reward" && settings.fee === fee}
+                        onClick={() =>
+                          fee === 0
+                            ? setModel("standard")
+                            : setSettings((s) => ({ ...s, fee, reward: true, floor: false }))
+                        }
+                      >
+                        {fee === 0 ? "None" : pct(fee * 0.4)}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="sr-note">
+                    {model === "reward"
+                      ? "Paid to holders from every trade. No extra tax."
+                      : "A standard token has no holder rewards. Pick a rate to launch a reward token instead."}
+                  </p>
+                </>
+              )}
+              <p className="launch-info">
+                <Info size={16} />
+                <span>
+                  Your token launches on a Meteora bonding curve and graduates into a Meteora pool at{" "}
+                  {compactUsd(targetUsd)}.{" "}
+                  {model === "reward"
+                    ? `${pct(settings.fee * 0.4)} of every trade is paid to holders automatically, in ${q}. There is no separate creator fee; the creator is treated like any other holder.`
+                    : model === "backed"
+                      ? `You earn ${pct(settings.fee * 0.2)} of every trade. Another ${pct(settings.fee * 0.2)} builds a ${q} reserve that backs every token: holders can cash out for their share any time.`
+                      : `You earn ${pct(settings.fee * 0.4)} of every trade, sent to your wallet in ${q} automatically, and half of the locked pool after graduation.`}
+                </span>
               </p>
             </section>
 
@@ -521,7 +525,7 @@ export function LiveLaunch() {
             <details className="launch-disclosure launch-more">
               <summary>
                 More options · {settings.fee / 100}% fee · graduates at {compactUsd(targetUsd)}
-                {payTo ? ` · pays to ${short(payTo)}` : ""}
+                {model !== "reward" && payTo ? ` · pays to ${short(payTo)}` : ""}
               </summary>
               <fieldset>
                 <legend>Trading fee</legend>
@@ -557,7 +561,7 @@ export function LiveLaunch() {
                 </div>
                 <p className="sr-note">Opens at {formatUsd(OPEN_USD)}. Liquidity is locked forever at graduation.</p>
               </fieldset>
-              <div>
+              {model !== "reward" && <div>
                 <Label htmlFor="payout-wallet">Payout wallet</Label>
                 <Input
                   id="payout-wallet"
@@ -569,7 +573,7 @@ export function LiveLaunch() {
                 <p className={payoutOk ? "sr-note" : "sr-note text-destructive"}>
                   {payoutOk ? "Fixed at launch. Leave blank for your wallet." : "Not a Solana address."}
                 </p>
-              </div>
+              </div>}
             </details>
             <p className="sr-note mt-3">
               <MeteoraLabel>Powered by Meteora</MeteoraLabel>
@@ -582,55 +586,37 @@ export function LiveLaunch() {
               <TokenPair base={symbol || "TOKEN"} quote={q} />
             </h3>
             <p className="sr-note">{name.trim() || "Your token name"}</p>
-            <div className="sr-detail-row">
-              <span>Opens at</span>
-              <strong>{settings.pricing ? formatUsd(settings.pricing.openUsd) : `${settings.initial} ${q}`}</strong>
-            </div>
-            <div className="sr-detail-row">
-              <span>Graduates at</span>
-              <strong>
-                {settings.pricing ? formatUsd(settings.pricing.targetUsd) : `${settings.target} ${q}`}
-                {raiseText !== "—" ? ` · ${raiseText} raised` : ""}
-              </strong>
-            </div>
-            <div className="sr-detail-row">
-              <span>Trading fee</span>
-              <strong>{settings.fee / 100}%</strong>
-            </div>
-            <div className="sr-detail-row">
-              <span>You earn</span>
-              <strong>{pct(settings.fee * (settings.floor ? 0.2 : 0.4))} per trade · in <TokenName symbol={q} /></strong>
-            </div>
-            {settings.floor && (
-              <div className="sr-detail-row">
-                <span>Stock Floor</span>
-                <strong>{pct(settings.fee * 0.2)} per trade</strong>
+            {(
+              [
+                ["Fee model", model === "reward" ? "Reward token" : model === "backed" ? "Backed token" : "Standard token"],
+                ["Pair", q],
+                [
+                  "Graduates at",
+                  `${settings.pricing ? compactUsd(settings.pricing.targetUsd) : `${settings.target} ${q}`}${raiseText !== "—" ? ` · ${raiseText} raised` : ""}`,
+                ],
+                ["Supply", "1 billion"],
+                ["Trading fee", pct(settings.fee)],
+                ["Fee → creator", model === "reward" ? "None" : pct(settings.fee * (model === "backed" ? 0.2 : 0.4))],
+                [
+                  "Fee → holders",
+                  model === "reward"
+                    ? `${pct(settings.fee * 0.4)} · paid out`
+                    : model === "backed"
+                      ? `${pct(settings.fee * 0.2)} · as backing`
+                      : "None",
+                ],
+                ["Fee → Sonata", pct(settings.fee * 0.4)],
+                ["Fee → Meteora", pct(settings.fee * 0.2)],
+                ["After graduation → creator", "Half the locked pool"],
+                ...(devBuyTokens ? [["First buy", `${devBuy} ${q} · ≈ ${devBuyTokens.percent.toFixed(2)}%`]] : []),
+                ["Launch cost", `${LAUNCH_COST_SOL} · rent only`],
+              ] as [string, string][]
+            ).map(([label, value]) => (
+              <div className="sr-detail-row" key={label}>
+                <span>{label}</span>
+                <strong>{value}</strong>
               </div>
-            )}
-            <div className="sr-detail-row">
-              <span>Sonata</span>
-              <strong>{pct(settings.fee * 0.4)} per trade</strong>
-            </div>
-            <div className="sr-detail-row">
-              <span>After graduation</span>
-              <strong>You own half the locked pool</strong>
-            </div>
-            {devBuyTokens && (
-              <div className="sr-detail-row">
-                <span>Your first buy</span>
-                <strong>
-                  {devBuy} {q} · ≈ {devBuyTokens.percent.toFixed(2)}%
-                </strong>
-              </div>
-            )}
-            <div className="sr-detail-row">
-              <span>Supply</span>
-              <strong>1 billion · fixed</strong>
-            </div>
-            <div className="sr-detail-row">
-              <span>Launch cost</span>
-              <strong>{LAUNCH_COST_SOL} · Devnet</strong>
-            </div>
+            ))}
             {curveError && (
               <p className="sr-note text-destructive" role="alert">
                 {curveError}

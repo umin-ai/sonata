@@ -54,6 +54,25 @@ async function migrate() {
       primary key (signature, ix_index)
     );
     create index if not exists trades_pool_time on trades (pool, block_time desc);
+    -- Reward token payouts, written by the crank (indexer/rewards.mjs): one row
+    -- per confirmed payout transaction, and payouts signed but not yet settled.
+    create table if not exists reward_payouts (
+      pool text not null,
+      signature text not null,
+      amount numeric not null,
+      recipients int not null,
+      paid_at timestamptz not null,
+      primary key (signature)
+    );
+    create index if not exists reward_payouts_pool_time on reward_payouts (pool, paid_at desc);
+    create table if not exists reward_pending (
+      signature text primary key,
+      pool text not null,
+      amount numeric not null,
+      recipients int not null,
+      last_valid_block_height bigint not null,
+      sent_at timestamptz not null default now()
+    );
   `);
 }
 
@@ -185,6 +204,24 @@ async function route(url) {
          from pools p`,
     );
     return { supply: SUPPLY_TOKENS, pools: rows };
+  }
+  // Reward token payouts to holders (confirmed transactions only), in quote atoms.
+  if (url.pathname === "/api/index/rewards") {
+    if (!isPool(q.get("pool"))) return 400;
+    const { rows: [r] } = await db.query(
+      `select coalesce(sum(amount), 0)::text as paid, count(*)::int as payouts,
+              (select recipients from reward_payouts where pool = $1 order by paid_at desc, signature desc limit 1) as recipients_last,
+              floor(extract(epoch from max(paid_at)))::bigint::text as last_paid_at
+         from reward_payouts where pool = $1`,
+      [q.get("pool")],
+    );
+    return {
+      pool: q.get("pool"),
+      paid: r.paid,
+      payouts: r.payouts,
+      recipientsLast: r.recipients_last ?? 0,
+      lastPaidAt: r.last_paid_at === null ? null : Number(r.last_paid_at),
+    };
   }
   return 404;
 }

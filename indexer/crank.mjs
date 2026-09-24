@@ -11,15 +11,22 @@
 //      Floor, 50% Sonata). Sonata's share goes to the Token-2022 quote account of
 //      the Vault admin, read from the Vault account each pass.
 // All three instructions are permissionless and every destination is pinned
-// onchain, so this key can only pay network fees (and rent for a missing payout
-// or platform token account), never redirect funds. Claim and distribute are
-// built as lib/treasury/runtime.ts prepareTreasury builds them for "collect",
+// onchain, so for these the key only pays network fees (and rent for a missing
+// payout or platform token account), never redirects funds. Claim and distribute
+// are built as lib/treasury/runtime.ts prepareTreasury builds them for "collect",
 // "allocate" and "sync", and markets are verified as readTreasury verifies them.
+//
+// Reward tokens (indexer/rewards.mjs) are the exception: markets whose
+// payout_owner is this key. Their creator share lands in this key's quote
+// account, and after the step above the crank pays it on to the base token's
+// holders, pro rata, recorded in the indexer's PostgreSQL ledger.
 //
 // Env: CRANK_KEYPAIR (default /opt/sonata/crank-keypair.json),
 //      SOLANA_RPC_URL (default: public Devnet), CRANK_MIN_ATOMS (default 10000),
 //      CRANK_DRY_RUN=1 (build and simulate only; nothing is sent),
-//      CRANK_SPACING_MS (pause between RPC calls, default 500).
+//      CRANK_SPACING_MS (pause between RPC calls, default 500),
+//      DATABASE_URL (the reward ledger; without it reward payouts are skipped),
+//      REWARD_MIN_ATOMS (smallest owed amount paid out, default 100000).
 import { readFileSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import anchor from "@coral-xyz/anchor";
@@ -40,6 +47,9 @@ import {
   unpackAccount,
   unpackMint,
 } from "@solana/spl-token";
+import { DEFAULT_REWARD_MIN_ATOMS, MAX_TX_BYTES, payRewards, pgLedger, txBytes } from "./rewards.mjs";
+
+export { MAX_TX_BYTES, txBytes };
 
 const json = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const treasuryIdl = json("../lib/treasury/stockroom_treasury.json");
@@ -49,7 +59,9 @@ const QUOTE_MINTS = new Set(json("../lib/treasury/quote-assets.json").assets.map
 
 export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 export const DEFAULT_MIN_ATOMS = 10_000n;
-export const MAX_TX_BYTES = 1232;
+// Reward payouts start no new transaction after this much of a pass, well inside
+// the service's TimeoutStartSec; what is left stays owed for the next pass.
+const REWARD_BUDGET_MS = 8 * 60_000;
 const pk = (s) => new PublicKey(s);
 // Only builds instructions and decodes accounts; it never sends through this connection.
 const program = new anchor.Program(treasuryIdl, { connection: new Connection("http://127.0.0.1:1") });
@@ -154,14 +166,6 @@ const distributeSplitIx = (m) =>
     })
     .instruction();
 
-export function txBytes(instructions, feePayer) {
-  const tx = new Transaction().add(...instructions);
-  tx.feePayer = feePayer;
-  tx.recentBlockhash = PublicKey.default.toBase58();
-  const message = tx.compileMessage();
-  return 1 + message.header.numRequiredSignatures * 64 + message.serialize().length;
-}
-
 /**
  * The transactions for a plan: one when claim and distribute fit together,
  * otherwise claim first and distribute after it confirms. Each step is a list
@@ -215,6 +219,28 @@ function marketOf(address, t) {
     treasuryQuote: getAssociatedTokenAddressSync(t.quoteMint, treasury, true, TOKEN_2022_PROGRAM_ID),
     payoutQuote: getAssociatedTokenAddressSync(t.quoteMint, t.payoutOwner, true, TOKEN_2022_PROGRAM_ID),
   };
+}
+
+/**
+ * A reward market's lifetime payout-owner total from a fresh read of its
+ * treasury account, after this pass's distribute. Throws unless it is still
+ * the same market's treasury.
+ */
+export function rewardTotals(info, m) {
+  if (!info?.owner.equals(program.programId)) throw Error("treasury account missing or not owned by the treasury program");
+  const t = check("treasury", () => program.coder.accounts.decode("treasury", Buffer.from(info.data)));
+  if (!t.pool.equals(m.pool) || !t.payoutOwner.equals(m.payoutOwner) || !t.quoteMint.equals(m.quoteMint) || !t.baseMint.equals(m.baseMint))
+    throw Error("treasury does not match this market");
+  return { totalDistributed: BigInt(t.totalDistributed.toString()) };
+}
+
+// The DBC pool's base vault, checked as inspect() checks the pool.
+function poolBaseVault(m, info) {
+  if (!info?.owner.equals(pk(dbc.program))) throw Error("pool is not owned by Meteora DBC");
+  const decoded = dbcCoder.decode("virtualPool", info.data);
+  const p = decoded.poolState ?? decoded;
+  if (!p.config.equals(m.config) || !p.baseMint.equals(m.baseMint)) throw Error("pool does not match this treasury");
+  return p.baseVault;
 }
 
 /**
@@ -305,11 +331,23 @@ const format = (tag, fields) =>
     .map(([k, v]) => `${k}=${field(v)}`)].join(" ");
 
 /**
- * One pass over every market. Returns the counts; per-market failures are
- * logged and counted, never thrown. Throws only if the pass cannot start
- * (wrong network, or markets cannot be listed).
+ * One pass over every market, then reward payouts for the markets whose payout
+ * owner is `payer` (with `ledger`, see indexer/rewards.mjs pgLedger; null skips
+ * them). Returns the counts, with `rewards` when there are reward markets;
+ * per-market failures are logged and counted, never thrown. Throws only if the
+ * pass cannot start (wrong network, or markets cannot be listed).
  */
-export async function runPass({ connection, payer, minAtoms = DEFAULT_MIN_ATOMS, dryRun = false, spacingMs = 500, log = console.log }) {
+export async function runPass({
+  connection,
+  payer,
+  minAtoms = DEFAULT_MIN_ATOMS,
+  dryRun = false,
+  spacingMs = 500,
+  log = console.log,
+  ledger = null,
+  rewardMinAtoms = DEFAULT_REWARD_MIN_ATOMS,
+  confirmPollMs = 2000,
+}) {
   const started = Date.now();
   let calls = 0;
   // Spaced, with backoff on the public RPC's rate limits (as indexer/index.mjs).
@@ -415,7 +453,7 @@ export async function runPass({ connection, payer, minAtoms = DEFAULT_MIN_ATOMS,
       return { ok: false, text: String(e?.transactionMessage ?? e?.message ?? e).slice(0, 300) };
     }
     for (let i = 0; i < 30; i++) {
-      await sleep(2000);
+      await sleep(confirmPollMs);
       const { value: [status] } = await rpc(() => connection.getSignatureStatuses([signature]));
       if (status?.err) return { ok: false, signature, ...describe(status.err, [], step) };
       if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized")
@@ -505,7 +543,42 @@ export async function runPass({ connection, payer, minAtoms = DEFAULT_MIN_ATOMS,
       log(format("market", { ...base, action: "fail", reason: errText(e) }));
     }
   }
-  log(format("summary", { ...counts, dryRun: dryRun ? 1 : 0, rpc: calls, ms: Date.now() - started }));
+
+  // Reward tokens: after every market's claim/distribute, pay what the crank key
+  // received for them on to their holders.
+  const rewardMarkets = markets.filter((m) => m.payoutOwner.equals(payer.publicKey));
+  let rewardLine = {};
+  if (rewardMarkets.length) {
+    // The DBC base vault is excluded from holders; inspect() sets it, unless the
+    // market failed before reaching it (for example an unreadable Vault).
+    for (const m of rewardMarkets)
+      if (!m.baseVault) {
+        try {
+          m.baseVault = poolBaseVault(m, lookup(m.pool));
+        } catch {
+          // payRewards reports the market as not verified.
+        }
+      }
+    const r = await payRewards({
+      markets: rewardMarkets,
+      authority: payer,
+      connection,
+      rpc,
+      simulate,
+      blockhash,
+      ledger,
+      readTreasury: rewardTotals,
+      feePayerOf: (m) => (simulateAsCreator ? m.creator : payer.publicKey),
+      minAtoms: rewardMinAtoms,
+      dryRun,
+      deadline: started + REWARD_BUDGET_MS,
+      pollMs: confirmPollMs,
+      log: (tag, fields) => log(format(tag, fields)),
+    });
+    counts.rewards = r;
+    rewardLine = { rewardMarkets: r.markets, rewardTxs: r.txs, rewardAtoms: r.atoms, rewardFailed: r.failed };
+  }
+  log(format("summary", { ...counts, rewards: undefined, ...rewardLine, dryRun: dryRun ? 1 : 0, rpc: calls, ms: Date.now() - started }));
   return counts;
 }
 
@@ -530,20 +603,36 @@ async function main() {
   const env = process.env;
   const minRaw = env.CRANK_MIN_ATOMS ?? String(DEFAULT_MIN_ATOMS);
   if (!/^\d+$/.test(minRaw)) throw Error("CRANK_MIN_ATOMS must be a whole number of quote atoms.");
+  const rewardMinRaw = env.REWARD_MIN_ATOMS ?? String(DEFAULT_REWARD_MIN_ATOMS);
+  if (!/^\d+$/.test(rewardMinRaw)) throw Error("REWARD_MIN_ATOMS must be a whole number of quote atoms.");
   const payer = loadKeypair(env.CRANK_KEYPAIR || "/opt/sonata/crank-keypair.json");
   // Our own backoff handles the public RPC's rate limits.
   const connection = new Connection(env.SOLANA_RPC_URL || "https://api.devnet.solana.com", {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
   });
-  const counts = await runPass({
-    connection,
-    payer,
-    minAtoms: BigInt(minRaw),
-    dryRun: env.CRANK_DRY_RUN === "1",
-    spacingMs: Number(env.CRANK_SPACING_MS || 500),
-  });
-  return counts.failed ? 1 : 0;
+  // The reward ledger (the indexer's database). The pool connects only if a
+  // reward market needs it.
+  let db = null;
+  if (env.DATABASE_URL) {
+    const { default: pg } = await import("pg");
+    db = new pg.Pool({ connectionString: env.DATABASE_URL, max: 2, connectionTimeoutMillis: 10_000 });
+    db.on("error", (e) => console.log(`warn: reward ledger connection: ${errText(e)}`));
+  }
+  try {
+    const counts = await runPass({
+      connection,
+      payer,
+      minAtoms: BigInt(minRaw),
+      dryRun: env.CRANK_DRY_RUN === "1",
+      spacingMs: Number(env.CRANK_SPACING_MS || 500),
+      ledger: db && pgLedger(db),
+      rewardMinAtoms: BigInt(rewardMinRaw),
+    });
+    return counts.failed || counts.rewards?.failed ? 1 : 0;
+  } finally {
+    await db?.end();
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)

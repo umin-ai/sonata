@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
 import {
+  isRewardMarket,
   hasFloor,
   readTreasury,
   prepareTreasury,
@@ -42,6 +43,49 @@ import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-vie
 import { LiveWallet, useLive } from "./live-session";
 import type { Market } from "@/lib/treasury/runtime";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
+// Reward tokens: the creator's share is sent to Sonata's payout bot, which pays
+// holders pro rata. Payouts come from the trade indexer's ledger.
+function HolderRewardsPanel({ market, sentToBot, quote }: { market: Market; sentToBot: string; quote: string }) {
+  const [paid, setPaid] = useState<{ paid: string; payouts: number; recipientsLast: number; lastPaidAt: number | null } | null>(null);
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/index/rewards?pool=${market.pool}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ paid: string; payouts: number; recipientsLast: number; lastPaidAt: number | null }>) : null))
+      .then((d) => {
+        if (active && d) setPaid(d);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [market.pool]);
+  return (
+    <Card className="sr-panel">
+      <span className="sr-eyebrow">03 / PAID TO HOLDERS</span>
+      <h3>Holder rewards</h3>
+      <div className="sr-position-strip">
+        <div>
+          <span>Paid to holders</span>
+          <strong>
+            {paid ? formatUnits(paid.paid) : "—"} <TokenName symbol={quote} />
+          </strong>
+        </div>
+        <div>
+          <span>Collected for holders</span>
+          <strong>
+            {sentToBot} <TokenName symbol={quote} />
+          </strong>
+        </div>
+      </div>
+      <p className="sr-note">
+        Paid pro rata to holders of at least 0.01% of the supply, about every 15 minutes, in {quote}.{" "}
+        {paid?.lastPaidAt
+          ? `Last payout ${sinceText(paid.lastPaidAt, Date.now())} to ${paid.recipientsLast} holders.`
+          : "No payout yet."}
+      </p>
+    </Card>
+  );
+}
 // "3 min ago" from an on-chain unix time, relative to when the data was read.
 const sinceText = (seconds: number, now: number) => {
   const mins = Math.max(0, Math.round((now / 1000 - seconds) / 60));
@@ -133,7 +177,9 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
         <ShieldCheck />
         <AlertDescription>
           {q} is a valueless mock stock token.{" "}
-          {market.mode === "standardFloor"
+          {isRewardMarket(market)
+            ? `Reward token: half of net trading fees goes to ${market.symbol} holders, paid in ${q} about every 15 minutes by Sonata's payout bot. The other half goes to Sonata.`
+            : market.mode === "standardFloor"
             ? `A quarter of net trading fees builds this market's Stock Floor, which any ${market.symbol} holder can redeem and the creator cannot withdraw. A quarter goes to the creator and half to Sonata.`
             : market.mode === "standard"
               ? "Net trading fees go half to the creator's payout wallet and half to Sonata, paid in the stock."
@@ -385,7 +431,9 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           )}
         </Card>
       </div>
-      {market.mode === "refrain" || market.mode === "standard" ? (
+      {isRewardMarket(market) ? (
+        <HolderRewardsPanel market={market} sentToBot={value("paid")} quote={q} />
+      ) : market.mode === "refrain" || market.mode === "standard" ? (
       <Card className="sr-panel">
         <span className="sr-eyebrow">03 / PAID TO CREATOR</span>
         <h3>Creator earnings</h3>

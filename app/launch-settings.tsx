@@ -6,7 +6,8 @@ import {OPEN_USD,usdToQuote,type StockPrice} from '@/lib/pricing/stock-price';
 export type Pricing={source:'pyth'|'jupiter';openUsd:number;targetUsd:number;price:number;confidenceRatio:number;publishTimeMs:number;label:string;live:boolean;feed:string};
 // floor: half of net fees becomes a Stock Floor that holders redeem by burning; fixed at creation.
 // devBuy: optional first buy in quote tokens, made in the same transaction that creates the pool.
-export type LaunchSettings={quote:string;initial:number;target:number;fee:number;rewards:string;floor:boolean;devBuy?:number;pricing?:Pricing};
+// reward: the creator's share goes to holders instead (paid out by Sonata's payout bot).
+export type LaunchSettings={quote:string;initial:number;target:number;fee:number;rewards:string;floor:boolean;reward?:boolean;devBuy?:number;pricing?:Pricing};
 export type PythState=
  |{status:'loading'}
  |{status:'unconfigured'}
