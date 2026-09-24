@@ -93,8 +93,9 @@ test("the fee model is written into the metadata and read back", () => {
 });
 
 test("a split names 1 to 5 wallets with whole-number shares", () => {
-  const a = "5uxAQ2Jd8pVWw1pXnVnCzN3bq6mJq8kqQeJFz8gjd4",
-    b = "C77RCWhxSkKDLTQ9drBdchJujrSjfwDBEs6DrvCtiKwM";
+  // Two Devnet test wallets (normal, on-curve addresses).
+  const a = "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+    b = "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT";
   const split = normalizeSplit([
     { wallet: ` ${a} `, weight: 60 },
     { wallet: b, weight: 40 },
@@ -114,4 +115,13 @@ test("a split names 1 to 5 wallets with whole-number shares", () => {
   assert.throws(() => normalizeSplit([{ wallet: "Fb83XLPdUM11FrUUBNaB1JXJ2feJacNkcPGUzP8dtGz", weight: 5 }]), /Sonata/);
   // A bad split in stored metadata is dropped rather than shown.
   assert.equal(parseProfile({ sonata: { feeModel: "split", split: [{ wallet: a, weight: 0 }] } }).split, undefined);
+});
+
+test("the launch accepts only splits the payout bot will pay", () => {
+  // Program ids are on the ed25519 curve, so only the shared list catches them.
+  for (const program of ["11111111111111111111111111111111", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN", "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF"])
+    assert.throws(() => normalizeSplit([{ wallet: program, weight: 10 }]), /Sonata's own wallets and program/, program);
+  // Off-curve addresses (program-derived accounts, such as Sonata's Vault) are not wallets.
+  for (const pda of ["HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC", "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5"])
+    assert.throws(() => normalizeSplit([{ wallet: pda, weight: 10 }]), /normal wallet/, pda);
 });

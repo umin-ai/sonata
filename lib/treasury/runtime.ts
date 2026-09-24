@@ -25,6 +25,7 @@ import treasuryIdl from "./stockroom_treasury.json";
 import dbcIdl from "./dbc.json";
 import initialMarket from "./market.json";
 import { buildCurveParams, type CurveOptions } from "./dbc-preview";
+import { standardConfigProblem, type StandardConfigFields } from "./standard";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { buyOut, graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl, type FeeModel } from "../token-profile";
@@ -150,6 +151,8 @@ export async function readTreasury(market: Market = exportsMarket) {
   const config = coder.decode<
     { quoteMint: PublicKey; feeClaimer: PublicKey } & CurveConfig
   >("poolConfig", ca.data);
+  const nonStandard = standardConfigProblem(config as unknown as StandardConfigFields, market.vault);
+  if (nonStandard) throw Error(`This market is not a standard Sonata launch: ${nonStandard}.`);
   for (const key of [
     "pool",
     "config",
@@ -279,6 +282,86 @@ async function readGraduation(
   };
 }
 export type TreasurySnapshot = Awaited<ReturnType<typeof readTreasury>>;
+/** Backing and launch extras from readMarketFacts. Fields are absent when not read or a check failed. */
+export type MarketFacts = {
+  /** A Backed token's backing (retained less withdrawn), in quote units. */
+  floor?: string;
+  baseSupply?: string;
+  airdrop?: boolean;
+  volatilityFee?: boolean;
+};
+/**
+ * Backing and launch extras for many markets in batched reads (100 accounts
+ * per call) instead of one readTreasury per market: each Backed token's
+ * backing and supply from its treasury account and base mint and, with
+ * `configs`, each market's Graduation Airdrop and volatility fee from its DBC
+ * config. For display only: anything that moves funds re-reads the market with
+ * readTreasury. A market whose accounts fail a check gets no entry.
+ */
+export async function readMarketFacts(list: Market[], { configs = false } = {}) {
+  await checkNetwork();
+  const backed = list.filter((m) => hasFloor(m.mode));
+  const keys = [
+    ...backed.flatMap((m) => [m.treasury, m.baseMint]),
+    ...(configs ? list.map((m) => m.config) : []),
+  ];
+  const infos: Awaited<ReturnType<typeof connection.getMultipleAccountsInfo>> = [];
+  for (let i = 0; i < keys.length; i += 100)
+    infos.push(
+      ...(await connection.getMultipleAccountsInfo(
+        keys.slice(i, i + 100).map(pk),
+        "confirmed",
+      )),
+    );
+  const facts = new Map<string, MarketFacts>();
+  const entry = (pool: string) => {
+    if (!facts.has(pool)) facts.set(pool, {});
+    return facts.get(pool)!;
+  };
+  backed.forEach((m, i) => {
+    const [ta, mi] = [infos[2 * i], infos[2 * i + 1]];
+    try {
+      if (!ta?.owner.equals(program.programId) || !mi) return;
+      const t = program.coder.accounts.decode<Treasury>("treasury", ta.data);
+      if (
+        t.pool.toBase58() !== m.pool ||
+        t.baseMint.toBase58() !== m.baseMint ||
+        !hasFloor(modeOf(t.mode) ?? undefined)
+      )
+        return;
+      const floor =
+        BigInt(t.totalRetained.toString()) - BigInt(t.totalWithdrawn.toString());
+      if (floor < 0n) return;
+      const supply = unpackMint(pk(m.baseMint), mi, TOKEN_PROGRAM_ID).supply;
+      Object.assign(entry(m.pool), {
+        floor: floor.toString(),
+        baseSupply: supply.toString(),
+      });
+    } catch {
+      /* Left out: shown as unknown. */
+    }
+  });
+  if (configs)
+    list.forEach((m, j) => {
+      const ca = infos[2 * backed.length + j];
+      try {
+        if (!ca?.owner.equals(pk(dbc.program))) return;
+        const config = coder.decode<CurveConfig & { quoteMint: PublicKey }>(
+          "poolConfig",
+          ca.data,
+        );
+        if (!config.quoteMint.equals(pk(m.quoteMint))) return;
+        // As readGraduation reads them.
+        Object.assign(entry(m.pool), {
+          airdrop: config.leftoverReceiver.equals(pk(REWARDS_WALLET)),
+          volatilityFee: config.poolFees.dynamicFee.initialized !== 0,
+        });
+      } catch {
+        /* Left out: no launch extras shown. */
+      }
+    });
+  return facts;
+}
 export type TreasuryAction =
   | "collect"
   | "allocate"
@@ -294,6 +377,7 @@ export type PreparedTreasury = {
     | "register"
     | "lp-deposit"
     | "lp-withdraw"
+    | "lp-claim"
     | "lp-buy"
     | "lp-sell"
     | "reserve-deploy"
@@ -309,7 +393,8 @@ export type PreparedTreasury = {
   };
   liquidity?: {
     symbolA?:string;symbolB?:string;decimalsA?:number;decimalsB?:number;
-    kind: "deposit" | "withdraw";
+    // A claim has no slippage limits: limitA and limitB are "0".
+    kind: "deposit" | "withdraw" | "claim";
     a: string;
     b: string;
     limitA: string;
@@ -797,15 +882,25 @@ export async function discoverMarkets(): Promise<Market[]> {
       quoteMints.has(t.quoteMint.toBase58()) && modeOf(t.mode) !== null,
   );
   if (!supported.length) return [];
-  const pools = await connection.getMultipleAccountsInfo(
-    supported.map(({ account: t }) => t.pool),
-  );
+  const [pools, configs] = await Promise.all([
+    connection.getMultipleAccountsInfo(supported.map(({ account: t }) => t.pool)),
+    connection.getMultipleAccountsInfo(supported.map(({ account: t }) => t.config)),
+  ]);
   const { deriveMintMetadata, METAPLEX_PROGRAM_ID } =
     await import("@meteora-ag/dynamic-bonding-curve-sdk");
   const metadata = await connection.getMultipleAccountsInfo(
     supported.map(({ account: t }) => deriveMintMetadata(t.baseMint)),
   );
-  return supported.map(({ publicKey, account: t }, i) => {
+  // A market whose Meteora config is not Sonata's standard launch (liquidity the
+  // creator could pull, a mintable token, hidden fees) is never listed, even if
+  // it was registered before the treasury program refused such configs.
+  const standard = supported.map((_, i) => {
+    const info = configs[i];
+    if (!info?.owner.equals(pk(dbc.program))) return false;
+    return standardConfigProblem(coder.decode<StandardConfigFields>("poolConfig", info.data), exportsMarket.vault) === null;
+  });
+  return supported.filter((_, i) => standard[i]).map(({ publicKey, account: t }) => {
+    const i = supported.findIndex((e) => e.publicKey.equals(publicKey));
     const info = pools[i];
     if (!info?.owner.equals(pk(dbc.program)))
       throw Error("A registered pool could not be verified.");

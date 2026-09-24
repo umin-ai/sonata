@@ -142,7 +142,7 @@ function HolderRewardsPanel({
               "03 / LP FARM",
               "LP Farm",
               "Paid out",
-              `${paid?.status === "lps" ? "Paying liquidity providers in the Meteora pool, pro rata" : "Paying holders while on the curve; liquidity providers after graduation"}, about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`,
+              `${paid?.status === "lps" ? "Paying liquidity providers in the Meteora pool, pro rata, once their liquidity has been in for a full round" : "Paying holders while on the curve; liquidity providers after graduation"}, about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`,
             ]
           : model === "split"
             ? [
@@ -158,7 +158,7 @@ function HolderRewardsPanel({
                   "03 / DIAMOND HANDS",
                   "Diamond Hands",
                   "Paid to holders",
-                  `Paid to holders about every 15 minutes, in ${quote}, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount. ${last(paid?.lastPaidAt)}`,
+                  `Paid to holders about every 15 minutes, in ${quote}, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount, and new tokens start at 1×. ${last(paid?.lastPaidAt)}`,
                 ]
               : [
                 "03 / PAID TO HOLDERS",

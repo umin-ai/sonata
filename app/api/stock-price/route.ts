@@ -5,6 +5,7 @@ import {
   assessMarket,
   divergence,
   effectiveMultiplier,
+  stockFamily,
   toMillis,
   type StockPrice,
 } from "@/lib/pricing/stock-price";
@@ -31,7 +32,35 @@ type JupiterQuote = { outAmount: string; priceImpactPct?: string; routePlan?: { 
 type Result = StockPrice & {
   guard?: { source: "pyth"; feed: string; price: number; divergence: number; session: string };
   pythStatus?: string;
+  // Pre-IPO tokens: PreStocks' mark price, and the Solana market's premium (+) or discount (−) to it.
+  mark?: { price: number; premium: number | null };
+  marketStatus?: string;
 };
+
+// PreStocks' mark price per token, from its public API, cached for a minute.
+let preStocks: { until: number; marks: Map<string, number> } | null = null;
+async function preStocksMark(symbol: string): Promise<number> {
+  if (!preStocks || preStocks.until < Date.now()) {
+    const r = await fetch("https://prestocks.com/api/prestocks", {
+      headers: { accept: "application/json", "user-agent": "SonataPrice/1.0 (+https://sonata.umin.ai)" },
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!r.ok) throw Error(`PreStocks returned ${r.status}.`);
+    const list = (await r.json()) as { contract_address?: unknown; markPrice?: unknown }[];
+    preStocks = {
+      until: Date.now() + 60_000,
+      marks: new Map(
+        (Array.isArray(list) ? list : [])
+          .filter((t) => typeof t.contract_address === "string" && Number(t.markPrice) > 0)
+          .map((t) => [t.contract_address as string, Number(t.markPrice)]),
+      ),
+    };
+  }
+  const mark = preStocks.marks.get(XSTOCK_MINTS[symbol].mint);
+  if (!mark) throw Error(`PreStocks lists no mark price for ${XSTOCK_MINTS[symbol].symbol}.`);
+  return mark;
+}
 
 async function jupiterPrice(symbol: string): Promise<StockPrice & { liquidity: number; quotePrice: number; priceImpact: number; route: string }> {
   const x = XSTOCK_MINTS[symbol];
@@ -113,6 +142,37 @@ async function pythPrice(symbol: string, key: string): Promise<StockPrice> {
 }
 
 async function resolve(symbol: string): Promise<Result> {
+  // Pre-IPO tokens trade well away from their mark (premiums and discounts of 20-30%
+  // are common), so the curve uses what the token costs on Solana when that market
+  // is deep enough, and PreStocks' mark price when it is not. Both are reported.
+  if (stockFamily(symbol) === "PreStocks") {
+    const [market, mark] = await Promise.all([
+      jupiterPrice(symbol).catch((e: Error) => e),
+      preStocksMark(symbol).catch((e: Error) => e),
+    ]);
+    const markPrice = typeof mark === "number" ? mark : null;
+    if (!(market instanceof Error))
+      return {
+        ...market,
+        ...(markPrice ? { mark: { price: markPrice, premium: market.price / markPrice - 1 } } : {}),
+        pythStatus: "Pyth has no feed for pre-IPO tokens",
+      };
+    if (markPrice)
+      return {
+        source: "prestocks",
+        symbol,
+        feed: `${XSTOCK_MINTS[symbol].symbol} mark price (PreStocks)`,
+        price: markPrice,
+        confidence: 0,
+        publishTimeMs: Date.now(),
+        marketSession: "mark",
+        fetchedAt: new Date().toISOString(),
+        mark: { price: markPrice, premium: null },
+        marketStatus: market.message,
+        pythStatus: "Pyth has no feed for pre-IPO tokens",
+      };
+    throw market;
+  }
   const market = await jupiterPrice(symbol);
   const key = process.env.PYTH_PRO_API_KEY;
   if (!key) return { ...market, pythStatus: "No Pyth key configured" };

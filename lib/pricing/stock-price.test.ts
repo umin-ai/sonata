@@ -74,3 +74,13 @@ test("the xStock dividend multiplier switches on its effective date", () => {
   assert.equal(effectiveMultiplier(cfg, Date.parse("2026-09-23T00:00:00Z")), 1.0057);
   assert.equal(effectiveMultiplier(undefined, now), 1);
 });
+
+test("every PreStocks pre-IPO token is in the PreStocks family and priced from its real mint", async () => {
+  const { XSTOCK_MINTS, stockFamily } = await import("./stock-price.ts");
+  for (const s of ["mANTHROPIC", "mOPENAI", "mSPACEX", "mKALSHI", "mPOLYMARKET", "mANDURIL", "mFIGUREAI", "mNEURALINK"]) {
+    assert.equal(stockFamily(s), "PreStocks", s);
+    // PreStocks mints all start with "Pre".
+    assert.match(XSTOCK_MINTS[s].mint, /^Pre/, s);
+  }
+  for (const s of ["mSPY", "mQQQ", "mNVDA", "mMCD"]) assert.equal(stockFamily(s), "xStocks", s);
+});

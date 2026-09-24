@@ -12,7 +12,6 @@ import {
   Layers3,
   Plus,
   Wallet,
-  ShieldCheck,
   Sprout,
   Gift,
   BookOpen,
@@ -59,7 +58,6 @@ const destinations = [
   ["/activity", "Activity", Activity],
   ["/create", "Launch token", Plus],
   ["/capital", "Treasury", Layers3],
-  ["/onchain", "Trade", ShieldCheck],
   ["/ecosystem", "How it works", BookOpen],
 ] as const;
 function Navigation() {
@@ -109,7 +107,7 @@ function Navigation() {
         <SidebarGroup>
           <SidebarGroupLabel><span>02</span> Create & trade</SidebarGroupLabel>
           <SidebarMenu>
-            {destinations.slice(5, 8).map(([href, label, Icon]) => (
+            {destinations.slice(5, 7).map(([href, label, Icon]) => (
               <SidebarMenuItem key={href}>
                 <SidebarMenuButton
                   asChild
@@ -128,7 +126,7 @@ function Navigation() {
         <SidebarGroup>
           <SidebarGroupLabel><span>03</span> Learn</SidebarGroupLabel>
           <SidebarMenu>
-            {destinations.slice(8).map(([href, label, Icon]) => (
+            {destinations.slice(7).map(([href, label, Icon]) => (
               <SidebarMenuItem key={href}>
                 <SidebarMenuButton
                   asChild

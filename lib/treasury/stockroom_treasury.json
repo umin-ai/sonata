@@ -972,6 +972,11 @@
       "code": 6012,
       "name": "NoCreatorReserve",
       "msg": "This mode keeps no creator-withdrawable reserve"
+    },
+    {
+      "code": 6013,
+      "name": "NonStandardConfig",
+      "msg": "This Meteora config does not use Sonata's standard launch settings"
     }
   ],
   "types": [

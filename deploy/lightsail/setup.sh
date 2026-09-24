@@ -5,7 +5,69 @@
 # Old hostnames get their own certificate and redirect to the public one.
 # Secrets are not in this repository: copy them to /opt/sonata/sonata.env
 # (mode 600, owner sonata) before running. See deploy/lightsail/README.md.
+#
+# An update never lets a payout pass run on half-updated code or on an old
+# database schema: the crank's timer is stopped and disabled (and a running
+# pass waited for) before anything changes, and enabled again only after the
+# restarted indexer has migrated the database. If any step fails, the timer
+# stays stopped and disabled (no passes, funds stay owed) until setup.sh
+# completes, a reboot included: a disabled timer does not start at boot.
 set -euo pipefail
+
+# How long to wait for a running crank pass (systemd stops one after 10
+# minutes) and for the indexer's migration.
+CRANK_WAIT_SECONDS="${CRANK_WAIT_SECONDS:-660}"
+MIGRATION_WAIT_SECONDS="${MIGRATION_WAIT_SECONDS:-300}"
+# What indexer/index.mjs prints once every table and column is in place.
+MIGRATED_LINE="indexer migrated"
+
+# Stops and disables sonata-crank.timer (a stop alone lasts only until the
+# next boot), then waits for a pass already running to finish. On a first
+# install there is nothing to stop.
+stop_crank() {
+  if systemctl cat sonata-crank.timer >/dev/null 2>&1; then
+    systemctl disable --now sonata-crank.timer
+  fi
+  local waited=0 state
+  while :; do
+    state="$(systemctl show -p ActiveState --value sonata-crank.service 2>/dev/null || true)"
+    case "$state" in
+      active | activating | deactivating | reloading) ;;
+      *) return 0 ;;
+    esac
+    if [ "$waited" -eq 0 ]; then echo "Waiting for the running crank pass to finish..."; fi
+    if [ "$waited" -ge "$CRANK_WAIT_SECONDS" ]; then
+      echo "sonata-crank.service is still running after ${CRANK_WAIT_SECONDS}s; nothing updated." >&2
+      return 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
+
+# Waits until the sonata-indexer process started by the last restart has
+# printed MIGRATED_LINE (its migrate() finished), read from that process's
+# own journal entries.
+wait_for_migration() {
+  local waited=0 id log
+  while :; do
+    id="$(systemctl show -p InvocationID --value sonata-indexer.service 2>/dev/null || true)"
+    if [ -n "$id" ]; then
+      log="$(journalctl --no-pager -q -o cat "_SYSTEMD_INVOCATION_ID=$id" 2>/dev/null || true)"
+      if grep -qxF "$MIGRATED_LINE" <<<"$log"; then return 0; fi
+    fi
+    if [ "$waited" -ge "$MIGRATION_WAIT_SECONDS" ]; then
+      echo "sonata-indexer has not finished its database migration after ${MIGRATION_WAIT_SECONDS}s (see journalctl -u sonata-indexer)." >&2
+      return 1
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+}
+
+# indexer/deploy.test.mjs loads the functions above without running anything.
+if [ "${SONATA_SETUP_FUNCTIONS_ONLY:-}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
+
 HOST="${1:?usage: setup.sh <public-hostname> [old-hostname ...]}"
 shift
 ALIASES="$*"
@@ -13,6 +75,11 @@ REPO="${SONATA_REPO:-https://github.com/umin-ai/sonata}"
 HOME_DIR=/opt/sonata
 APP_DIR=$HOME_DIR/app
 HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# No payout pass from here until the new code has migrated the database.
+CRANK_HELD=1
+trap 'if [ "$CRANK_HELD" = 1 ]; then echo "setup.sh did not finish: sonata-crank.timer is left stopped and disabled, so no payout pass runs, not even after a reboot (funds stay owed). Fix the error above and re-run setup.sh." >&2; fi' EXIT
+stop_crank
 
 # Building on a 2 GB instance needs swap.
 if ! swapon --show | grep -q /swapfile; then
@@ -84,10 +151,20 @@ if [ -n "$ALIASES" ]; then
   printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "${ALIASES// /, }" "$HOST" >> /etc/caddy/Caddyfile
 fi
 systemctl daemon-reload
-systemctl enable sonata sonata-indexer sonata-crank.timer >/dev/null 2>&1
+# The crank's timer is enabled only once the database is migrated, below.
+systemctl enable sonata sonata-indexer >/dev/null 2>&1
+# The indexer's startup migrates the database (tables the crank reads).
 systemctl restart sonata sonata-indexer
+echo "Waiting for sonata-indexer to migrate the database..."
+wait_for_migration
 # The crank is started by its timer, never enabled on its own.
-systemctl restart sonata-crank.timer
+systemctl enable --now sonata-crank.timer
+CRANK_HELD=0
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
+if grep -qsx 'CRANK_DRY_RUN=1' $HOME_DIR/crank.env; then
+  echo "CRANK_DRY_RUN=1 is set in $HOME_DIR/crank.env: crank passes only simulate and send nothing."
+  echo "Run one (sudo systemctl start sonata-crank), read it (journalctl -u sonata-crank -n 200 --no-pager),"
+  echo "then remove that line to pay for real: sudo sed -i '/^CRANK_DRY_RUN=/d' $HOME_DIR/crank.env"
+fi
 echo "Deployed $(sudo -u sonata git -C $APP_DIR rev-parse --short HEAD) to https://$HOST"

@@ -17,6 +17,7 @@ import {
 } from "@solana/spl-token";
 import {
   buildSteps,
+  claimGraduatedIx,
   destinationState,
   modeOf,
   planMarket,
@@ -26,7 +27,13 @@ import {
   DEVNET_GENESIS,
   MAX_TX_BYTES,
   SPLIT_MODES,
+  PHASE_ENDS_MS,
+  rotation,
 } from "./crank.mjs";
+import { netByTrader } from "./modules/top-buyers.mjs";
+import * as kit from "./modules/testkit.mjs";
+import { DAMM_EVENT_AUTHORITY, DAMM_POOL_AUTHORITY, graduatedAccounts, vaultPosition } from "./modules/graduated.mjs";
+import { graduatedPool } from "./modules/meteora.mjs";
 
 const json = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 const treasuryIdl = json("../lib/treasury/stockroom_treasury.json");
@@ -81,7 +88,7 @@ const state = (over = {}) => ({
 
 test("nothing to do when no fees accrued and nothing is unallocated", () => {
   const plan = planMarket(state());
-  assert.deepEqual(plan, { claim: false, distribute: false, createPayout: false, createPlatform: false, reason: "nothing to claim or distribute" });
+  assert.deepEqual(plan, { claim: false, claimGraduated: false, distribute: false, createPayout: false, createPlatform: false, reason: "nothing to claim or distribute" });
 });
 
 test("claims only when the partner fee reaches the threshold", () => {
@@ -97,13 +104,13 @@ test("claims only when the partner fee reaches the threshold", () => {
 
 test("distributes whatever is unallocated, even below the claim threshold", () => {
   const plan = planMarket(state({ partnerQuoteFee: 5n, unallocated: 1n }), 10_000n);
-  assert.deepEqual(plan, { claim: false, distribute: true, createPayout: false, createPlatform: false, reason: null });
+  assert.deepEqual(plan, { claim: false, claimGraduated: false, distribute: true, createPayout: false, createPlatform: false, reason: null });
 });
 
 test("claim and distribute together once fees reach the threshold", () => {
   for (const unallocated of [0n, 250n]) {
     const plan = planMarket(state({ partnerQuoteFee: 240_000n, unallocated }));
-    assert.deepEqual(plan, { claim: true, distribute: true, createPayout: false, createPlatform: false, reason: null });
+    assert.deepEqual(plan, { claim: true, claimGraduated: false, distribute: true, createPayout: false, createPlatform: false, reason: null });
   }
 });
 
@@ -133,7 +140,7 @@ test("migrated pools are still tried", () => {
 test("claim, payout account creation and distribute fit in one transaction", async () => {
   const m = market();
   const payer = Keypair.generate().publicKey;
-  const steps = await buildSteps(m, { claim: true, distribute: true, createPayout: true }, payer);
+  const steps = await buildSteps(m, { claim: true, claimGraduated: false, distribute: true, createPayout: true }, payer);
   assert.equal(steps.length, 1);
   assert.deepEqual(steps[0].map((s) => s.label), ["compute budget", "claim", "create payout account", "distribute"]);
   const bytes = txBytes(steps[0].map((s) => s.ix), payer);
@@ -161,7 +168,7 @@ test("reads every mode the app launches; sustain and unknown modes are skipped",
 
 test("the platform account is created when missing and a frozen one blocks the split", () => {
   const missing = planMarket(state({ unallocated: 10n, platformAccount: "missing" }));
-  assert.deepEqual(missing, { claim: false, distribute: true, createPayout: false, createPlatform: true, reason: null });
+  assert.deepEqual(missing, { claim: false, claimGraduated: false, distribute: true, createPayout: false, createPlatform: true, reason: null });
   assert.equal(planMarket(state({ platformAccount: "missing" })).createPlatform, false);
   const frozen = planMarket(state({ partnerQuoteFee: 20_000n, unallocated: 5n, platformAccount: "frozen" }));
   assert.equal(frozen.claim, true);
@@ -175,7 +182,7 @@ test("platform modes use distribute_split, and the worst case still fits one tra
   const payer = Keypair.generate().publicKey;
   for (const mode of ["standard", "standardFloor"]) {
     const m = splitMarket(mode);
-    const steps = await buildSteps(m, { claim: true, distribute: true, createPayout: true, createPlatform: true }, payer);
+    const steps = await buildSteps(m, { claim: true, claimGraduated: false, distribute: true, createPayout: true, createPlatform: true }, payer);
     assert.equal(steps.length, 1);
     assert.deepEqual(steps[0].map((s) => s.label), [
       "compute budget",
@@ -209,15 +216,15 @@ test("a payout owner who is the Vault admin gets one account, created once", asy
     payoutQuote: getAssociatedTokenAddressSync(new PublicKey(marketJson.quoteMint), admin, true, TOKEN_2022_PROGRAM_ID),
   });
   assert.ok(m.payoutQuote.equals(m.platformQuote));
-  const steps = await buildSteps(m, { claim: false, distribute: true, createPayout: true, createPlatform: true }, admin);
+  const steps = await buildSteps(m, { claim: false, claimGraduated: false, distribute: true, createPayout: true, createPlatform: true }, admin);
   assert.deepEqual(steps[0].map((s) => s.label), ["compute budget", "create payout account", "distribute_split"]);
 });
 
 test("a platform-mode split is never built without the Vault admin's account", async () => {
   const m = market({ mode: "standardFloor" });
-  await assert.rejects(buildSteps(m, { claim: false, distribute: true }, Keypair.generate().publicKey), /platform account unknown/);
+  await assert.rejects(buildSteps(m, { claim: false, claimGraduated: false, distribute: true }, Keypair.generate().publicKey), /platform account unknown/);
   // A claim alone does not need it.
-  const steps = await buildSteps(m, { claim: true, distribute: false }, Keypair.generate().publicKey);
+  const steps = await buildSteps(m, { claim: true, claimGraduated: false, distribute: false }, Keypair.generate().publicKey);
   assert.deepEqual(steps[0].map((s) => s.label), ["compute budget", "claim"]);
 });
 
@@ -288,7 +295,7 @@ const quoteAta = (owner) => getAssociatedTokenAddressSync(QUOTE, owner, true, TO
 async function addMarket(accounts, rows, {
   mode, fee = 20_000n, payoutExists = true, platformOwner, platformExists = false,
   payoutOwner = Keypair.generate().publicKey, distributed = 0n, payoutBalance = 0n,
-  supply = 2_000_000_000n, holders = [], vaultHolding = 0n, treasuryHolding = 0n,
+  supply = 2_000_000_000n, holders = [], vaultHolding = 0n, treasuryHolding = 0n, graduated = null, leftoverReceiver,
 }) {
   const pool = Keypair.generate().publicKey,
     config = Keypair.generate().publicKey,
@@ -307,9 +314,24 @@ async function addMarket(accounts, rows, {
   put(treasury, treasuryAccount);
   put(pool, dbcAccount("virtualPool", (p) => {
     Object.assign(p, { config, baseMint, creator, baseVault, quoteVault: Keypair.generate().publicKey, partnerQuoteFee: new anchor.BN(String(fee)) });
+    // Graduated to DAMM v2 (MigrationProgress 3 = CreatedPool).
+    if (graduated) Object.assign(p, { isMigrated: 1, migrationProgress: 3 });
   }));
-  put(config, dbcAccount("poolConfig", (c) => Object.assign(c, { feeClaimer: VAULT, quoteMint: QUOTE })));
+  let damm = null;
+  if (graduated) {
+    // The graduated DAMM v2 pool (migration fee option 0) and the Vault's locked position in it.
+    damm = kit.dammPoolAccount({ baseMint, quoteMint: QUOTE }, { migrationFeeOption: 0 });
+    put(damm.address, damm.info);
+    const position = kit.positionAccounts(damm.address, { owner: VAULT, permanent: 10n ** 20n });
+    put(position.address, position.info);
+    put(position.nft.address, position.nft.info);
+    damm.position = position;
+  }
+  put(config, dbcAccount("poolConfig", (c) => Object.assign(c, { feeClaimer: VAULT, quoteMint: QUOTE, ...(leftoverReceiver ? { leftoverReceiver } : {}) })));
   put(baseMint, baseMintAccount(supply));
+  // Its Metaplex metadata, with no profile uri: a holders token (modules/fee-model.mjs).
+  const md = kit.metadataAccount(baseMint, "");
+  put(md.address, md.info);
   const treasuryBase = getAssociatedTokenAddressSync(baseMint, treasury, true, TOKEN_PROGRAM_ID);
   const treasuryBaseAccount = tokenAccount(treasury, baseMint, AccountState.Initialized, treasuryHolding, TOKEN_PROGRAM_ID);
   put(treasuryBase, treasuryBaseAccount);
@@ -325,13 +347,17 @@ async function addMarket(accounts, rows, {
     tokens.push({ pubkey: Keypair.generate().publicKey, account: tokenAccount(h.owner, baseMint, AccountState.Initialized, h.amount, TOKEN_PROGRAM_ID) });
     if (h.quote) put(quoteAta(h.owner), tokenAccount(h.owner, QUOTE));
   }
-  return { pool, treasury, payoutOwner, baseMint, tokens };
+  return { pool, treasury, payoutOwner, baseMint, tokens, damm };
 }
 // The reward ledger in memory, as indexer/rewards.mjs pgLedger behaves.
-function memLedger() {
-  const payouts = [], pending = new Map();
-  return {
+// `trades` stand in for the indexer's trades table.
+function memLedger({ trades = [] } = {}) {
+  const payouts = [], pending = new Map(), models = new Map(), statuses = new Map();
+  return kit.payoutLedger({
     payouts,
+    trades,
+    models,
+    statuses,
     pending: async () => [...pending.values()],
     pendingRows: pending,
     ready: async () => true,
@@ -343,7 +369,15 @@ function memLedger() {
       if (row) payouts.push(row);
     },
     drop: async (signature) => void pending.delete(signature),
-  };
+    feeModels: async (pools) => new Map(pools.filter((p) => models.has(p)).map((p) => [p, models.get(p)])),
+    saveFeeModel: async ({ pool, ...entry }) => void (models.has(pool) || models.set(pool, entry)),
+    setStatus: async (pool, status) => void statuses.set(pool, status),
+    lastRoundEnd: async (pool) => {
+      const ends = [...payouts, ...pending.values()].filter((r) => r.pool === pool && r.module === "topBuyers").map((r) => r.detail.roundEnd);
+      return ends.length ? Math.max(...ends) : null;
+    },
+    buyerNets: async (pool, start, end) => netByTrader(trades.filter((t) => t.pool === pool), { start, end }),
+  });
 }
 // Moves quote atoms as a sent Token-2022 transfer_checked would.
 function applyTransfers(accounts, tx) {
@@ -363,7 +397,8 @@ function applyTransfers(accounts, tx) {
     edit(ix.keys[2].pubkey, amount);
   }
 }
-async function fakeChain({ markets, vaultAdminKey, payer = Keypair.generate(), funded = false, dryRun = true, ledger = null, poison = new Set(), rewardMinAtoms }) {
+// `onLog` sees every line as it is logged (a test's clock can move on it).
+async function fakeChain({ markets, vaultAdminKey, payer = Keypair.generate(), funded = false, dryRun = true, ledger = null, poison = new Set(), rewardMinAtoms, graduatedFee = 0n, onLog = () => {} }) {
   const accounts = new Map([[QUOTE.toBase58(), quoteMintAccount()]]);
   if (funded) accounts.set(payer.publicKey.toBase58(), { data: Buffer.alloc(0), owner: SystemProgram.programId, lamports: 1_000_000_000, executable: false });
   if (vaultAdminKey)
@@ -393,7 +428,7 @@ async function fakeChain({ markets, vaultAdminKey, payer = Keypair.generate(), f
     getAccountInfo: async (k) => (calls.push(`getAccountInfo ${k.toBase58()}`), accounts.get(k.toBase58()) ?? null),
     getMultipleAccountsInfo: async (keys) => (calls.push("getMultipleAccountsInfo"), keys.map((k) => accounts.get(k.toBase58()) ?? null)),
     // A transaction touching a `poison` account fails at that instruction.
-    simulateTransaction: async (tx) => {
+    simulateTransaction: async (tx, opts) => {
       calls.push("simulateTransaction");
       const keys = tx.message.staticAccountKeys;
       const ixs = tx.message.compiledInstructions.map((ix) => ({
@@ -404,8 +439,29 @@ async function fakeChain({ markets, vaultAdminKey, payer = Keypair.generate(), f
       simulated.push(ixs);
       const bad = ixs.findIndex((ix) => ix.accounts.some((k) => poison.has(k.toBase58())));
       if (bad >= 0) return { value: { err: { InstructionError: [bad, { Custom: 1 }] }, logs: ["Program log: Error: poisoned"], unitsConsumed: 0 } };
-      return { value: { err: null, logs: [], unitsConsumed: 60_000 } };
+      // claim_graduated moves `graduatedFee` quote atoms into the treasury's quote account (its 7th account).
+      const credit = new Map();
+      for (const ix of ixs)
+        if (ix.program.equals(program.programId) && ix.data.subarray(0, 8).equals(disc("claim_graduated")))
+          credit.set(ix.accounts[6].toBase58(), graduatedFee);
+      const value = { err: null, logs: [], unitsConsumed: 60_000 };
+      if (opts?.accounts)
+        value.accounts = opts.accounts.addresses.map((a) => {
+          const info = accounts.get(a);
+          if (!info) return null;
+          const t = AccountLayout.decode(info.data);
+          t.amount += credit.get(a) ?? 0n;
+          const data = Buffer.from(info.data);
+          AccountLayout.encode(t, data);
+          return { ...info, owner: info.owner.toBase58(), data: [data.toString("base64"), "base64"] };
+        });
+      return { value };
     },
+    getTokenAccountsByOwner: async (owner, { programId }) => (
+      calls.push("getTokenAccountsByOwner"),
+      { value: [...accounts].filter(([, i]) => i.owner.equals(programId) && i.data.length >= ACCOUNT_SIZE && new PublicKey(i.data.subarray(32, 64)).equals(owner)).map(([k, account]) => ({ pubkey: new PublicKey(k), account })) }
+    ),
+    getMultipleAccountsInfoAndContext: async (keys) => (calls.push("getMultipleAccountsInfo"), { context: { slot: 1 }, value: keys.map((k) => accounts.get(k.toBase58()) ?? null) }),
     getLatestBlockhash: async () => (calls.push("getLatestBlockhash"), { blockhash: bs58.encode(Buffer.alloc(32, 7)), lastValidBlockHeight: 1000 }),
     sendRawTransaction: async (raw) => {
       calls.push("sendRawTransaction");
@@ -422,7 +478,7 @@ async function fakeChain({ markets, vaultAdminKey, payer = Keypair.generate(), f
   };
   const lines = [];
   const pass = (over = {}) =>
-    runPass({ connection, payer, dryRun, spacingMs: 0, confirmPollMs: 0, ledger, rewardMinAtoms, log: (l) => lines.push(l), ...over });
+    runPass({ connection, payer, dryRun, spacingMs: 0, confirmPollMs: 0, ledger, rewardMinAtoms, log: (l) => (lines.push(l), onLog(l)), ...over });
   const counts = await pass();
   return { counts, calls, simulated, lines, added, sent, accounts, pass };
 }
@@ -441,7 +497,9 @@ test("a pass claims and splits a platform market into the Vault admin's account,
     "simulateTransaction",
     "simulateTransaction",
   ]);
-  const [split, legacy] = chain.simulated;
+  // Markets are walked in a rotating order: tell the two apart by their instructions.
+  const isSplit = (ixs) => ixs.some((ix) => ix.data.subarray(0, 8).equals(disc("distribute_split")));
+  const split = chain.simulated.find(isSplit), legacy = chain.simulated.find((ixs) => !isSplit(ixs));
   const platformQuote = getAssociatedTokenAddressSync(QUOTE, admin, true, TOKEN_2022_PROGRAM_ID);
   const treasuryIxs = (ixs) => ixs.filter((ix) => ix.program.equals(program.programId)).map((ix) => ix.data.subarray(0, 8));
   assert.deepEqual(treasuryIxs(split), [disc("claim"), disc("distribute_split")]);
@@ -514,29 +572,29 @@ test("a reward market's holders are paid pro rata; no quote account, PDAs, the p
   const pool = chain.added[1].pool.toBase58();
   // The ordinary market still claims and distributes; the reward market has nothing to claim.
   assert.equal(chain.counts.sent, 1);
-  assert.deepEqual(chain.counts.rewards, { markets: 1, txs: 1, atoms: 777_777n, recipients: 2, simulated: 0, skipped: 0, failed: 0 });
-  // owed 1000000 over 4:3:2 of the eligible 900000000: h3 (222222) has no quote account.
+  assert.deepEqual(chain.counts.rewards, { markets: 1, txs: 1, atoms: 999_999n, recipients: 2, simulated: 0, skipped: 0, failed: 0 });
+  // owed 1000000 over 4:3 of the 700000000 held by holders who can be paid: h3 has no quote account, so no share.
   const [tx] = rewardTxs(chain);
-  assert.deepEqual(transfersOf(tx.tx), [[quoteAta(h1).toBase58(), 444_444n], [quoteAta(h2).toBase58(), 333_333n]]);
+  assert.deepEqual(transfersOf(tx.tx), [[quoteAta(h1).toBase58(), 571_428n], [quoteAta(h2).toBase58(), 428_571n]]);
   assert.ok(tx.tx.feePayer.equals(payer.publicKey));
   for (const ix of tx.tx.instructions) {
     assert.ok(ix.keys[0].pubkey.equals(quoteAta(payer.publicKey)));
     assert.ok(ix.keys[3].pubkey.equals(payer.publicKey) && ix.keys[3].isSigner);
   }
-  assert.equal(balanceOf(chain, payer.publicKey), 222_223n);
+  assert.equal(balanceOf(chain, payer.publicKey), 1n);
   assert.deepEqual(ledger.payouts.map(({ pool: p, amount, recipients, signature }) => ({ p, amount, recipients, signature })), [
-    { p: pool, amount: 777_777n, recipients: 2, signature: tx.signature },
+    { p: pool, amount: 999_999n, recipients: 2, signature: tx.signature },
   ]);
   assert.equal(ledger.pendingRows.size, 0);
   const paid = chain.lines.find((l) => l.startsWith("reward "));
-  assert.match(paid, new RegExp(`^reward pool=${pool} sig=${tx.signature} amount=777777 recipients=2 bytes=\\d+ result=paid$`));
-  assert.match(chain.lines.find((l) => l.startsWith("rewards ")), /action=pay holders=3 payable=2 noAta=1 paidNow=777777 recipients=2 txs=1 left=222223/);
-  assert.match(chain.lines.at(-1), /^summary .*rewardMarkets=1 rewardTxs=1 rewardAtoms=777777 rewardFailed=0/);
+  assert.match(paid, new RegExp(`^reward pool=${pool} sig=${tx.signature} amount=999999 recipients=2 bytes=\\d+ result=paid$`));
+  assert.match(chain.lines.find((l) => l.startsWith("rewards ")), /action=pay holders=3 payable=2 noAta=1 paidNow=999999 recipients=2 txs=1 left=1/);
+  assert.match(chain.lines.at(-1), /^summary .*rewardMarkets=1 rewardTxs=1 rewardAtoms=999999 rewardFailed=0/);
 });
 
-test("later passes pay only what is still owed, and nothing below REWARD_MIN_ATOMS", async () => {
+test("later passes pay only what is still owed; a holder without a quote account gets no share, and nothing below REWARD_MIN_ATOMS", async () => {
   const payer = Keypair.generate(), ledger = memLedger();
-  const [h1, h2] = [wallet(), wallet()];
+  const [h1, h2, h3] = [wallet(), wallet(), wallet()];
   const chain = await fakeChain({
     payer, funded: true, dryRun: false, ledger, vaultAdminKey: wallet(),
     markets: [{
@@ -544,25 +602,25 @@ test("later passes pay only what is still owed, and nothing below REWARD_MIN_ATO
       holders: [
         { owner: h1, amount: 400_000_000n, quote: true },
         { owner: h2, amount: 300_000_000n, quote: true },
-        { owner: wallet(), amount: 200_000_000n, quote: false },
+        { owner: h3, amount: 200_000_000n, quote: false },
       ],
     }],
   });
   const total = () => ledger.payouts.reduce((s, r) => s + r.amount, 0n);
-  assert.equal(total(), 777_777n);
-  // Second pass: 222223 still owed (the holder without a quote account keeps its share owed).
+  // h3 had no quote account when the round was allocated: h1 and h2 shared all of it, and no row waits for h3.
+  assert.equal(total(), 999_999n);
+  assert.ok(!ledger.allocationRows.some((r) => r.recipient === h3.toBase58()));
+  // Second pass: 1 atom owed, below the 100000 default.
+  chain.accounts.set(quoteAta(h3).toBase58(), tokenAccount(h3, QUOTE));
   const second = await chain.pass();
-  assert.equal(second.rewards.atoms, 98_765n + 74_074n);
-  assert.equal(total(), 950_616n);
-  // Third pass: 49384 owed, below the 100000 default.
-  const third = await chain.pass();
-  assert.deepEqual({ ...third.rewards, markets: undefined }, { markets: undefined, txs: 0, atoms: 0n, recipients: 0, simulated: 0, skipped: 1, failed: 0 });
-  assert.match(chain.lines.findLast((l) => l.startsWith("rewards ")), /owed=49384 action=skip reason="owed below 100000"/);
-  // A lower threshold pays it; never more than the treasury distributed.
-  await chain.pass({ rewardMinAtoms: 10_000n });
+  assert.deepEqual({ ...second.rewards, markets: undefined }, { markets: undefined, txs: 0, atoms: 0n, recipients: 0, simulated: 0, skipped: 1, failed: 0 });
+  assert.match(chain.lines.findLast((l) => l.startsWith("rewards ")), /owed=1 action=skip reason="owed below 100000"/);
+  assert.deepEqual([h1, h2, h3].map((h) => balanceOf(chain, h)), [571_428n, 428_571n, 0n]);
+  // A lower threshold tries it; never more than the treasury distributed.
+  await chain.pass({ rewardMinAtoms: 1n });
   assert.ok(total() <= 1_000_000n);
   assert.equal(balanceOf(chain, payer.publicKey), 1_000_000n - total());
-  assert.equal(balanceOf(chain, h1) + balanceOf(chain, h2), total());
+  assert.equal(balanceOf(chain, h1) + balanceOf(chain, h2) + balanceOf(chain, h3), total());
 });
 
 test("an underfunded crank quote account pays nobody", async () => {
@@ -660,4 +718,413 @@ test("a dry run simulates the first reward batch as the creator and writes nothi
   const transfers = chain.simulated.at(-1).filter((ix) => ix.program.equals(TOKEN_2022_PROGRAM_ID));
   assert.equal(transfers.length, 18);
   assert.match(chain.lines.find((l) => l.startsWith("reward ")), /owed=1000000 result=simulated amount=720000 recipients=18 bytes=1208 units=60000 batches=2$/);
+});
+
+// ---- Fee modules, end to end: metadata JSON → fee model → module ------------
+
+// A pass over one or more reward markets on the modules' test chain
+// (indexer/modules/testkit.mjs), whose swaps, burns, transfers and account
+// creations are applied as sent. Each market: { feeModel, json, owed, dbc }.
+async function modulePass({ markets, trades = [], routes = {}, dryRun = false, ledger = kit.memLedger({ trades }) }) {
+  kit.payoutLedger(ledger);
+  const payer = Keypair.generate();
+  const chain = kit.fakeChain();
+  const admin = wallet();
+  chain.put(payer.publicKey, { data: Buffer.alloc(0), owner: SystemProgram.programId, lamports: 1_000_000_000, executable: false });
+  chain.put(VAULT, { data: await program.coder.accounts.encode("vault", { admin, bump: 255, treasuries: new anchor.BN(1) }), owner: program.programId, lamports: 1, executable: false });
+  const added = [];
+  for (const [i, spec] of markets.entries()) {
+    const owed = spec.owed ?? 100_000_000n;
+    const m = kit.rewardMarket(chain, payer.publicKey, { owed, held: owed, quoteMint: QUOTE });
+    const [treasury] = PublicKey.findProgramAddressSync([Buffer.from("treasury"), m.pool.toBuffer()], program.programId);
+    const bn = (v) => new anchor.BN(String(v));
+    const data = await program.coder.accounts.encode("treasury", {
+      pool: m.pool, config: m.config, quoteMint: QUOTE, baseMint: m.baseMint, creator: m.creator, payoutOwner: payer.publicKey, mode: { standard: {} }, bump: 255,
+      totalClaimed: bn(2n * owed), totalDistributed: bn(owed), totalRetained: bn(owed), totalWithdrawn: bn(owed), lastClaimTs: bn(0),
+    });
+    chain.put(treasury, { data, owner: program.programId, lamports: 1, executable: false });
+    const dbc = kit.dbcAccounts(m, spec.dbc);
+    chain.put(m.pool, dbc.poolInfo);
+    chain.put(m.config, dbc.configInfo);
+    chain.put(getAssociatedTokenAddressSync(QUOTE, treasury, true, TOKEN_2022_PROGRAM_ID), kit.tokenAccount({ owner: treasury, mint: QUOTE }));
+    // Named by the SHA-256 of what is served there, as Sonata's uploads are.
+    const { uri } = await kit.cdnProfile(spec.profile ?? spec.json?.body ?? { name: "T", sonata: { feeModel: spec.feeModel } });
+    const md = kit.metadataAccount(m.baseMint, uri);
+    chain.put(md.address, md.info);
+    if (spec.json !== undefined) routes[uri] = spec.json;
+    else routes[uri] = { body: { name: "T", sonata: { feeModel: spec.feeModel } } };
+    added.push({ ...m, treasury, uri });
+  }
+  // One shared quote account: fund it with everything owed.
+  const total = markets.reduce((s, x) => s + (x.owed ?? 100_000_000n), 0n);
+  chain.put(quoteAta(payer.publicKey), kit.tokenAccount({ owner: payer.publicKey, mint: QUOTE, amount: total }));
+  const web = kit.fakeFetch(routes);
+  const lines = [];
+  const pass = (over = {}) =>
+    runPass({ connection: chain.connection, payer, dryRun, spacingMs: 0, confirmPollMs: 0, ledger, fetchImpl: web.fetchImpl, log: (l) => lines.push(l), ...over });
+  const counts = await pass();
+  return { counts, chain, ledger, lines, added, payer, web, admin, pass };
+}
+
+test("a buyback market (from its metadata) swaps on its DBC pool and burns what it bought, in one transaction", async () => {
+  const run = await modulePass({ markets: [{ feeModel: "buyback" }] });
+  const [m] = run.added;
+  const pool = m.pool.toBase58();
+  assert.deepEqual(run.ledger.models.get(pool), { feeModel: "buyback", config: null, note: null, uri: m.uri });
+  assert.equal(run.web.requests.length, 1);
+  assert.equal(run.counts.rewards.txs, 1);
+  assert.equal(run.counts.rewards.atoms, 100_000_000n);
+  const [row] = run.ledger.payouts;
+  assert.equal(row.module, "buyback");
+  assert.equal(row.detail.burned, run.chain.delivered[0]);
+  assert.equal(run.chain.balance(getAssociatedTokenAddressSync(m.baseMint, run.payer.publicKey, false, TOKEN_PROGRAM_ID)), 0n);
+  assert.equal(run.chain.balance(quoteAta(run.payer.publicKey)), 0n);
+  assert.ok(run.chain.sent.every((s) => s.bytes <= MAX_TX_BYTES));
+  assert.match(run.lines.find((l) => l.startsWith("rewards ")), new RegExp(`^rewards pool=${pool} model=buyback .*action=pay venue=dbc spend=100000000 .*burned=${row.detail.burned} paidNow=100000000 recipients=0 txs=1 left=0`));
+  assert.match(run.lines.find((l) => l.startsWith("reward ")), /model=buyback venue=dbc spent=100000000 burned=\d+ bytes=\d+ sig=\S+ result=paid/);
+  // The model is cached: the next pass reads no metadata.
+  await run.pass();
+  assert.equal(run.web.requests.length, 1);
+});
+
+test("a dry run of a buyback simulates it (with the swap's delivered amount read back) and sends nothing", async () => {
+  const run = await modulePass({ markets: [{ feeModel: "buyback" }], dryRun: true });
+  assert.equal(run.counts.rewards.simulated, 1);
+  assert.equal(run.chain.sent.length, 0);
+  assert.equal(run.ledger.models.size, 0);
+  assert.match(run.lines.find((l) => l.startsWith("reward ")), /model=buyback .*result=simulated received=\d+ units=60000/);
+});
+
+test("top buyers, split and holders markets are each paid by their own module; unknown models are holders", async () => {
+  const [a, b, w1, w2] = [wallet(), wallet(), wallet(), wallet()];
+  const now = Math.floor(Date.now() / 1000);
+  const trades = [
+    { trader: a.toBase58(), side: "buy", quote_amount: "900", base_amount: "9000", block_time: new Date((now - 600) * 1000).toISOString() },
+    { trader: b.toBase58(), side: "buy", quote_amount: "500", base_amount: "5000", block_time: new Date((now - 600) * 1000).toISOString() },
+  ];
+  const split = [{ wallet: w1.toBase58(), weight: 3 }, { wallet: w2.toBase58(), weight: 1 }];
+  const ledger = kit.memLedger({ trades });
+  const run = await modulePass({
+    ledger,
+    markets: [
+      { feeModel: "topBuyers", owed: 1_000_000n },
+      { json: { body: { sonata: { feeModel: "split", split } } }, owed: 1_000_000n },
+      { json: { body: { sonata: { feeModel: "burnItAll" } } }, owed: 1_000_000n },
+    ],
+  });
+  const [bounty, splitMarket, unknown] = run.added.map((m) => m.pool.toBase58());
+  for (const t of trades) t.pool = bounty;
+  // The bounty's trades were attached after the first pass: run it again for the bounty.
+  // The winners hold what they bought, and held none at a snapshot from before the round.
+  kit.withOwnerLookup(run.chain);
+  kit.holdBase(run.chain, run.added[0], a, 9_000n);
+  kit.holdBase(run.chain, run.added[0], b, 5_000n);
+  await ledger.recordSnapshot(bounty, "holders", now - 5000, []);
+  const [ta, tb] = [a, b].map((w) => quoteAta(w));
+  run.chain.put(ta, kit.tokenAccount({ owner: a, mint: QUOTE }));
+  run.chain.put(tb, kit.tokenAccount({ owner: b, mint: QUOTE }));
+  await run.pass();
+  assert.equal(run.chain.balance(ta), 500_000n);
+  assert.equal(run.chain.balance(tb), 300_000n);
+  // The split created both wallets' quote accounts and paid 3:1.
+  assert.equal(run.chain.balance(quoteAta(w1)), 750_000n);
+  assert.equal(run.chain.balance(quoteAta(w2)), 250_000n);
+  assert.equal(ledger.models.get(unknown).feeModel, "holders");
+  assert.match(ledger.models.get(unknown).note, /unknown fee model "burnItAll"/);
+  const modules = new Map(ledger.payouts.map((r) => [r.pool, r.module]));
+  assert.equal(modules.get(bounty), "topBuyers");
+  assert.equal(modules.get(splitMarket), "split");
+  assert.ok(run.lines.some((l) => l.startsWith(`rewards pool=${unknown} model=holders`)));
+});
+
+test("a market whose metadata cannot be read right now waits, its funds owed, and is read again next pass", async () => {
+  const run = await modulePass({ markets: [{ json: { status: 503, body: "" }, profile: { sonata: { feeModel: "buyback" } } }] });
+  const [m] = run.added;
+  const pool = m.pool.toBase58();
+  assert.equal(run.ledger.models.size, 0);
+  assert.equal(run.counts.rewards.skipped, 1);
+  assert.equal(run.chain.sent.length, 0);
+  assert.match(run.lines.find((l) => l.startsWith("rewards ")), /action=skip reason="fee model not read \(metadata HTTP 503\); read again next pass, funds stay owed"/);
+  // It answers on the next pass: a buyback, not a holders payout.
+  const routes = { [m.uri]: { body: { sonata: { feeModel: "buyback" } } } };
+  await run.pass({ fetchImpl: kit.fakeFetch(routes).fetchImpl });
+  assert.equal(run.ledger.models.get(pool).feeModel, "buyback");
+  assert.equal(run.ledger.payouts[0].module, "buyback");
+});
+
+// ---- After graduation: claim_graduated ---------------------------------------
+
+test("after graduation the Vault's position fees are claimed when they reach the threshold", () => {
+  const plan = planMarket(state({ migrated: true, graduatedFee: 130_335n }));
+  assert.deepEqual(plan, { claim: false, claimGraduated: true, distribute: true, createPayout: false, createPlatform: false, reason: null });
+  // The DBC claim stays only while the virtual pool still shows partner fees.
+  assert.equal(planMarket(state({ migrated: true, partnerQuoteFee: 20_000n, graduatedFee: 20_000n })).claim, true);
+  const below = planMarket(state({ migrated: true, graduatedFee: 9_999n }), 10_000n);
+  assert.equal(below.claimGraduated, false);
+  assert.equal(below.distribute, false);
+  assert.match(below.reason, /graduated fee 9999 below 10000/);
+  // Zero is a no-op, whatever the threshold.
+  assert.equal(planMarket(state({ migrated: true, graduatedFee: 0n }), 0n).claimGraduated, false);
+  assert.match(planMarket(state({ graduatedFee: 50_000n, treasuryBaseReady: false })).reason, /cannot claim/);
+  const frozen = planMarket(state({ graduatedFee: 50_000n, payoutAccount: "frozen" }));
+  assert.equal(frozen.claimGraduated, true);
+  assert.equal(frozen.distribute, false);
+});
+
+const graduatedMarket = () => {
+  const m = splitMarket("standard");
+  const k = () => Keypair.generate().publicKey;
+  return { ...m, graduated: { dammPool: k(), position: k(), positionNftAccount: k(), tokenAVault: k(), tokenBVault: k() } };
+};
+
+test("claim_graduated names the Vault, the treasury, the graduated pool and the Vault's position, as the IDL orders them", async () => {
+  const m = graduatedMarket();
+  const g = m.graduated;
+  const ix = await claimGraduatedIx(m, g);
+  assert.ok(ix.programId.equals(program.programId));
+  assert.ok(ix.data.equals(disc("claim_graduated")));
+  const DAMM = new PublicKey("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG");
+  const expected = [
+    [VAULT, false], [m.treasury, true], [DAMM_POOL_AUTHORITY, false], [g.dammPool, false], [g.position, true],
+    [m.treasuryBase, true], [m.treasuryQuote, true], [g.tokenAVault, true], [g.tokenBVault, true],
+    [m.baseMint, false], [m.quoteMint, false], [g.positionNftAccount, false],
+    [TOKEN_PROGRAM_ID, false], [TOKEN_2022_PROGRAM_ID, false], [DAMM_EVENT_AUTHORITY, false], [DAMM, false],
+  ];
+  assert.deepEqual(ix.keys.map((k) => [k.pubkey.toBase58(), k.isWritable, k.isSigner]), expected.map(([k, w]) => [k.toBase58(), w, false]));
+  assert.ok(DAMM_EVENT_AUTHORITY.equals(PublicKey.findProgramAddressSync([Buffer.from("__event_authority")], DAMM)[0]));
+  assert.equal(DAMM_POOL_AUTHORITY.toBase58(), "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC");
+  // Its IDL account list is the same, in order.
+  assert.deepEqual(treasuryIdl.instructions.find((i) => i.name === "claim_graduated").accounts.map((a) => a.name), [
+    "vault", "treasury", "damm_pool_authority", "damm_pool", "position", "treasury_base", "treasury_quote", "token_a_vault", "token_b_vault",
+    "base_mint", "quote_mint", "position_nft_account", "token_base_program", "token_quote_program", "damm_event_authority", "damm_program",
+  ]);
+});
+
+test("claim_graduated, both payout account creations and distribute_split fit one transaction", async () => {
+  const payer = Keypair.generate().publicKey;
+  const m = graduatedMarket();
+  const steps = await buildSteps(m, { claim: false, claimGraduated: true, distribute: true, createPayout: true, createPlatform: true }, payer);
+  assert.equal(steps.length, 1);
+  assert.deepEqual(steps[0].map((s) => s.label), ["compute budget", "claim_graduated", "create payout account", "create platform account", "distribute_split"]);
+  const bytes = txBytes(steps[0].map((s) => s.ix), payer);
+  assert.ok(bytes <= MAX_TX_BYTES, `${bytes} bytes`);
+  assert.equal(bytes, 975);
+  // With a DBC claim as well (partner fees still shown): at most two transactions, each within the limit.
+  const both = await buildSteps(m, { claim: true, claimGraduated: true, distribute: true, createPayout: true, createPlatform: true }, payer);
+  for (const step of both) assert.ok(txBytes(step.map((s) => s.ix), payer) <= MAX_TX_BYTES);
+  assert.deepEqual(both.flat().map((s) => s.label).filter((l) => l !== "compute budget"), ["claim", "claim_graduated", "create payout account", "create platform account", "distribute_split"]);
+  await assert.rejects(buildSteps({ ...m, graduated: null }, { claimGraduated: true, distribute: true }, payer), /graduated position unknown/);
+});
+
+test("the Vault's position is found once for every graduated market and then read from the cache", async () => {
+  const chain = kit.fakeChain();
+  const crank = Keypair.generate().publicKey;
+  const markets = [0, 1, 2].map(() => kit.rewardMarket(chain, crank));
+  const damm = [];
+  for (const [i, m] of markets.entries()) {
+    const d = kit.dbcAccounts(m, { migrated: i < 2 });
+    chain.put(m.pool, d.poolInfo);
+    chain.put(m.config, d.configInfo);
+    const pool = kit.dammPoolAccount(m, { migrationFeeOption: d.config.migrationFeeOption });
+    chain.put(pool.address, pool.info);
+    damm.push(pool);
+  }
+  const vaultOwned = (pool, permanent) => ({ position: Keypair.generate().publicKey, positionNftAccount: Keypair.generate().publicKey, positionState: { pool, permanentLockedLiquidity: new anchor.BN(String(permanent)) } });
+  // The Vault holds the graduation position of the first market only (and, say, a smaller one there too).
+  const positions = [vaultOwned(damm[0].address, 5), vaultOwned(damm[0].address, 10n ** 20n), vaultOwned(Keypair.generate().publicKey, 1)];
+  let lookups = 0;
+  const saved = new Map();
+  const ledger = {
+    graduatedPositions: async (pools) => new Map(pools.filter((p) => saved.has(p)).map((p) => [p, saved.get(p)])),
+    saveGraduatedPosition: async (pool, g) => void saved.set(pool, g),
+  };
+  const infoOf = (k) => chain.accounts.get(k.toBase58()) ?? null;
+  const args = { markets, infoOf, connection: chain.connection, rpc: (fn) => fn(), ledger, positionsOf: async () => (lookups++, positions) };
+  const found = await graduatedAccounts(args);
+  const [a, b, c] = markets.map((m) => m.pool.toBase58());
+  assert.equal(lookups, 1);
+  assert.ok(found.get(a).position.equals(positions[1].position));
+  // Derived from the config's migration fee option, as readGraduation derives it.
+  const option = kit.dbcAccounts(markets[0]).config.migrationFeeOption;
+  assert.ok(found.get(a).dammPool.equals(graduatedPool(markets[0], { migrationFeeOption: option })));
+  assert.ok(found.get(a).dammPool.equals(damm[0].address));
+  assert.ok(found.get(a).tokenAVault.equals(damm[0].state.tokenAVault) && found.get(a).tokenBVault.equals(damm[0].state.tokenBVault));
+  assert.match(found.get(b).error, /holds no position/);
+  assert.equal(found.has(c), false); // still on its curve
+  assert.deepEqual([...saved.keys()], [a]);
+  // Next pass: the first market from the cache, only the second looked up again.
+  await graduatedAccounts(args);
+  assert.equal(lookups, 2);
+  assert.equal(vaultPosition(positions, Keypair.generate().publicKey), null);
+});
+
+test("a pass over a graduated market simulates claim_graduated, then claims and splits in one transaction", async () => {
+  const admin = wallet();
+  const run = (graduatedFee, over = {}) => fakeChain({ markets: [{ mode: "standard", fee: 0n, graduated: true }], vaultAdminKey: admin, graduatedFee, ...over });
+  const chain = await run(130_335n);
+  assert.deepEqual(chain.counts, { markets: 1, sent: 0, simulated: 1, skipped: 0, failed: 0 });
+  // The Vault's position lookup (its NFTs, then their positions), then the probe and the transaction's simulation.
+  assert.ok(chain.calls.includes("getTokenAccountsByOwner"));
+  const [probe, tx] = chain.simulated;
+  const treasuryIxs = (ixs) => ixs.filter((ix) => ix.program.equals(program.programId)).map((ix) => ix.data.subarray(0, 8));
+  assert.deepEqual(treasuryIxs(probe), [disc("claim_graduated")]);
+  assert.deepEqual(treasuryIxs(tx), [disc("claim_graduated"), disc("distribute_split")]);
+  const claim = tx.find((ix) => ix.data.subarray(0, 8).equals(disc("claim_graduated")));
+  const { damm } = chain.added[0];
+  assert.ok(claim.accounts[3].equals(damm.address));
+  assert.ok(claim.accounts[4].equals(damm.position.address));
+  assert.ok(claim.accounts[11].equals(damm.position.nft.address));
+  assert.ok(claim.accounts[7].equals(damm.state.tokenAVault) && claim.accounts[8].equals(damm.state.tokenBVault));
+  const line = chain.lines.find((l) => l.startsWith("market "));
+  assert.match(line, /migrated=1 graduatedFee=130335 action=claim_graduated\+distribute_split/);
+  assert.match(line, /result=simulated/);
+  // No DBC claim: the graduated pool shows no partner fees.
+  assert.ok(!tx.some((ix) => ix.data.subarray(0, 8).equals(disc("claim"))));
+
+  // Nothing earned yet: the probe only, nothing sent or simulated beyond it.
+  const idle = await run(0n);
+  assert.equal(idle.counts.skipped, 1);
+  assert.equal(idle.simulated.length, 1);
+  assert.match(idle.lines.find((l) => l.startsWith("market ")), /graduatedFee=0 action=skip reason="nothing to claim or distribute"/);
+
+  // Sent for real: one transaction for the market.
+  const sent = await run(130_335n, { funded: true, dryRun: false });
+  assert.equal(sent.counts.sent, 1);
+  assert.equal(sent.calls.filter((c) => c === "sendRawTransaction").length, 1);
+});
+
+test("a diamond market pays its holders weighted by how long they have held", async () => {
+  const [steady, flipper, gifted] = [wallet(), wallet(), wallet()];
+  const now = Math.floor(Date.now() / 1000);
+  const ledger = kit.memLedger();
+  const run = await modulePass({ ledger, markets: [{ feeModel: "diamond", owed: 1_100_000n }] });
+  const [m] = run.added;
+  const pool = m.pool.toBase58();
+  // Earlier passes' holder snapshots (in place of the first pass's empty one):
+  // both held for 8 days, and an hour ago the flipper held nothing.
+  ledger.snapshots.get(`${pool}|holders`).clear();
+  await ledger.recordSnapshot(pool, "holders", now - 8 * 86400, [[steady.toBase58(), 10n ** 12n], [flipper.toBase58(), 10n ** 12n]]);
+  await ledger.recordSnapshot(pool, "holders", now - 3600, [[steady.toBase58(), 10n ** 12n]]);
+  // Equal balances, each with a quote account; 3x, 1x (sold out an hour ago, bought back) and 1x (never seen before).
+  for (const owner of [steady, flipper, gifted]) {
+    run.chain.put(Keypair.generate().publicKey, kit.tokenAccount({ owner, mint: m.baseMint, amount: 10n ** 12n, program: TOKEN_PROGRAM_ID }));
+    run.chain.put(quoteAta(owner), kit.tokenAccount({ owner, mint: QUOTE }));
+  }
+  await run.pass();
+  assert.deepEqual([steady, flipper, gifted].map((w) => run.chain.balance(quoteAta(w))), [660_000n, 220_000n, 220_000n]);
+  const [row] = ledger.payouts;
+  assert.equal(row.module, "diamond");
+  assert.deepEqual(row.detail.multipliers, { 1: 2, 1.5: 0, 2: 0, 3: 1 });
+  assert.match(run.lines.findLast((l) => l.startsWith("rewards ")), /model=diamond .*multipliers=1x:2,1.5x:0,2x:0,3x:1 holders=3 payable=3/);
+});
+
+// ---- Time budgets and market order ---------------------------------------------
+
+// Runs fn with Date.now moved forward by what fn's `advance(ms)` adds (a slow RPC, in effect).
+async function withClock(fn) {
+  const real = Date.now;
+  let skew = 0;
+  Date.now = () => real() + skew;
+  try {
+    return await fn((ms) => (skew += ms));
+  } finally {
+    Date.now = real;
+  }
+}
+
+test("each pass walks the markets from a different start, so none is always last", () => {
+  const pools = (list) => list.map((m) => m.pool.toBase58());
+  for (const n of [2, 3, 7, 20, 61]) {
+    const list = Array.from({ length: n }, () => ({ pool: Keypair.generate().publicKey }));
+    const sorted = pools([...list].sort((a, b) => (a.pool.toBase58() < b.pool.toBase58() ? -1 : 1)));
+    // Every order is the pool order started somewhere, whatever order the RPC listed them in.
+    for (const pass of [0, 1, 2, 2_111_111]) {
+      const order = pools(rotation(list, pass));
+      const at = order.indexOf(sorted[0]);
+      assert.deepEqual([...order.slice(at), ...order.slice(0, at)], sorted);
+      assert.deepEqual(pools(rotation([...list].reverse(), pass)), order);
+    }
+    // With time for only k markets a pass, every market is among the first k within
+    // 2 × ceil(n / k) passes, from any pass on; and from three markets up the last one changes every pass.
+    for (const k of [1, 2, Math.ceil(n / 3)]) {
+      for (let from = 2_111_000; from < 2_111_040; from++) {
+        const reached = new Set();
+        for (let pass = from; pass < from + 2 * Math.ceil(n / k); pass++) pools(rotation(list, pass)).slice(0, k).forEach((p) => reached.add(p));
+        assert.equal(reached.size, n, `n=${n} k=${k} from=${from}`);
+        if (n >= 3) assert.notEqual(pools(rotation(list, from)).at(-1), pools(rotation(list, from + 1)).at(-1));
+      }
+    }
+  }
+  assert.deepEqual(PHASE_ENDS_MS, { claims: 180_000, rewards: 360_000, airdrops: 480_000 });
+});
+
+test("the claim phase stops at its slot, and the reward payouts still get theirs", async () => {
+  const ledger = memLedger();
+  await withClock(async (advance) => {
+    const chain = await fakeChain({
+      funded: true, dryRun: false, ledger, vaultAdminKey: wallet(),
+      markets: [
+        ...Array.from({ length: 4 }, () => ({ mode: "refrain" })),
+        { mode: "standard", reward: true, fee: 0n, distributed: 1_000_000n, payoutBalance: 1_000_000n, holders: [{ owner: wallet(), amount: 400_000_000n, quote: true }] },
+      ],
+      // Each claim takes 2.5 minutes: two fit in the claim phase's 3.
+      onLog: (l) => l.startsWith("market ") && l.includes("result=sent") && advance(150_000),
+    });
+    assert.equal(chain.counts.sent, 2);
+    assert.equal(chain.lines.filter((l) => /mode=refrain action=skip reason="claim phase time budget used; next pass"/.test(l)).length, 2);
+    // Five minutes in: the reward phase (until 6) still pays.
+    assert.equal(chain.counts.rewards.txs, 1);
+    assert.equal(ledger.payouts.length, 1);
+    assert.match(chain.lines.at(-1), /^summary .*sent=2 .*rewardTxs=1/);
+  });
+});
+
+test("reward payouts stop starting transactions at the end of their slot, leaving the airdrops theirs", async () => {
+  const ledger = memLedger();
+  const holders = Array.from({ length: 45 }, () => ({ owner: wallet(), amount: 10_000_000n, quote: true }));
+  await withClock(async (advance) => {
+    const chain = await fakeChain({
+      funded: true, dryRun: false, ledger, vaultAdminKey: wallet(),
+      markets: [{ mode: "standard", reward: true, fee: 0n, distributed: 1_000_000n, payoutBalance: 1_000_000n, holders }],
+      // Each payout transaction takes 3.5 minutes: the third would start at 7, past the phase's 6.
+      onLog: (l) => l.startsWith("reward ") && l.includes("result=paid") && advance(210_000),
+    });
+    assert.deepEqual(ledger.payouts.map((r) => r.recipients), [20, 20]);
+    assert.match(chain.lines.find((l) => l.startsWith("rewards ")), /txs=2 left=111120 .*note="pass time budget used; the rest stays owed"/);
+  });
+});
+
+test("a phase that fails as a whole is logged and counted, and the pass still ends with its summary", async () => {
+  const payer = Keypair.generate();
+  // An airdrop market (the crank key is its leftover receiver), and a ledger that cannot even say whether it is ready.
+  const ledger = { ...kit.memLedger(), ready: () => { throw Error("ledger connection lost"); } };
+  const chain = await fakeChain({ payer, ledger, vaultAdminKey: wallet(), markets: [{ mode: "refrain", leftoverReceiver: payer.publicKey }] });
+  assert.equal(chain.counts.simulated, 1);
+  assert.deepEqual(chain.counts.airdrops, { markets: 1, txs: 0, atoms: 0n, failed: 1 });
+  assert.ok(chain.lines.includes('airdrop action=fail markets=1 reason="ledger connection lost"'));
+  assert.match(chain.lines.at(-1), /^summary .*airdropFailed=1/);
+});
+
+test("one graduated market's unusable config does not stop the others' claim_graduated lookup", async () => {
+  const chain = kit.fakeChain();
+  const crank = Keypair.generate().publicKey;
+  const markets = [0, 1].map(() => kit.rewardMarket(chain, crank));
+  const damm = [];
+  for (const [i, m] of markets.entries()) {
+    // The second names a migration fee option DBC does not have.
+    const d = kit.dbcAccounts(m, { migrated: true, edit: i ? ({ config }) => (config.migrationFeeOption = 99) : undefined });
+    chain.put(m.pool, d.poolInfo);
+    chain.put(m.config, d.configInfo);
+    if (!i) {
+      const pool = kit.dammPoolAccount(m, { migrationFeeOption: d.config.migrationFeeOption });
+      chain.put(pool.address, pool.info);
+      damm.push(pool);
+    }
+  }
+  const position = { position: Keypair.generate().publicKey, positionNftAccount: Keypair.generate().publicKey, positionState: { pool: damm[0].address, permanentLockedLiquidity: new anchor.BN(1) } };
+  const found = await graduatedAccounts({
+    markets, infoOf: (k) => chain.accounts.get(k.toBase58()) ?? null, connection: chain.connection, rpc: (fn) => fn(), ledger: null, positionsOf: async () => [position],
+  });
+  assert.ok(found.get(markets[0].pool.toBase58()).position.equals(position.position));
+  assert.match(found.get(markets[1].pool.toBase58()).error, /unsupported migration fee option/);
 });

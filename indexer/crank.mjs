@@ -3,14 +3,17 @@
 //
 // For each treasury of the Sonata treasury program:
 //   1. `claim` pulls the pool's partner fees from Meteora DBC into the treasury,
-//      when the pool's partnerQuoteFee is at least CRANK_MIN_ATOMS;
+//      when the pool's partnerQuoteFee is at least CRANK_MIN_ATOMS; after
+//      graduation `claim_graduated` pulls the fees the Vault's locked DAMM v2
+//      position has earned (indexer/modules/graduated.mjs), when a simulation
+//      shows at least CRANK_MIN_ATOMS arriving;
 //   2. `distribute` splits what is claimed but unallocated by the treasury's
 //      mode (refrain 100% payout; duet 50/50; floor 50% payout, 50% Stock Floor),
 //      or, for the modes with a Sonata platform share, `distribute_split` does
 //      (standard 50% creator, 50% Sonata; standardFloor 25% creator, 25% Stock
 //      Floor, 50% Sonata). Sonata's share goes to the Token-2022 quote account of
 //      the Vault admin, read from the Vault account each pass.
-// All three instructions are permissionless and every destination is pinned
+// These instructions are permissionless and every destination is pinned
 // onchain, so for these the key only pays network fees (and rent for a missing
 // payout or platform token account), never redirects funds. Claim and distribute
 // are built as lib/treasury/runtime.ts prepareTreasury builds them for "collect",
@@ -18,14 +21,25 @@
 //
 // Reward tokens (indexer/rewards.mjs) are the exception: markets whose
 // payout_owner is this key. Their creator share lands in this key's quote
-// account, and after the step above the crank pays it on to the base token's
-// holders, pro rata, recorded in the indexer's PostgreSQL ledger.
+// account, and after the step above the crank passes it on by the market's fee
+// module (named in the token's metadata JSON: holders, buyback, topBuyers,
+// lpFarm, split or diamond; indexer/modules/), recorded in the indexer's
+// PostgreSQL ledger.
+//
+// Graduation airdrops (indexer/modules/airdrop.mjs) run last, for any market
+// whose DBC config names this key as leftover receiver.
+//
+// Each of the three phases (claims, reward payouts, airdrops) has its own slot
+// of the pass (PHASE_ENDS_MS), and each walks its markets from a different
+// starting point every pass (rotation), so neither a slow phase nor a busy
+// market can keep the same markets or the airdrops waiting pass after pass.
 //
 // Env: CRANK_KEYPAIR (default /opt/sonata/crank-keypair.json),
 //      SOLANA_RPC_URL (default: public Devnet), CRANK_MIN_ATOMS (default 10000),
 //      CRANK_DRY_RUN=1 (build and simulate only; nothing is sent),
 //      CRANK_SPACING_MS (pause between RPC calls, default 500),
-//      DATABASE_URL (the reward ledger; without it reward payouts are skipped),
+//      DATABASE_URL (the reward ledger; without it reward payouts and airdrops
+//      are skipped, and graduated positions are looked up every pass),
 //      REWARD_MIN_ATOMS (smallest owed amount paid out, default 100000).
 import { readFileSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -48,6 +62,10 @@ import {
   unpackMint,
 } from "@solana/spl-token";
 import { DEFAULT_REWARD_MIN_ATOMS, MAX_TX_BYTES, payRewards, pgLedger, txBytes } from "./rewards.mjs";
+import { runAirdrops } from "./modules/airdrop.mjs";
+import { crankLedger } from "./modules/crank-schema.mjs";
+import { simulatedAmount } from "./modules/common.mjs";
+import { DAMM_EVENT_AUTHORITY, DAMM_POOL_AUTHORITY, graduatedAccounts } from "./modules/graduated.mjs";
 
 export { MAX_TX_BYTES, txBytes };
 
@@ -59,9 +77,16 @@ const QUOTE_MINTS = new Set(json("../lib/treasury/quote-assets.json").assets.map
 
 export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 export const DEFAULT_MIN_ATOMS = 10_000n;
-// Reward payouts start no new transaction after this much of a pass, well inside
-// the service's TimeoutStartSec; what is left stays owed for the next pass.
-const REWARD_BUDGET_MS = 8 * 60_000;
+// Each phase of a pass starts no new transaction after the end of its own slot,
+// counted from the start of the pass: claims until 3 minutes, reward payouts
+// until 6, airdrops until 8. A phase that finishes early leaves its time to the
+// next; a slow one cannot take the next one's slot. A transaction in flight at
+// a deadline can take a minute or so more to settle, so a pass still ends
+// inside the service's TimeoutStartSec (10 minutes). What is left stays owed
+// (or unclaimed) for the next pass.
+export const PHASE_ENDS_MS = { claims: 3 * 60_000, rewards: 6 * 60_000, airdrops: 8 * 60_000 };
+// sonata-crank.timer starts a pass every 15 minutes.
+export const PASS_INTERVAL_MS = 15 * 60_000;
 const pk = (s) => new PublicKey(s);
 // Only builds instructions and decodes accounts; it never sends through this connection.
 const program = new anchor.Program(treasuryIdl, { connection: new Connection("http://127.0.0.1:1") });
@@ -70,6 +95,7 @@ const TREASURY_DISCRIMINATOR = Buffer.from(
   treasuryIdl.accounts.find((a) => a.name === "Treasury").discriminator,
 );
 const [VAULT] = PublicKey.findProgramAddressSync([Buffer.from("stockroom")], program.programId);
+const DAMM_PROGRAM = pk("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG");
 if (VAULT.toBase58() !== json("../lib/treasury/market.json").vault)
   throw Error("Sonata fee vault does not match lib/treasury/market.json.");
 // Onchain Mode variants the crank handles, by the anchor coder's key. Sustain is
@@ -92,6 +118,8 @@ const check = (label, fn) => {
 /**
  * What one market needs this pass. Amounts are raw quote atoms (bigint).
  *   partnerQuoteFee    the DBC pool's unclaimed partner fee (what `claim` pulls)
+ *   graduatedFee       after graduation, what `claim_graduated` would move into
+ *                      the treasury, from a simulation (undefined before)
  *   unallocated        treasury totalClaimed - totalDistributed - totalRetained
  *   treasuryBaseReady  the treasury's base token account exists, unfrozen (`claim` needs it)
  *   payoutAccount      "ok" | "missing" (created in the same transaction) | "frozen"
@@ -102,20 +130,25 @@ const check = (label, fn) => {
 export function planMarket(s, minAtoms = DEFAULT_MIN_ATOMS) {
   const feeReady = s.partnerQuoteFee > 0n && s.partnerQuoteFee >= minAtoms;
   const claim = feeReady && s.treasuryBaseReady;
+  const graduatedFee = s.graduatedFee ?? 0n;
+  const graduatedReady = graduatedFee > 0n && graduatedFee >= minAtoms;
+  const claimGraduated = graduatedReady && s.treasuryBaseReady;
   const frozen = s.payoutAccount === "frozen" ? "payout" : s.platformAccount === "frozen" ? "platform" : null;
   // A claim leaves something unallocated, so it is always followed by a split.
-  const distribute = !frozen && (claim || s.unallocated > 0n);
+  const distribute = !frozen && (claim || claimGraduated || s.unallocated > 0n);
   const createPayout = distribute && s.payoutAccount === "missing";
   const createPlatform = distribute && s.platformAccount === "missing";
   let reason = null;
-  if (feeReady && !s.treasuryBaseReady) reason = "treasury base token account missing or frozen; cannot claim";
-  else if (frozen && (claim || s.unallocated > 0n))
+  if ((feeReady || graduatedReady) && !s.treasuryBaseReady) reason = "treasury base token account missing or frozen; cannot claim";
+  else if (frozen && (claim || claimGraduated || s.unallocated > 0n))
     reason = `${frozen} token account frozen; cannot distribute`;
-  else if (!claim && !distribute)
+  else if (!claim && !claimGraduated && !distribute)
     reason = s.partnerQuoteFee > 0n
       ? `partner fee ${s.partnerQuoteFee} below ${minAtoms}; nothing unallocated`
-      : "nothing to claim or distribute";
-  return { claim, distribute, createPayout, createPlatform, reason };
+      : graduatedFee > 0n
+        ? `graduated fee ${graduatedFee} below ${minAtoms}; nothing unallocated`
+        : "nothing to claim or distribute";
+  return { claim, claimGraduated, distribute, createPayout, createPlatform, reason };
 }
 
 // Account lists as in lib/treasury/runtime.ts prepareTreasury.
@@ -166,6 +199,32 @@ const distributeSplitIx = (m) =>
     })
     .instruction();
 
+// After graduation: the Vault's locked DAMM v2 position fees into the treasury
+// (accounts as stockroom-protocol/scripts/verify-graduated-claim.mjs). `g` is
+// the market's graduated pool and position (modules/graduated.mjs).
+export const claimGraduatedIx = (m, g) =>
+  program.methods
+    .claimGraduated()
+    .accountsStrict({
+      vault: VAULT,
+      treasury: m.treasury,
+      dammPoolAuthority: DAMM_POOL_AUTHORITY,
+      dammPool: g.dammPool,
+      position: g.position,
+      treasuryBase: m.treasuryBase,
+      treasuryQuote: m.treasuryQuote,
+      tokenAVault: g.tokenAVault,
+      tokenBVault: g.tokenBVault,
+      baseMint: m.baseMint,
+      quoteMint: m.quoteMint,
+      positionNftAccount: g.positionNftAccount,
+      tokenBaseProgram: TOKEN_PROGRAM_ID,
+      tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+      dammEventAuthority: DAMM_EVENT_AUTHORITY,
+      dammProgram: DAMM_PROGRAM,
+    })
+    .instruction();
+
 /**
  * The transactions for a plan: one when claim and distribute fit together,
  * otherwise claim first and distribute after it confirms. Each step is a list
@@ -173,7 +232,11 @@ const distributeSplitIx = (m) =>
  */
 export async function buildSteps(m, plan, feePayer) {
   const budget = () => ({ label: "compute budget", ix: ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }) });
-  const claim = plan.claim ? [{ label: "claim", ix: await claimIx(m) }] : [];
+  if (plan.claimGraduated && !m.graduated?.position) throw Error("graduated position unknown; cannot claim_graduated");
+  const claim = [
+    ...(plan.claim ? [{ label: "claim", ix: await claimIx(m) }] : []),
+    ...(plan.claimGraduated ? [{ label: "claim_graduated", ix: await claimGraduatedIx(m, m.graduated) }] : []),
+  ];
   const split = SPLIT_MODES.has(m.mode);
   if (split && plan.distribute && !m.platformQuote) throw Error("platform account unknown; cannot distribute_split");
   const create = (label, account, owner) => ({
@@ -313,6 +376,7 @@ function inspect(m, info) {
     payoutAccount,
     platformAccount,
     migrated: p.isMigrated !== 0,
+    custody: custody.amount,
   };
 }
 
@@ -325,6 +389,20 @@ function describe(err, logs, step) {
   return { where, text: text.slice(0, 300) };
 }
 
+/**
+ * `list` of markets in pool order (so it does not depend on the RPC's order),
+ * started at a different market on each pass number: the start moves by the
+ * golden ratio of the list each pass, so consecutive passes start far apart
+ * and within a few passes every market has been near the front. A phase that
+ * runs out of time therefore never leaves the same markets for last.
+ */
+export function rotation(list, pass) {
+  const sorted = [...list].sort((a, b) => (a.pool.toBase58() < b.pool.toBase58() ? -1 : 1));
+  if (sorted.length < 2) return sorted;
+  const start = Math.floor(((pass * 0.6180339887498949) % 1) * sorted.length);
+  return [...sorted.slice(start), ...sorted.slice(0, start)];
+}
+
 const field = (v) => (/[\s"=]/.test(String(v)) ? JSON.stringify(String(v)) : String(v));
 const format = (tag, fields) =>
   [tag, ...Object.entries(fields).filter(([, v]) => v !== undefined && v !== null && v !== "")
@@ -333,9 +411,11 @@ const format = (tag, fields) =>
 /**
  * One pass over every market, then reward payouts for the markets whose payout
  * owner is `payer` (with `ledger`, see indexer/rewards.mjs pgLedger; null skips
- * them). Returns the counts, with `rewards` when there are reward markets;
- * per-market failures are logged and counted, never thrown. Throws only if the
- * pass cannot start (wrong network, or markets cannot be listed).
+ * them), then graduation airdrops. Returns the counts, with `rewards` and
+ * `airdrops` when there are such markets; per-market (and per-phase) failures
+ * are logged and counted, never thrown. Throws only if the pass cannot start
+ * (wrong network, or markets cannot be listed). `pass` numbers the pass for
+ * the market order (default: from the start time and PASS_INTERVAL_MS).
  */
 export async function runPass({
   connection,
@@ -347,8 +427,12 @@ export async function runPass({
   ledger = null,
   rewardMinAtoms = DEFAULT_REWARD_MIN_ATOMS,
   confirmPollMs = 2000,
+  fetchImpl = globalThis.fetch,
+  phaseEnds = PHASE_ENDS_MS,
+  pass,
 }) {
   const started = Date.now();
+  const passNumber = pass ?? Math.floor(started / PASS_INTERVAL_MS);
   let calls = 0;
   // Spaced, with backoff on the public RPC's rate limits (as indexer/index.mjs).
   // A signed transaction resent after a network error keeps its signature, so
@@ -375,7 +459,7 @@ export async function runPass({
     }),
   );
   const counts = { markets: listed.length, sent: 0, simulated: 0, skipped: 0, failed: 0 };
-  const markets = [];
+  let markets = [];
   for (const { pubkey, account } of listed) {
     try {
       const m = marketOf(pubkey, program.coder.accounts.decode("treasury", account.data));
@@ -388,6 +472,9 @@ export async function runPass({
       log(format("market", { treasury: pubkey.toBase58(), action: "fail", reason: errText(e) }));
     }
   }
+
+  // Each phase walks the markets from this pass's starting point.
+  markets = rotation(markets, passNumber);
 
   // The platform share goes to the Vault admin's quote account; the admin is read
   // from the Vault, one extra call, only when some market has a platform share.
@@ -428,7 +515,8 @@ export async function runPass({
       latest = { at: Date.now(), ...(await rpc(() => connection.getLatestBlockhash("confirmed"))) };
     return latest;
   };
-  const simulate = async (step, feePayer) => {
+  // `accounts`: addresses whose post-simulation state is returned (value.accounts).
+  const simulate = async (step, feePayer, { accounts } = {}) => {
     const tx = new Transaction().add(...step.map((s) => s.ix));
     tx.feePayer = feePayer;
     tx.recentBlockhash = PublicKey.default.toBase58();
@@ -437,6 +525,7 @@ export async function runPass({
         sigVerify: false,
         replaceRecentBlockhash: true,
         commitment: "confirmed",
+        ...(accounts ? { accounts: { encoding: "base64", addresses: accounts.map((a) => a.toBase58()) } } : {}),
       }),
     );
     return value;
@@ -462,40 +551,75 @@ export async function runPass({
     return { ok: false, signature, text: "not confirmed within 60 s; the next pass re-reads chain state" };
   };
 
+  // Graduated markets: the Vault's DAMM v2 position that claim_graduated
+  // collects from (cached in the ledger; one lookup for every uncached market).
+  let graduated = new Map();
+  try {
+    graduated = await graduatedAccounts({ markets, infoOf: lookup, connection, rpc, ledger, log: (tag, fields) => log(format(tag, fields)) });
+  } catch (e) {
+    log(format("graduated", { action: "fail", reason: errText(e) }));
+  }
+
+  const claimsEnd = started + phaseEnds.claims;
   for (let i = 0; i < markets.length; i++) {
     const m = markets[i];
     const base = { pool: m.pool.toBase58(), mode: m.mode };
+    // Its fees stay in the pool (or the treasury) until a later pass claims them.
+    if (Date.now() > claimsEnd) {
+      counts.skipped++;
+      log(format("market", { ...base, action: "skip", reason: "claim phase time budget used; next pass" }));
+      continue;
+    }
     try {
       if (SPLIT_MODES.has(m.mode) && !m.platformQuote) throw Error(vaultError ?? "platform account unknown");
       const [pool, config, treasuryBase, treasuryQuote, payoutQuote] = accountsOf(m).map(lookup);
       const state = inspect(m, [pool, config, treasuryBase, treasuryQuote, payoutQuote, lookup(m.quoteMint), lookup(m.platformQuote)]);
       Object.assign(base, { fee: state.partnerQuoteFee, unallocated: state.unallocated, migrated: state.migrated ? 1 : undefined });
+      const feePayer = simulateAsCreator ? m.creator : payer.publicKey;
+      let graduatedNote;
+      const g = graduated.get(base.pool);
+      if (g?.error) graduatedNote = `claim_graduated: ${g.error}`;
+      else if (g && state.treasuryBaseReady) {
+        // What claim_graduated would move into the treasury now; nothing is sent for a zero.
+        m.graduated = g;
+        const probe = [
+          { label: "compute budget", ix: ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }) },
+          { label: "claim_graduated", ix: await claimGraduatedIx(m, g) },
+        ];
+        const r = await simulate(probe, feePayer, { accounts: [m.treasuryQuote] });
+        if (r.err) graduatedNote = `claim_graduated would fail: ${describe(r.err, r.logs, probe).text}`;
+        else state.graduatedFee = simulatedAmount(r.accounts?.[0], { owner: m.treasury, mint: m.quoteMint, program: TOKEN_2022_PROGRAM_ID }) - state.custody;
+        base.graduatedFee = state.graduatedFee;
+      }
       let plan = planMarket(state, minAtoms);
-      if (!plan.claim && !plan.distribute) {
+      if (!plan.claim && !plan.claimGraduated && !plan.distribute) {
         counts.skipped++;
-        log(format("market", { ...base, action: "skip", reason: plan.reason }));
+        log(format("market", { ...base, action: "skip", reason: plan.reason, note: graduatedNote }));
         continue;
       }
-      const feePayer = simulateAsCreator ? m.creator : payer.publicKey;
       let steps = await buildSteps(m, plan, feePayer);
       let sim = await simulate(steps[0], feePayer);
-      let note = plan.reason ?? undefined;
-      const first = sim.err && describe(sim.err, sim.logs, steps[0]);
-      if (first && plan.claim && first.where === "claim") {
-        // Claim would fail (for example a migrated pool): split what is already claimed, or skip.
-        const why = first.text;
-        if (state.unallocated <= 0n || !plan.distribute) {
+      let note = [plan.reason, graduatedNote].filter(Boolean).join("; ") || undefined;
+      // A claim that would fail (a migrated pool's DBC claim, say) is dropped:
+      // the rest still runs, or the market is skipped when nothing is left.
+      let skipped = false;
+      for (let first = sim.err && describe(sim.err, sim.logs, steps[0]); first; first = sim.err && describe(sim.err, sim.logs, steps[0])) {
+        const which = first.where === "claim" && plan.claim ? "claim" : first.where === "claim_graduated" && plan.claimGraduated ? "claimGraduated" : null;
+        if (!which) break;
+        plan = { ...plan, [which]: false };
+        note = [note, `${first.where} would fail: ${first.text}`].filter(Boolean).join("; ");
+        if (!plan.claim && !plan.claimGraduated && (state.unallocated <= 0n || !plan.distribute)) {
           counts.skipped++;
-          log(format("market", { ...base, action: "skip", reason: `claim would fail: ${why}` }));
-          continue;
+          log(format("market", { ...base, action: "skip", reason: `${first.where} would fail: ${first.text}` }));
+          skipped = true;
+          break;
         }
-        plan = { ...plan, claim: false };
-        note = `claim would fail: ${why}`;
         steps = await buildSteps(m, plan, feePayer);
         sim = await simulate(steps[0], feePayer);
       }
+      if (skipped) continue;
       const split = SPLIT_MODES.has(m.mode);
-      const action = [plan.claim && "claim", plan.distribute && (split ? "distribute_split" : "distribute")].filter(Boolean).join("+");
+      const action = [plan.claim && "claim", plan.claimGraduated && "claim_graduated", plan.distribute && (split ? "distribute_split" : "distribute")].filter(Boolean).join("+");
       const extra = {
         action,
         payoutAta: plan.createPayout ? "create" : undefined,
@@ -544,8 +668,8 @@ export async function runPass({
     }
   }
 
-  // Reward tokens: after every market's claim/distribute, pay what the crank key
-  // received for them on to their holders.
+  // Reward tokens: after every market's claim/distribute, pass what the crank
+  // key received for them on, by each market's fee module.
   const rewardMarkets = markets.filter((m) => m.payoutOwner.equals(payer.publicKey));
   let rewardLine = {};
   if (rewardMarkets.length) {
@@ -559,27 +683,87 @@ export async function runPass({
           // payRewards reports the market as not verified.
         }
       }
-    const r = await payRewards({
-      markets: rewardMarkets,
-      authority: payer,
-      connection,
-      rpc,
-      simulate,
-      blockhash,
-      ledger,
-      readTreasury: rewardTotals,
-      feePayerOf: (m) => (simulateAsCreator ? m.creator : payer.publicKey),
-      minAtoms: rewardMinAtoms,
-      dryRun,
-      deadline: started + REWARD_BUDGET_MS,
-      pollMs: confirmPollMs,
-      log: (tag, fields) => log(format(tag, fields)),
-    });
+    let r;
+    try {
+      r = await payRewards({
+        markets: rotation(rewardMarkets, passNumber),
+        authority: payer,
+        connection,
+        rpc,
+        simulate,
+        blockhash,
+        ledger,
+        readTreasury: rewardTotals,
+        feePayerOf: (m) => (simulateAsCreator ? m.creator : payer.publicKey),
+        minAtoms: rewardMinAtoms,
+        dryRun,
+        deadline: started + phaseEnds.rewards,
+        pollMs: confirmPollMs,
+        log: (tag, fields) => log(format(tag, fields)),
+        // No module ever pays the Vault (the crank key and the Vault admin are excluded too).
+        excluded: [VAULT],
+        fetchImpl,
+      });
+    } catch (e) {
+      // The phase failed as a whole; the airdrops still run.
+      r = { markets: rewardMarkets.length, txs: 0, atoms: 0n, recipients: 0, simulated: 0, skipped: 0, failed: rewardMarkets.length };
+      log(format("rewards", { action: "fail", markets: rewardMarkets.length, reason: errText(e) }));
+    }
     counts.rewards = r;
     rewardLine = { rewardMarkets: r.markets, rewardTxs: r.txs, rewardAtoms: r.atoms, rewardFailed: r.failed };
   }
-  log(format("summary", { ...counts, rewards: undefined, ...rewardLine, dryRun: dryRun ? 1 : 0, rpc: calls, ms: Date.now() - started }));
+
+  // Graduation airdrops (indexer/modules/airdrop.mjs): any market whose DBC
+  // config names this key as leftover receiver, once it has graduated.
+  let airdropLine = {};
+  const airdropJob = {
+    markets,
+    infoOf: lookup,
+    authority: payer,
+    connection,
+    rpc,
+    simulate,
+    blockhash,
+    ledger,
+    dryRun,
+    deadline: started + phaseEnds.airdrops,
+    pollMs: confirmPollMs,
+    log: (tag, fields) => log(format(tag, fields)),
+    feePayerOf: (m) => (simulateAsCreator ? m.creator : payer.publicKey),
+    excluded: [VAULT],
+  };
+  const airdropMarkets = markets.filter((m) => airdropReceiver(m, lookup)?.equals(payer.publicKey));
+  if (airdropMarkets.length) {
+    let r;
+    try {
+      if (!ledger) {
+        r = { markets: airdropMarkets.length, txs: 0, atoms: 0n, failed: 0 };
+        log(format("airdrop", { action: "skip", markets: airdropMarkets.length, reason: "DATABASE_URL not set; airdrops need the ledger" }));
+      } else if (!(await ledger.ready().catch(() => false))) {
+        r = { markets: airdropMarkets.length, txs: 0, atoms: 0n, failed: 0 };
+        log(format("airdrop", { action: "skip", markets: airdropMarkets.length, reason: "ledger tables missing or out of date; restarting sonata-indexer (setup.sh does) creates them" }));
+      } else r = await runAirdrops({ ...airdropJob, markets: rotation(airdropMarkets, passNumber) });
+    } catch (e) {
+      // The phase failed as a whole; the pass still ends with its summary.
+      r = { markets: airdropMarkets.length, txs: 0, atoms: 0n, failed: airdropMarkets.length };
+      log(format("airdrop", { action: "fail", markets: airdropMarkets.length, reason: errText(e) }));
+    }
+    counts.airdrops = r;
+    airdropLine = { airdropMarkets: r.markets, airdropTxs: r.txs, airdropAtoms: r.atoms, airdropFailed: r.failed };
+  }
+  log(format("summary", { ...counts, rewards: undefined, airdrops: undefined, ...rewardLine, ...airdropLine, dryRun: dryRun ? 1 : 0, rpc: calls, ms: Date.now() - started }));
   return counts;
+}
+
+// The DBC config's leftover receiver, from this pass's accounts (null if unreadable).
+function airdropReceiver(m, lookup) {
+  const info = lookup(m.config);
+  if (!info?.owner.equals(pk(dbc.program))) return null;
+  try {
+    return dbcCoder.decode("poolConfig", info.data).leftoverReceiver;
+  } catch {
+    return null;
+  }
 }
 
 // Reads the key without ever echoing file contents (a JSON parse error quotes its input).
@@ -626,10 +810,10 @@ async function main() {
       minAtoms: BigInt(minRaw),
       dryRun: env.CRANK_DRY_RUN === "1",
       spacingMs: Number(env.CRANK_SPACING_MS || 500),
-      ledger: db && pgLedger(db),
+      ledger: db && crankLedger(pgLedger(db), db),
       rewardMinAtoms: BigInt(rewardMinRaw),
     });
-    return counts.failed || counts.rewards?.failed ? 1 : 0;
+    return counts.failed || counts.rewards?.failed || counts.airdrops?.failed ? 1 : 0;
   } finally {
     await db?.end();
   }

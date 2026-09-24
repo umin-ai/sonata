@@ -13,7 +13,7 @@ import {
 // only Sonata's CloudFront and Irys URIs and validates the result. The profile
 // is validated again here, so a link is never shown unless it passes.
 const cache = new Map<string, Promise<TokenProfile | null>>();
-function loadProfile(uri: string) {
+export function loadProfile(uri: string) {
   if (!cache.has(uri))
     cache.set(
       uri,

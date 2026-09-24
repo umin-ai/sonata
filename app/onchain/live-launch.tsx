@@ -205,9 +205,10 @@ export function LiveLaunch() {
         const data = d as StockPrice;
         const a = assessPrice(data, Date.now());
         const guard = (d as { guard?: { feed: string; price: number; divergence: number } }).guard;
+        const mark = (d as { mark?: { price: number; premium: number | null } }).mark;
         setPyth(
           a.usable
-            ? { status: "ok", data, label: a.label, live: a.live, confidenceRatio: a.confidenceRatio, guard }
+            ? { status: "ok", data, label: a.label, live: a.live, confidenceRatio: a.confidenceRatio, guard, mark }
             : { status: "unusable", message: a.reason, data },
         );
       })
@@ -468,11 +469,11 @@ export function LiveLaunch() {
           : feeModule === "topBuyers"
             ? `${share} of every trade goes to the 3 biggest net buyers of each 15-minute round: 50% / 30% / 20%. Net = buys − sells, so sellers can't game it. You and Sonata are excluded. A round with no net buyers rolls over.`
             : feeModule === "lpFarm"
-              ? `${share} of every trade goes to holders while on the curve, then to liquidity providers in the Meteora pool after graduation, pro rata.`
+              ? `${share} of every trade goes to holders while on the curve, then to liquidity providers in the Meteora pool after graduation, pro rata. Liquidity counts once it has been in the pool for a full round.`
               : feeModule === "split"
                 ? `${share} of every trade is split between these wallets by share, in ${q}.`
                 : feeModule === "diamond"
-                  ? `${share} of every trade goes to holders, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling any amount restarts the clock.`
+                  ? `${share} of every trade goes to holders, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount, and new tokens start at 1×.`
                   : `You earn ${share} of every trade, paid to your wallet in ${q}. Nothing to claim.`;
   const cadence =
     feeModule === "buyback"
@@ -627,7 +628,7 @@ export function LiveLaunch() {
         {pyth.status === "loading"
           ? "Loading the stock price…"
           : priced
-            ? `${q.slice(1)} ${formatUsd(priced.data.price)} · ${priced.data.source === "pyth" ? "Pyth" : "Jupiter"}${priced.guard ? " · checked by Pyth" : ""}. Prices are converted at launch, so the curve is worth the same in dollars whatever the stock.`
+            ? `${q.slice(1)} ${formatUsd(priced.data.price)} · ${priced.data.source === "pyth" ? "Pyth" : priced.data.source === "prestocks" ? "PreStocks mark price (the Solana market is too thin)" : "Jupiter"}${priced.guard ? " · checked by Pyth" : ""}${priced.mark && priced.mark.premium !== null ? ` · ${Math.abs(priced.mark.premium * 100).toFixed(1)}% ${priced.mark.premium >= 0 ? "above" : "below"} PreStocks' mark (${formatUsd(priced.mark.price)})` : ""}. Prices are converted at launch, so the curve is worth the same in dollars whatever the stock.`
             : `Dollar price unavailable right now, so the curve is set in ${q}: opens at 2 ${q}, graduates at ${FALLBACK_TARGET[targetUsd]} ${q}.`}
       </p>
     </section>
