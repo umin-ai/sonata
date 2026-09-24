@@ -7,6 +7,8 @@ import {
   meteoraPoolUrl,
   mergePools,
   parsePools,
+  parseXStocks,
+  indexStocks,
   percentText,
   transferFeeAt,
 } from "./mainnet-pools.ts";
@@ -115,6 +117,38 @@ test("reads the transfer fee in force and a scheduled change", () => {
     transferFeeAt({ olderTransferFee: { epoch: 0, transferFeeBasisPoints: 0 }, newerTransferFee: { epoch: 0, transferFeeBasisPoints: 0 } }, 1041, 1, 432_000),
     undefined,
   );
+});
+
+test("reads Backed's xStock list: Solana mints only, and only Backed's logos", () => {
+  const GLDX = "Xsv9hRk1z5ystj9MhnA7Lq4vjSsLwzL2nxrwmwtD3re";
+  const stocks = parseXStocks({
+    nodes: [
+      {
+        name: "Gold xStock",
+        symbol: "GLDx",
+        logo: "https://xstocks-metadata.backed.fi/logos/tokens/GLDx.png",
+        deployments: [
+          { network: "Arbitrum", address: "0xe7fd74df6c9c32e34af6774aebb240c990f5008c" },
+          { network: "Solana", address: `svm:${GLDX}` },
+        ],
+      },
+      { symbol: "TQQQx", isTradingHalted: true, logo: "https://evil.example/logo.png", deployments: [{ network: "Solana", address: "svm:XsjQP3iMAaQ3kQScQKthQpx9ALRbjKAjQtHg6TFomoc" }] },
+      { symbol: "<script>", deployments: [{ network: "Solana", address: `svm:${GLDX}` }] },
+      { symbol: "BAD", deployments: [{ network: "Solana", address: "svm:not-a-mint" }] },
+    ],
+  });
+  assert.deepEqual(stocks, [
+    { symbol: "GLDx", mint: GLDX, family: "xStocks", logo: "https://xstocks-metadata.backed.fi/logos/tokens/GLDx.png" },
+    // No "xStock" in its name, so it is looked up by mint.
+    { symbol: "TQQQx", mint: "XsjQP3iMAaQ3kQScQKthQpx9ALRbjKAjQtHg6TFomoc", family: "xStocks", halted: true, unnamed: true },
+  ]);
+  assert.throws(() => parseXStocks({ error: "down" }));
+  // With the list, a GLDx pool is a stock pool; without it, it is not.
+  const walter = { data: [row("46KX59VSQzFqiSVJEWFTMPZtHocT49tAUWs4ybxuSGmp", FAKE, GLDX, 40_000)] };
+  const [p] = parsePools("damm-v2", walter, indexStocks(stocks)).pools;
+  assert.deepEqual(p.stocks, ["GLDx"]);
+  assert.deepEqual(p.stockMints, [GLDX]);
+  assert.equal(parsePools("damm-v2", walter).pools.length, 0);
 });
 
 test("formats money and percents compactly", () => {

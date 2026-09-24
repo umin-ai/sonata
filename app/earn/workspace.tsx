@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import {
   discoverMarkets,
   explorer,
+  meteoraPool,
   isRewardMarket,
   readTradingWallet,
   type Market,
@@ -230,6 +231,9 @@ function PoolCard({
       <div className="pool-card-foot">
         <MarketBadges market={m} data={pool.badges} feeModel={profile?.feeModel} quote={pool.quoteSymbol} />
         <Link href={marketHref(m)}>Market</Link>
+        <a href={meteoraPool(pool.address)} target="_blank" rel="noreferrer">
+          Meteora <ArrowUpRight size={12} />
+        </a>
         <a href={explorer("address", pool.address)} target="_blank" rel="noreferrer">
           Explorer <ArrowUpRight size={12} />
         </a>
@@ -497,6 +501,9 @@ function PoolDetail({
           <Link className="sr-text-link" href={marketHref(m)}>
             Market <ArrowUpRight size={13} />
           </Link>
+          <a className="sr-text-link" href={meteoraPool(pool.address)} target="_blank" rel="noreferrer">
+            Meteora <ArrowUpRight size={13} />
+          </a>
           <a className="sr-text-link" href={explorer("address", pool.address)} target="_blank" rel="noreferrer">
             Explorer <ArrowUpRight size={13} />
           </a>
