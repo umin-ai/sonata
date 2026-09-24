@@ -546,11 +546,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   : review.liquidity
                     ? "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
                     : review.action === "launch"
-                      ? `Create a permanent token and its own Meteora pool with the trading fee you chose. Net collected fees go 50% to your fixed recipient and 50% to ${review.market?.mode === "floor" ? "the Stock Floor, which only holders can redeem" : "the creator reserve"}. A second signature activates the treasury. This does not purchase tokens.`
+                      ? `Create a permanent token and its own Meteora pool with the trading fee you chose. Net collected fees go ${review.market?.mode === "floor" ? "50% to your fixed recipient and 50% to the Stock Floor, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. A second signature activates the treasury. This does not purchase tokens.`
                       : review.action === "register"
                         ? review.market?.mode === "floor"
                           ? "Register the creator, immutable recipient and Stock Floor in Sonata, and create its custody accounts. Once active, the creator can never withdraw the floor."
-                          : "Register the creator, immutable recipient and 50/50 allocation in Sonata, and create its custody accounts."
+                          : review.market?.mode === "refrain"
+                            ? "Register the creator and immutable recipient in Sonata, and create its custody accounts. Every net fee collected goes to the recipient."
+                            : "Register the creator, immutable recipient and 50/50 allocation in Sonata, and create its custody accounts."
                         : review.action === "redeem"
                           ? "Your tokens are burned and you receive their exact share of the Stock Floor: floor × tokens burned ÷ total supply, rounded down. Nobody else's share goes down."
                         : review.action === "sync"

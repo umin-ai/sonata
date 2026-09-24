@@ -519,7 +519,7 @@ export function LiveLaunch() {
           </div>
           <div className="sr-detail-row">
             <span>Net collected fees</span>
-            <strong>{(draft ? draft.mode==="floor" : settings.rewards==="treasury" && settings.floor) ? "50% recipient / 50% Stock Floor" : draft || settings.rewards==="treasury" ? "50% recipient / 50% creator reserve" : settings.rewards==="holders" ? "Holder rewards · preview" : "Liquidity · preview"}</strong>
+            <strong>{(draft ? draft.mode==="floor" : settings.rewards==="treasury" && settings.floor) ? "50% recipient / 50% Stock Floor" : draft ? (draft.mode==="duet" ? "50% recipient / 50% creator reserve" : "100% to recipient") : settings.rewards==="treasury" ? "100% to recipient" : settings.rewards==="holders" ? "Holder rewards · preview" : "Liquidity · preview"}</strong>
           </div>
           <div className="sr-detail-row">
             <span>Mock stock</span>

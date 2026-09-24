@@ -68,7 +68,7 @@ export default function RewardsPage() {
       // Only mSPY markets can be funded by the rewards program, and never from a
       // Stock Floor: the treasury refuses withdrawals from a floor.
       for (const market of all.filter(
-        (m) => m.quoteMint === REWARDS_MINT && m.mode !== "floor",
+        (m) => m.quoteMint === REWARDS_MINT && (m.mode ?? "duet") === "duet",
       ))
         rows.push({ market, state: await readTreasury(market) });
       if (id === request.current) setExcluded(all.length - rows.length);

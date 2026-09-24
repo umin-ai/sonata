@@ -41,7 +41,7 @@ export function useReserves() {
       // Stock Floor, which belongs to holders), and in mSPY, the asset of the
       // ROOM/mSPY pool and of the rewards program.
       const markets = (await discoverMarkets()).filter(
-          (m) => m.creator === address && m.mode !== "floor" && m.quoteMint === REWARDS_MINT,
+          (m) => m.creator === address && (m.mode ?? "duet") === "duet" && m.quoteMint === REWARDS_MINT,
         ),
         next = [];
       for (const market of markets)

@@ -28,9 +28,11 @@ import { buildCurveParams } from "./dbc-preview";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl } from "../token-profile";
+// Of the net fees the treasury claims (80% of the trading fee; Meteora keeps 20%):
+// "refrain": 100% to the payout wallet. The default for new launches.
 // "duet": 50% to the payout wallet, 50% creator-withdrawable reserve.
 // "floor": 50% to the payout wallet, 50% Stock Floor that only holders redeem.
-export type TreasuryMode = "duet" | "floor";
+export type TreasuryMode = "refrain" | "duet" | "floor";
 export type Market = typeof initialMarket & {
   symbol: string;
   name: string;
@@ -41,7 +43,7 @@ export type Market = typeof initialMarket & {
   uri?: string;
 };
 const modeOf = (m: Record<string, unknown>): TreasuryMode | null =>
-  "floor" in m ? "floor" : "duet" in m ? "duet" : null;
+  "floor" in m ? "floor" : "duet" in m ? "duet" : "refrain" in m ? "refrain" : null;
 export const market: Market = {
   ...initialMarket,
   symbol: "ROOM",
@@ -696,7 +698,7 @@ export function validateMarketIdentity(value: Market) {
       throw Error("Unsupported Sonata market configuration.");
   if (!quoteAssetList.some((a) => a.mint === value.quoteMint))
     throw Error("Unsupported quote asset for a Sonata market.");
-  if (value.mode !== undefined && value.mode !== "duet" && value.mode !== "floor")
+  if (value.mode !== undefined && !["refrain", "duet", "floor"].includes(value.mode))
     throw Error("Unsupported treasury mode.");
   if (value.uri !== undefined && !isProfileUrl(value.uri))
     throw Error("Unsupported token profile location.");
@@ -876,7 +878,7 @@ export async function prepareLaunch(
     treasury: treasury.toBase58(),
     creator: wallet,
     payoutOwner: payout,
-    mode: curve.floor ? "floor" : "duet",
+    mode: curve.floor ? "floor" : "refrain",
     fee: curve.fee,
     ...(uri ? { uri } : {}),
     baseVault: deriveDbcTokenVaultAddress(pool, mint.publicKey).toBase58(),

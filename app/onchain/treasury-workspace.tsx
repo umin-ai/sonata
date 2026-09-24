@@ -128,7 +128,9 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           {q} is a valueless mock stock token.{" "}
           {market.mode === "floor"
             ? `Half of net trading fees builds this market's Stock Floor, which any ${market.symbol} holder can redeem and the creator cannot withdraw.`
-            : "Collected creator reserves can fund liquidity positions or fixed community rewards."}
+            : market.mode === "refrain"
+              ? "All net trading fees go to the creator's payout wallet, paid in the stock."
+              : "Collected creator reserves can fund liquidity positions or fixed community rewards."}
         </AlertDescription>
       </Alert>
       {error && (
@@ -327,8 +329,14 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           <span className="sr-eyebrow">02 / FIXED AT CREATION</span>
           <h3>Fee distribution</h3>
           <p className="sr-note">
-            Allocation sends 50% to the fixed recipient. The remaining 50%{" "}
-            {market.mode === "floor" ? "goes into the Stock Floor" : "stays in custody"}.
+            {market.mode === "refrain" ? (
+              <>Allocation sends 100% to the fixed recipient.</>
+            ) : (
+              <>
+                Allocation sends 50% to the fixed recipient. The remaining 50%{" "}
+                {market.mode === "floor" ? "goes into the Stock Floor" : "stays in custody"}.
+              </>
+            )}{" "}
             Calling this does not give the caller ownership of those funds.
           </p>
           <div className="sr-detail-row">
@@ -362,7 +370,30 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           )}
         </Card>
       </div>
-      {market.mode === "floor" ? (
+      {market.mode === "refrain" ? (
+      <Card className="sr-panel">
+        <span className="sr-eyebrow">03 / PAID TO CREATOR</span>
+        <h3>Creator earnings</h3>
+        <div className="sr-position-strip">
+          <div>
+            <span>Paid to the creator</span>
+            <strong>
+              {value("paid")} <TokenName symbol={q} />
+            </strong>
+          </div>
+          <div>
+            <span>Waiting to be paid</span>
+            <strong>
+              {value("unallocated")} <TokenName symbol={q} />
+            </strong>
+          </div>
+        </div>
+        <p className="sr-note">
+          Every net fee the treasury collects goes to the creator&apos;s fixed payout wallet.
+          Nothing is held back, so there is no reserve to withdraw.
+        </p>
+      </Card>
+      ) : market.mode === "floor" ? (
       <Card className="sr-panel">
         <span className="sr-eyebrow">03 / STOCK FLOOR</span>
         <h3>Held for holders</h3>
