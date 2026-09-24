@@ -17,7 +17,41 @@ export function useWallet(
     [account, setAccount] = useState<WalletAccount | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const attempt = useRef(0);
+  const attempt = useRef(0),
+    restored = useRef(false);
+  // Links are full page loads, so the chosen wallet is remembered per chain and
+  // reconnected silently: only a wallet that has already approved this site
+  // answers a silent connect, so this never opens a prompt.
+  const storageKey = `sonata.wallet.${chain}`;
+  const remember = (name: string | null) => {
+    try {
+      if (name) localStorage.setItem(storageKey, name);
+      else localStorage.removeItem(storageKey);
+    } catch {}
+  };
+  useEffect(() => {
+    if (restored.current || wallet || !wallets.length) return;
+    let name: string | null = null;
+    try {
+      name = localStorage.getItem(storageKey);
+    } catch {}
+    const saved = name ? wallets.find((w) => w.name === name) : undefined;
+    if (!saved) return;
+    restored.current = true;
+    const id = ++attempt.current;
+    const f = saved.features as unknown as StandardConnectFeature;
+    void f["standard:connect"]
+      .connect({ silent: true })
+      .then((result) => {
+        if (id !== attempt.current) return;
+        const a = result.accounts.find((a) => a.chains.includes(chain));
+        if (a) {
+          setWallet(saved);
+          setAccount(a);
+        }
+      })
+      .catch(() => {});
+  }, [wallets, wallet, chain, storageKey]);
   useEffect(() => {
     const registry = getWallets();
     const update = () =>
@@ -64,6 +98,7 @@ export function useWallet(
         );
       setWallet(selected);
       setAccount(a);
+      remember(selected.name);
       return true;
     } catch (e) {
       if (id === attempt.current)
@@ -80,6 +115,7 @@ export function useWallet(
     setWallet(null);
     setAccount(null);
     setError("");
+    remember(null);
     try {
       const f =
         previous?.features as unknown as Partial<StandardDisconnectFeature>;
