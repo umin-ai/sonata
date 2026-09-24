@@ -46,6 +46,7 @@ import { observeLpFarm, runLpFarm } from "./modules/lp-farm.mjs";
 import { runSplit } from "./modules/split.mjs";
 import { observeDiamond, runDiamond } from "./modules/diamond.mjs";
 import { payHolders } from "./modules/holders.mjs";
+import { buyerNets as indexedBuyerNets, indexedThrough as indexedThroughOf } from "./modules/indexer-schema.mjs";
 
 export { MAX_RECIPIENTS, MIN_HOLDING_DIVISOR, selectHolders } from "./modules/holders.mjs";
 
@@ -301,20 +302,12 @@ export function pgLedger(db) {
       );
       return row?.round_end == null ? null : Number(row.round_end);
     },
-    // Net quote bought per trader in [start, end), positive only, largest first.
-    async buyerNets(pool, start, end, limit = 50) {
-      const { rows } = await db.query(
-        `select trader, sum(case when side = 'buy' then quote_amount else -quote_amount end)::text as net
-           from trades
-          where pool = $1 and block_time >= to_timestamp($2) and block_time < to_timestamp($3)
-          group by trader
-         having sum(case when side = 'buy' then quote_amount else -quote_amount end) > 0
-          order by sum(case when side = 'buy' then quote_amount else -quote_amount end) desc, trader
-          limit $4`,
-        [pool, start, end, limit],
-      );
-      return rows.map((r) => ({ trader: r.trader, net: BigInt(r.net) }));
-    },
+    // Net quote and base bought per trader in [start, end), both venues (the DBC
+    // curve and, after graduation, the DAMM v2 pool), positive only, largest first.
+    buyerNets: (pool, start, end, limit = 50) => indexedBuyerNets(db, pool, start, end, limit),
+    // How far the trade indexer has fully read this market (unix seconds), so a
+    // bounty round never closes over trades not indexed yet.
+    indexedThrough: (pool) => indexedThroughOf(db, pool),
     // ---- claim_graduated accounts (modules/graduated.mjs) ----
     async graduatedPositions(pools) {
       const { rows } = await db.query(

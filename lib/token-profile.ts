@@ -18,27 +18,39 @@ export const FEE_MODELS = ["standard", "backed", "holders", "buyback", "topBuyer
 export type FeeModel = (typeof FEE_MODELS)[number];
 export const isFeeModel = (v: unknown): v is FeeModel =>
   typeof v === "string" && (FEE_MODELS as readonly string[]).includes(v);
+import { validateSplit } from "./split-rules.mjs";
 // Split: up to 5 wallets, each with a whole-number weight from 1 to 100.
 export type SplitRecipient = { wallet: string; weight: number };
 export const MAX_SPLIT = 5;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-// Sonata's payout bot and the Vault admin can never be split recipients.
-const SPLIT_BLOCKED = ["Fb83XLPdUM11FrUUBNaB1JXJ2feJacNkcPGUzP8dtGz", "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF"];
 export function normalizeSplit(input: unknown): SplitRecipient[] {
   if (!Array.isArray(input) || input.length < 1 || input.length > MAX_SPLIT)
     throw Error(`Split: add 1 to ${MAX_SPLIT} wallets.`);
   const seen = new Set<string>();
-  return input.map((r) => {
+  const split = input.map((r) => {
     const wallet = typeof r?.wallet === "string" ? r.wallet.trim() : "";
     const weight = Number(r?.weight);
     if (!BASE58.test(wallet)) throw Error("Split: one of the wallets is not a Solana address.");
-    if (SPLIT_BLOCKED.includes(wallet)) throw Error("Split: Sonata's own wallets can't be recipients.");
     if (seen.has(wallet)) throw Error("Split: each wallet can appear once.");
     if (!Number.isInteger(weight) || weight < 1 || weight > 100)
       throw Error("Split: use a whole number from 1 to 100 for each share.");
     seen.add(wallet);
     return { wallet, weight };
   });
+  // Then the payout bot's own rules (lib/split-rules.mjs), so a split accepted here
+  // is one the bot will pay: normal wallets only, never Sonata's or a program.
+  const bot = validateSplit(split) as { ok: boolean; reason?: string };
+  if (!bot.ok) {
+    const reason = bot.reason ?? "";
+    throw Error(
+      /Sonata or program/.test(reason)
+        ? "Split: Sonata's own wallets and program addresses can't be recipients."
+        : /off curve/.test(reason)
+          ? "Split: use normal wallet addresses only."
+          : `Split: ${reason}.`,
+    );
+  }
+  return split;
 }
 
 export type SocialKind = "website" | "x" | "telegram";

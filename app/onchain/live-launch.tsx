@@ -468,11 +468,11 @@ export function LiveLaunch() {
           : feeModule === "topBuyers"
             ? `${share} of every trade goes to the 3 biggest net buyers of each 15-minute round: 50% / 30% / 20%. Net = buys − sells, so sellers can't game it. You and Sonata are excluded. A round with no net buyers rolls over.`
             : feeModule === "lpFarm"
-              ? `${share} of every trade goes to holders while on the curve, then to liquidity providers in the Meteora pool after graduation, pro rata.`
+              ? `${share} of every trade goes to holders while on the curve, then to liquidity providers in the Meteora pool after graduation, pro rata. Liquidity counts once it has been in the pool for a full round.`
               : feeModule === "split"
                 ? `${share} of every trade is split between these wallets by share, in ${q}.`
                 : feeModule === "diamond"
-                  ? `${share} of every trade goes to holders, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling any amount restarts the clock.`
+                  ? `${share} of every trade goes to holders, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount, and new tokens start at 1×.`
                   : `You earn ${share} of every trade, paid to your wallet in ${q}. Nothing to claim.`;
   const cadence =
     feeModule === "buyback"
