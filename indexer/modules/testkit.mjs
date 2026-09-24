@@ -640,3 +640,58 @@ export async function rewardsPass({ chain, markets, authority, ledger, distribut
   });
   return { out, lines };
 }
+
+// ---- DAMM v2 swap transactions (indexer/parse.test.mjs, indexer/index.test.mjs) ----
+import { CpAmmIdl } from "@meteora-ag/cp-amm-sdk";
+
+// Anchor's event-CPI instruction tag: EVENT_IX_TAG 0x1d9acb512ea545e4, little-endian.
+const ANCHOR_EVENT_TAG = Buffer.from("e445a52e51cb9a1d", "hex");
+const DAMM_SWAP2 = CpAmmIdl.instructions.find((i) => i.name === "swap2");
+const DAMM_EVT_SWAP2 = CpAmmIdl.events.find((e) => e.name.toLowerCase() === "evtswap2");
+
+/**
+ * A DAMM v2 swap2 as getTransaction's JSON returns it, with its EvtSwap2 event
+ * CPI built from the SDK's IDL layout. direction 1 = BtoA (quote in: a buy),
+ * 0 = AtoB (base in: a sell). `payer` is the swap's payer account, `feePayer`
+ * the transaction's; `routed` puts the swap inside another program's
+ * instruction (as an aggregator does). `result` overrides swap_result fields
+ * (bigints).
+ */
+export function dammSwapTx({ direction, pool = key(), feePayer = key(), payer = feePayer, routed = false, result = {}, slot = 500_000_000, blockTime = 1_790_000_000, signature = "s" }) {
+  const r = {
+    included_fee_input_amount: 1_000_000n, excluded_fee_input_amount: 987_500n, amount_left: 0n, output_amount: 49_000_000n,
+    next_sqrt_price: 2n ** 64n, claiming_fee: 10_000n, protocol_fee: 2_500n, compounding_fee: 0n, referral_fee: 0n, ...result,
+  };
+  const body = new anchor.BorshCoder(CpAmmIdl).types.encode(DAMM_EVT_SWAP2.name, {
+    pool, trade_direction: direction, collect_fee_mode: 1, has_referral: false,
+    params: { amount_0: new BN(1_000_000), amount_1: new BN(0), swap_mode: 0 },
+    swap_result: Object.fromEntries(Object.entries(r).map(([k, v]) => [k, new BN(v.toString())])),
+    included_transfer_fee_amount_in: new BN(0), included_transfer_fee_amount_out: new BN(0), excluded_transfer_fee_amount_out: new BN(0),
+    current_timestamp: new BN(blockTime), reserve_a_amount: new BN(1), reserve_b_amount: new BN(1),
+  });
+  const event = bs58.encode(Buffer.concat([ANCHOR_EVENT_TAG, Buffer.from(DAMM_EVT_SWAP2.discriminator), body]));
+  const swapData = bs58.encode(Buffer.concat([Buffer.from(DAMM_SWAP2.discriminator), Buffer.alloc(17)]));
+  // Account keys: the fee payer first, then whatever the instructions use.
+  const keys = [feePayer.toBase58()];
+  const at = (k) => (keys.includes(k) ? keys.indexOf(k) : keys.push(k) - 1);
+  const swapAccounts = DAMM_SWAP2.accounts.map((a) => at(a.name === "pool" ? pool.toBase58() : a.name === "payer" ? payer.toBase58() : key().toBase58()));
+  const damm = at(CP_AMM_PROGRAM_ID.toBase58()), token = at(TOKEN_PROGRAM_ID.toBase58());
+  const h = routed ? 3 : 2;
+  const transfer = { accounts: [swapAccounts[2], swapAccounts[4], swapAccounts[8]], data: "3Bxs4Bc3VYuGVB19", programIdIndex: token, stackHeight: h };
+  const swap = { accounts: swapAccounts, data: swapData, programIdIndex: damm };
+  const top = routed ? { accounts: [at(key().toBase58())], data: "1", programIdIndex: at(key().toBase58()) } : swap;
+  const inner = [
+    ...(routed ? [{ ...swap, stackHeight: 2 }] : []),
+    transfer,
+    { ...transfer },
+    { accounts: [at(key().toBase58())], data: event, programIdIndex: damm, stackHeight: h },
+  ];
+  return {
+    blockTime, slot, version: "legacy",
+    meta: { err: null, innerInstructions: [{ index: 1, instructions: inner }], loadedAddresses: { writable: [], readonly: [] } },
+    transaction: {
+      message: { accountKeys: keys, header: {}, instructions: [{ accounts: [], data: "3", programIdIndex: at("ComputeBudget111111111111111111111111111111") }, top] },
+      signatures: [signature],
+    },
+  };
+}
