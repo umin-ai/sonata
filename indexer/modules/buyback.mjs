@@ -6,7 +6,10 @@
 // account) goes in the same transaction: the exact amount the swap delivers is
 // read from a simulation first. If the price moves before the transaction lands,
 // the burn takes at most what arrived (else the whole transaction fails and
-// nothing is spent), and anything still left is burned right after.
+// nothing is spent), and anything still left is burned right after. On a market
+// with the graduation airdrop the same account also holds the airdrop's tokens,
+// so there the combined burn takes only what the swap guarantees (its minimum
+// out) and the rest is burned right after, never below the airdrop's reserve.
 import anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js";
 import {
@@ -260,15 +263,24 @@ export async function executeBuyback(ctx, { venue, spend, minOut, capped = false
   if (received < minOut) throw Error(`swap would deliver ${received}, below its minimum ${minOut}`);
   fields.received = received;
 
-  const steps = together ? [...buy, burn(before + received)] : buy;
+  // What the combined transaction burns. Where the account holds only what
+  // buybacks bought, burning the simulated amount is safe: a swap landing below
+  // it leaves too little to burn and the whole transaction fails. On an airdrop
+  // market the account also holds the airdrop's tokens (or may, when a
+  // permissionless withdraw_leftover lands first), which such a burn would eat
+  // into instead of failing, so it burns only the swap's guaranteed minimum out;
+  // the surplus goes to the burn-only step below, which keeps the reserve.
+  const exact = together && !airdropMarket;
+  const burnNow = together ? before + (exact ? received : minOut) : 0n;
+  const steps = together ? [...buy, burn(burnNow)] : buy;
   const bytes = txBytes(steps.map((s) => s.ix), feePayer);
-  const sim = together ? await simulate(steps, feePayer) : probe;
+  // Burning the minimum out is exactly what the probe simulated.
+  const sim = exact ? await simulate(steps, feePayer) : probe;
   if (sim.err) throw simError(sim, steps);
-  const burnNow = together ? before + received : 0n;
   const tx = { pool, model: "buyback", venue: venue.kind, spent: spend, burned: burnNow, bytes };
   if (dryRun) {
     result.simulated++;
-    log("reward", { ...tx, result: "simulated", received, units: sim.unitsConsumed, burnAfter: together ? undefined : 1 });
+    log("reward", { ...tx, result: "simulated", received, units: sim.unitsConsumed, burnAfter: exact ? undefined : 1 });
     return { note: "dry run" };
   }
   const send = (instructions, amount, detail) =>
@@ -285,7 +297,8 @@ export async function executeBuyback(ctx, { venue, spend, minOut, capped = false
   fields.burned = burnNow;
 
   // Whatever is still in the crank's base account (the burn did not share the
-  // transaction, or the swap landed at a better price than simulated) is burned now.
+  // transaction, it burned only the minimum out, or the swap landed at a better
+  // price than simulated) is burned now, less the airdrop's reserve.
   let left;
   try {
     const [info, poolInfo] = await rpc(() => connection.getMultipleAccountsInfo([crankBase, m.pool], { commitment: "confirmed", ...(sent.slot ? { minContextSlot: sent.slot } : {}) }));

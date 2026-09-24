@@ -11,7 +11,9 @@
 //   3. pays the unpaid rows, classic SPL transfer_checked, about 20 per
 //      transaction. A row is marked pending with its signature before sending
 //      and settled from the chain, so a crash mid-airdrop resumes without paying
-//      anyone twice.
+//      anyone twice. A row whose snapshot account was closed (or no longer
+//      belongs to the holder) by the time it is paid goes to the holder's
+//      associated token account instead, created in the same transaction.
 // Base tokens are kept apart by pool and by job: the airdrop only ever sends
 // its rows (never more than it withdrew), and the buyback module never burns
 // what the airdrop still holds (airdropReserved).
@@ -25,16 +27,18 @@ import {
   unpackAccount,
   unpackMint,
 } from "@solana/spl-token";
-import { DBC_PROGRAM, SONATA_VAULT, VAULT_ADMIN, errText, simulatedAmount } from "./common.mjs";
+import { DBC_PROGRAM, SONATA_VAULT, VAULT_ADMIN, errText, onCurve, simulatedAmount } from "./common.mjs";
 import { dbcClient, readDbc } from "./meteora.mjs";
-import { MAX_REJECTED, rewardShares, settle, takeBatch, txBytes, verdict } from "./payout.mjs";
+import { MAX_REJECTED, instructionsOf, rewardShares, settle, takeBatch, txBytes, verdict } from "./payout.mjs";
 import { selectHolders } from "./holders.mjs";
 
 export const AIRDROP_DECIMALS = 6;
 const TOKEN_ACCOUNT_SIZE = 165;
-// A withdrawal made by someone else is looked for among this many of the crank
-// base account's transactions, once.
-const MAX_WITHDRAW_SEARCH = 20;
+// A withdrawal made by someone else is looked for in the DBC pool's history,
+// newest first: at most `maxPages` pages of `pageSize` signatures and
+// `maxTransactions` transactions read per pass (it is normally among the
+// pool's first few transactions after migration).
+export const WITHDRAW_SEARCH = { pageSize: 100, maxPages: 10, maxTransactions: 40 };
 const WITHDRAW_LEFTOVER = Buffer.from(dbcClient.pool.program.idl.instructions.find((i) => i.name === "withdrawLeftover").discriminator);
 
 /** The airdrop rows: withdrawn × balance ÷ total per holder, rounded down, to the holder's largest token account. */
@@ -63,16 +67,24 @@ function instructionsOfTx(tx, keys) {
 }
 
 /**
+ * The base-token account a successful withdraw_leftover of `pool` in this
+ * transaction paid, or null if the transaction has none.
+ */
+export function withdrawLeftoverOf(tx, pool) {
+  if (!tx?.meta || tx.meta.err) return null;
+  const ix = instructionsOfTx(tx, keysOf(tx)).find(
+    (ix) => ix.program?.equals(DBC_PROGRAM) && ix.data.subarray(0, 8).equals(WITHDRAW_LEFTOVER) && ix.accounts[2]?.equals(pool),
+  );
+  return ix?.accounts[3] ?? null;
+}
+
+/**
  * Base atoms a successful withdraw_leftover transaction of `pool` moved into
  * `crankBase`, from its token balances; null if it is not one.
  */
 export function withdrawnFromTransaction(tx, { pool, crankBase }) {
-  if (!tx?.meta || tx.meta.err) return null;
+  if (!withdrawLeftoverOf(tx, pool)?.equals(crankBase)) return null;
   const keys = keysOf(tx);
-  const withdraw = instructionsOfTx(tx, keys).some(
-    (ix) => ix.program?.equals(DBC_PROGRAM) && ix.data.subarray(0, 8).equals(WITHDRAW_LEFTOVER) && ix.accounts[2]?.equals(pool) && ix.accounts[3]?.equals(crankBase),
-  );
-  if (!withdraw) return null;
   const index = keys.findIndex((k) => k.equals(crankBase));
   const amount = (list) => BigInt(list?.find((b) => b.accountIndex === index)?.uiTokenAmount.amount ?? 0);
   const moved = amount(tx.meta.postTokenBalances) - amount(tx.meta.preTokenBalances);
@@ -149,7 +161,7 @@ export async function runAirdrops(job) {
   return out;
 }
 
-async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, simulate, blockhash, ledger, dryRun, deadline = Infinity, pollMs = 2000, log, feePayerOf, excluded = [] }) {
+async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, simulate, blockhash, ledger, dryRun, deadline = Infinity, pollMs = 2000, log, feePayerOf, excluded = [], withdrawSearch }) {
   const crank = authority.publicKey;
   const pool = line.pool;
   const crankBase = getAssociatedTokenAddressSync(m.baseMint, crank, false, TOKEN_PROGRAM_ID);
@@ -179,8 +191,9 @@ async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, si
   if (state.withdrawn == null) {
     if (dbc.state.isWithdrawLeftover !== 0) {
       // Withdrawn by someone else (the instruction is permissionless); the tokens are in the crank's account.
-      const found = await findWithdrawal({ m, crankBase, connection, rpc });
-      if (!found) throw Error("leftover already withdrawn by a transaction the crank cannot find; set airdrop_state.withdrawn and withdraw_signature by hand");
+      const found = await findWithdrawal({ m, crankBase, connection, rpc, search: withdrawSearch });
+      if (found.amount == null)
+        throw Error(`leftover already withdrawn by a transaction the crank cannot find (${found.reason}); searched again next pass, or set airdrop_state.withdrawn and withdraw_signature by hand`);
       if (!dryRun) await ledger.airdropWithdrawn(pool, found.amount, found.signature);
       state = dryRun ? { ...state, withdrawn: found.amount } : await ledger.airdropState(pool);
     } else {
@@ -280,20 +293,48 @@ async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, si
     throw Error(`crank holds ${held} base atoms, below the ${totals.unpaid + totals.pending} still to airdrop; nothing sent`);
   const { decimals } = unpackMint(m.baseMint, mintInfo, TOKEN_PROGRAM_ID);
   const infos = await fetchAll(unpaid.map((r) => r.recipient));
+  const whys = unpaid.map((r, i) => airdropReceivable(r, infos[i], m.baseMint));
+  // A row whose snapshot account cannot take the transfer any more (closed,
+  // re-owned or frozen since the snapshot) is paid to the holder's associated
+  // token account instead: created in the same transaction when missing (the
+  // crank pays its rent), and never for more than the row's amount. An owner
+  // off the ed25519 curve has no associated account, so its row stays unpaid
+  // (holders are wallets only, so a snapshot should never have one).
+  const atas = unpaid.map((r, i) => (whys[i] && onCurve(r.owner) ? getAssociatedTokenAddressSync(m.baseMint, r.owner, false, TOKEN_PROGRAM_ID) : null));
+  const fallbacks = atas.filter(Boolean);
+  const fallbackInfos = fallbacks.length ? await fetchAll(fallbacks) : [];
+  const ataInfo = new Map(fallbacks.map((k, i) => [k.toBase58(), fallbackInfos[i]]));
+  const transfer = (r, to, create) => ({
+    row: r,
+    to,
+    payout: { owner: r.owner, amount: r.amount },
+    label: `airdrop to ${to.toBase58()}`,
+    ...(create ? { pre: [create] } : {}),
+    ix: createTransferCheckedInstruction(crankBase, m.baseMint, to, crank, r.amount, decimals, [], TOKEN_PROGRAM_ID),
+  });
   let items = [];
   for (const [i, r] of unpaid.entries()) {
-    const why = airdropReceivable(r, infos[i], m.baseMint);
-    if (why) {
-      if (!dryRun) await ledger.airdropSkip(pool, r.recipient, why);
-      log("airdrop", { ...line, recipient: r.recipient.toBase58(), amount: r.amount, result: "skipped", reason: why });
+    const why = whys[i];
+    if (!why) {
+      items.push(transfer(r, r.recipient));
       continue;
     }
-    items.push({
-      row: r,
-      payout: { owner: r.owner, amount: r.amount },
-      label: `airdrop to ${r.recipient.toBase58()}`,
-      ix: createTransferCheckedInstruction(crankBase, m.baseMint, r.recipient, crank, r.amount, decimals, [], TOKEN_PROGRAM_ID),
-    });
+    const where = { ...line, recipient: r.recipient.toBase58(), owner: r.owner.toBase58(), amount: r.amount };
+    const ata = atas[i];
+    if (!ata) {
+      log("airdrop", { ...where, result: "unpaid", reason: `${why}; the owner is off curve and has no associated account; stays unpaid` });
+      continue;
+    }
+    const info = ataInfo.get(ata.toBase58());
+    const ataWhy = info ? airdropReceivable({ recipient: ata, owner: r.owner }, info, m.baseMint) : null;
+    if (ataWhy) {
+      // Neither account can take it: kept for this holder (still reserved), never paid to anyone else.
+      if (!dryRun) await ledger.airdropSkip(pool, r.recipient, `${why}; associated account: ${ataWhy}`);
+      log("airdrop", { ...where, result: "skipped", reason: `${why}; associated account ${ata.toBase58()}: ${ataWhy}` });
+      continue;
+    }
+    log("airdrop", { ...where, paidTo: ata.toBase58(), result: "redirected", reason: why, note: info ? "to the holder's associated account" : "to the holder's associated account, created" });
+    items.push(transfer(r, ata, info ? null : createAssociatedTokenAccountIdempotentInstruction(feePayer, ata, r.owner, m.baseMint, TOKEN_PROGRAM_ID)));
   }
   let sent = totals.sent + totals.pending, rejected = 0;
   while (items.length) {
@@ -301,7 +342,7 @@ async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, si
     const batch = takeBatch(items, feePayer);
     const amount = batch.reduce((s, i) => s + i.row.amount, 0n);
     if (sent + amount > withdrawn) throw Error("airdrop would send more than was withdrawn");
-    const steps = batch.map((i) => ({ label: i.label, ix: i.ix, item: i }));
+    const steps = batch.flatMap((i) => [...(i.pre ?? []).map((ix) => ({ label: `create account ${i.to.toBase58()}`, ix, item: i })), { label: i.label, ix: i.ix, item: i }]);
     const sim = await simulate(steps, feePayer);
     if (sim.err) {
       const index = sim.err?.InstructionError?.[0];
@@ -314,10 +355,10 @@ async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, si
       }
       throw Error(`airdrop simulation failed: ${JSON.stringify(sim.err)}`);
     }
-    const bytes = txBytes(batch.map((i) => i.ix), feePayer);
+    const bytes = txBytes(instructionsOf(batch), feePayer);
     if (dryRun) return log("airdrop", { ...line, action: "send", result: "simulated", amount, recipients: batch.length, bytes, units: sim.unitsConsumed });
     const { blockhash: recent, lastValidBlockHeight } = await blockhash();
-    const tx = new Transaction({ feePayer: crank, blockhash: recent, lastValidBlockHeight }).add(...batch.map((i) => i.ix));
+    const tx = new Transaction({ feePayer: crank, blockhash: recent, lastValidBlockHeight }).add(...instructionsOf(batch));
     tx.sign(authority);
     const signature = bs58.encode(tx.signature);
     // Marked pending before sending: a crash resumes from the signature, never pays again.
@@ -353,13 +394,35 @@ async function withdrawnBy(signature, { m, crankBase, connection, rpc }) {
   return withdrawnFromTransaction(tx, { pool: m.pool, crankBase });
 }
 
-// A withdraw_leftover sent by someone else, among the crank base account's first transactions.
-async function findWithdrawal({ m, crankBase, connection, rpc }) {
-  const signatures = await rpc(() => connection.getSignaturesForAddress(crankBase, { limit: 1000 }, "confirmed"));
-  for (const { signature, err } of signatures.reverse().slice(0, MAX_WITHDRAW_SEARCH)) {
-    if (err) continue;
-    const amount = await withdrawnBy(signature, { m, crankBase, connection, rpc });
-    if (amount != null) return { signature, amount };
+/**
+ * A withdraw_leftover sent by someone else: { signature, amount }, or
+ * { reason } when it is not found this pass. It can only land after
+ * migration, so it is among the DBC pool's newest transactions (the crank base
+ * account's history fills up with buybacks and anyone's transfers): the
+ * pool's signatures are read newest first, a page at a time, and the search
+ * stops at the first successful withdraw_leftover of this pool, the only one
+ * there can be.
+ */
+export async function findWithdrawal({ m, crankBase, connection, rpc, search }) {
+  const { pageSize, maxPages, maxTransactions } = { ...WITHDRAW_SEARCH, ...search };
+  let before, read = 0, unreadable = 0;
+  for (let page = 0; page < maxPages; page++) {
+    const signatures = await rpc(() => connection.getSignaturesForAddress(m.pool, { limit: pageSize, ...(before ? { before } : {}) }, "confirmed"));
+    for (const { signature, err } of signatures) {
+      if (err) continue;
+      if (read >= maxTransactions) return { reason: `not among the pool's ${read} newest successful transactions` };
+      read++;
+      const tx = await rpc(() => connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }));
+      if (!tx) {
+        unreadable++; // too fresh for this RPC node; read again next pass
+        continue;
+      }
+      if (!withdrawLeftoverOf(tx, m.pool)) continue;
+      const amount = withdrawnFromTransaction(tx, { pool: m.pool, crankBase });
+      return amount == null ? { signature, reason: `withdraw_leftover ${signature} moved nothing into the crank's base account` } : { signature, amount };
+    }
+    if (signatures.length < pageSize) return { reason: `not in the pool's history${unreadable ? ` (${unreadable} transactions not readable yet)` : ""}` };
+    before = signatures.at(-1).signature;
   }
-  return null;
+  return { reason: `not among the pool's newest ${maxPages * pageSize} signatures` };
 }

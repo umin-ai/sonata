@@ -2,11 +2,20 @@
 // metadata JSON (written once at launch; its URI is in the base mint's Metaplex
 // metadata account):
 //   "sonata": { "feeModel": "holders" | "buyback" | "topBuyers" | "lpFarm" | "split" | "diamond", "split": [...] }
-// The crank reads it once per pool and caches it in market_fee_models. A
-// missing, unreadable or unknown model means "holders", the original
-// behaviour. Only a transient failure (network, timeout, HTTP 5xx/408/429, RPC)
-// is not cached: that market waits (its funds stay owed) and is read again next
-// pass, so a network blip can never pay a buyback token's pot to its holders.
+// The crank reads it once per pool and caches it in market_fee_models. A model
+// that is missing or unknown in JSON that was read, or a token whose metadata
+// has no uri (or one off Sonata's profile locations), means "holders", the
+// original behaviour, and is cached. Nothing else is cached as holders at once:
+//   - a transient failure (network, timeout, HTTP 5xx/408/429, RPC) is read
+//     again every pass, so a network blip can never pay a buyback token's pot
+//     to its holders;
+//   - a failure that may or may not last (HTTP 4xx, a body that is not JSON or
+//     not the JSON Sonata uploaded, no metadata account yet) is read again every
+//     pass too, and only once it has kept failing for FALLBACK_AFTER_MS (first
+//     failure recorded by the ledger's feeModelFailure) is the market cached as
+//     holders, with a log line saying so.
+// Meanwhile the market waits: its funds stay owed.
+import { createHash } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
 import { METADATA_PROGRAM, errText } from "./common.mjs";
 
@@ -20,6 +29,14 @@ export const METADATA_PREFIXES = [
 ];
 export const MAX_METADATA_BYTES = 20 * 1024;
 export const USER_AGENT = "SonataPayoutBot/1.0 (+https://sonata.umin.ai)";
+// How long a read that may not be permanent keeps being retried before the
+// market falls back to holders.
+export const FALLBACK_AFTER_MS = 24 * 60 * 60_000;
+// Sonata's CDN names each object by the SHA-256 of its bytes
+// (lib/server/s3-upload.ts objectKey), so a profile there is checked against
+// its name. Irys ids are content-addressed by Irys itself.
+const CDN_PREFIX = METADATA_PREFIXES[0];
+const CDN_KEY = /^\/tokens\/([0-9a-f]{64})\.json$/;
 const MAX_REDIRECTS = 3;
 const MAX_STRING = 200;
 
@@ -29,6 +46,8 @@ export const metadataAddress = (mint) =>
 /**
  * The uri of a Metaplex metadata account (key, update authority, mint, then
  * borsh strings name, symbol, uri), or { note } when there is none to read.
+ * `empty` marks a readable account whose uri is empty (the token has no
+ * profile, for good); every other note may be a read that is not final yet.
  */
 export function metadataUri(info, mint) {
   if (!info) return { note: "no Metaplex metadata account" };
@@ -51,7 +70,7 @@ export function metadataUri(info, mint) {
     read(); // name
     read(); // symbol
     const uri = read();
-    return uri ? { uri } : { note: "metadata has no uri" };
+    return uri ? { uri } : { note: "metadata has no uri", empty: true };
   } catch (e) {
     return { note: `unreadable metadata account (${errText(e)})` };
   }
@@ -68,18 +87,28 @@ export function allowedMetadataUrl(value) {
   }
   if (url.protocol !== "https:" || url.username || url.password || url.port || url.search || url.hash) return null;
   const href = `${url.origin}${url.pathname}`;
-  return METADATA_PREFIXES.some((p) => href.startsWith(p) && href.length > p.length) ? url : null;
+  if (!METADATA_PREFIXES.some((p) => href.startsWith(p) && href.length > p.length)) return null;
+  // On the CDN only content-addressed profiles: tokens/<sha256>.json.
+  if (href.startsWith(CDN_PREFIX) && !CDN_KEY.test(url.pathname)) return null;
+  return url;
 }
 
+/**
+ * A failed metadata read. `permanent`: the token has no Sonata profile, cache
+ * holders now. `suspect`: it may or may not last, retried for
+ * FALLBACK_AFTER_MS. Neither: transient, retried every pass.
+ */
 export class MetadataError extends Error {
-  constructor(message, permanent) {
+  constructor(message, { permanent = false, suspect = false } = {}) {
     super(message);
     this.permanent = permanent;
+    this.suspect = suspect;
   }
 }
+const suspect = (message) => new MetadataError(message, { suspect: true });
 
 async function readCapped(res, maxBytes) {
-  if (!res.body) return "";
+  if (!res.body) return Buffer.alloc(0);
   const reader = res.body.getReader();
   const chunks = [];
   let size = 0;
@@ -90,25 +119,25 @@ async function readCapped(res, maxBytes) {
       size += value.byteLength;
       if (size > maxBytes) {
         await reader.cancel().catch(() => {});
-        throw new MetadataError(`metadata JSON is larger than ${maxBytes} bytes`, true);
+        throw suspect(`metadata JSON is larger than ${maxBytes} bytes`);
       }
       chunks.push(Buffer.from(value));
     }
   } catch (e) {
     if (e instanceof MetadataError) throw e;
-    throw new MetadataError(`metadata read failed: ${errText(e)}`, false);
+    throw new MetadataError(`metadata read failed: ${errText(e)}`);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
 }
 
 /**
  * The token's metadata JSON over HTTPS, at most maxBytes, following at most
- * three redirects and only within the allowed locations. Throws MetadataError;
- * `permanent` says whether the failure is worth caching.
+ * three redirects and only within the allowed locations. A profile on Sonata's
+ * CDN must hash to its name. Throws MetadataError (see its kinds).
  */
 export async function fetchMetadata(uri, { fetchImpl = globalThis.fetch, timeoutMs = 10_000, maxBytes = MAX_METADATA_BYTES } = {}) {
   let url = allowedMetadataUrl(uri);
-  if (!url) throw new MetadataError("metadata uri is not on a Sonata profile location", true);
+  if (!url) throw new MetadataError("metadata uri is not on a Sonata profile location", { permanent: true });
   for (let hop = 0; ; hop++) {
     let res;
     try {
@@ -118,7 +147,7 @@ export async function fetchMetadata(uri, { fetchImpl = globalThis.fetch, timeout
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (e) {
-      throw new MetadataError(`metadata fetch failed: ${errText(e)}`, false);
+      throw new MetadataError(`metadata fetch failed: ${errText(e)}`);
     }
     const drain = () => res.body?.cancel?.().catch(() => {});
     if (res.status >= 300 && res.status < 400) {
@@ -130,25 +159,32 @@ export async function fetchMetadata(uri, { fetchImpl = globalThis.fetch, timeout
       } catch {
         // an unparseable location is refused like a foreign one
       }
-      if (!next) throw new MetadataError("metadata redirects off the Sonata profile locations", true);
-      if (hop >= MAX_REDIRECTS) throw new MetadataError("metadata redirects too many times", true);
+      if (!next) throw suspect("metadata redirects off the Sonata profile locations");
+      if (hop >= MAX_REDIRECTS) throw suspect("metadata redirects too many times");
       url = next;
       continue;
     }
     if (!res.ok) {
       await drain();
-      const permanent = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
-      throw new MetadataError(`metadata HTTP ${res.status}`, permanent);
+      // A CDN or firewall can answer 403 or 404 for a while (a new object, a
+      // blocked address), so no status is taken as final; 5xx, 408 and 429 are
+      // plainly passing.
+      const passing = res.status >= 500 || res.status === 408 || res.status === 429;
+      throw passing ? new MetadataError(`metadata HTTP ${res.status}`) : suspect(`metadata HTTP ${res.status}`);
     }
     if (Number(res.headers.get("content-length")) > maxBytes) {
       await drain();
-      throw new MetadataError(`metadata JSON is larger than ${maxBytes} bytes`, true);
+      throw suspect(`metadata JSON is larger than ${maxBytes} bytes`);
     }
-    const text = await readCapped(res, maxBytes);
+    const bytes = await readCapped(res, maxBytes);
+    const key = url.href.startsWith(CDN_PREFIX) ? CDN_KEY.exec(url.pathname)?.[1] : null;
+    if (key && createHash("sha256").update(bytes).digest("hex") !== key)
+      throw suspect("metadata does not match its content-addressed name");
     try {
-      return JSON.parse(text);
+      return JSON.parse(bytes.toString("utf8"));
     } catch {
-      throw new MetadataError("metadata is not valid JSON", true);
+      // A firewall challenge page answers 2xx with HTML.
+      throw suspect("metadata is not valid JSON");
     }
   }
 }
@@ -175,6 +211,9 @@ export function parseFeeModel(json) {
  * metadata JSON and cached (not in a dry run). Returns a Map of pool →
  * { feeModel, config, uri, note } or { error } when it could not be read this
  * pass. Uncached pools cost one batched RPC call and one HTTPS request each.
+ * A read that may not be final is recorded with ledger.feeModelFailure(pool,
+ * reason) → { firstFailedAt, elapsedMs } (indexer/modules/crank-schema.mjs);
+ * without it such a market is simply retried every pass.
  */
 export async function resolveFeeModels({ markets, ledger, fetchAll, fetchImpl, dryRun = false, log = () => {}, deadline = Infinity }) {
   const pools = markets.map((m) => m.pool.toBase58());
@@ -194,24 +233,52 @@ export async function resolveFeeModels({ markets, ledger, fetchAll, fetchImpl, d
     for (const m of todo) out.set(m.pool.toBase58(), { error: `metadata account: ${errText(e)}` });
     return out;
   }
+  // A read that may not be final: recorded, and retried (null returned, the
+  // pool's { error } set) until it has failed for FALLBACK_AFTER_MS; then the
+  // holders entry to cache.
+  const unreadable = async (pool, uri, reason) => {
+    let since = null;
+    if (!dryRun && ledger.feeModelFailure) {
+      try {
+        since = await ledger.feeModelFailure(pool, reason);
+      } catch (e) {
+        reason = `${reason}; not recorded: ${errText(e)}`;
+      }
+    }
+    const firstFailedAt = since?.firstFailedAt?.toISOString();
+    if (since && since.elapsedMs >= FALLBACK_AFTER_MS) {
+      log("feemodel", { pool, uri: uri ?? undefined, model: DEFAULT_FEE_MODEL, result: "fallback", reason, firstFailedAt, note: "unreadable for 24 hours; holders from now on" });
+      return { feeModel: DEFAULT_FEE_MODEL, config: null, uri, note: `unreadable since ${firstFailedAt} (${reason}); holders fallback` };
+    }
+    out.set(pool, { error: reason, ...(firstFailedAt ? { firstFailedAt } : {}) });
+    log("feemodel", { pool, uri: uri ?? undefined, result: "unread", reason, firstFailedAt, note: "retried next pass, for up to 24 hours; funds stay owed" });
+    return null;
+  };
   for (const [i, m] of todo.entries()) {
     const pool = m.pool.toBase58();
     let entry;
-    const { uri, note } = metadataUri(infos[i], m.baseMint);
-    if (!uri) entry = { feeModel: DEFAULT_FEE_MODEL, config: null, uri: null, note };
-    else if (Date.now() > deadline) {
+    const { uri, note, empty } = metadataUri(infos[i], m.baseMint);
+    if (empty) entry = { feeModel: DEFAULT_FEE_MODEL, config: null, uri: null, note };
+    // No readable metadata account: an RPC node can lag behind the one that listed the treasury.
+    else if (!uri) {
+      entry = await unreadable(pool, null, note);
+      if (!entry) continue;
+    } else if (Date.now() > deadline) {
       out.set(pool, { error: "pass time budget used" });
       continue;
     } else {
       try {
         entry = { ...parseFeeModel(await fetchMetadata(uri, { fetchImpl })), uri };
       } catch (e) {
-        if (!(e instanceof MetadataError) || !e.permanent) {
+        if (e instanceof MetadataError && e.permanent) entry = { feeModel: DEFAULT_FEE_MODEL, config: null, uri, note: errText(e) };
+        else if (e instanceof MetadataError && e.suspect) {
+          entry = await unreadable(pool, uri, errText(e));
+          if (!entry) continue;
+        } else {
           out.set(pool, { error: errText(e) });
           log("feemodel", { pool, uri, result: "unread", reason: errText(e), note: "retried next pass; funds stay owed" });
           continue;
         }
-        entry = { feeModel: DEFAULT_FEE_MODEL, config: null, uri, note: errText(e) };
       }
     }
     let result = dryRun ? "read" : "cached";

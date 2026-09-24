@@ -1,25 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import bs58 from "bs58";
-import { Keypair, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
-import { AccountLayout, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { Keypair, PublicKey, Transaction, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, AccountLayout, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { airdropShares, airdropTotals, runAirdrops, withdrawLeftoverIx, withdrawnFromTransaction } from "./airdrop.mjs";
 import { airdropReserve, burnable, runBuyback } from "./buyback.mjs";
 import { SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
 import { selectHolders } from "./holders.mjs";
 import { readDbc } from "./meteora.mjs";
 import { MAX_TX_BYTES } from "./payout.mjs";
-import { dammPoolAccount, dbcAccounts, fakeChain, key, memLedger, moduleContext, pda, rewardMarket, tokenAccount } from "./testkit.mjs";
+import { dammPoolAccount, dbcAccounts, fakeChain, key, memLedger, moduleContext, pda, quotedOut, rewardMarket, tokenAccount } from "./testkit.mjs";
 
 const LEFTOVER = 50_000_000_000_000n; // 5% of 1B tokens, 6 decimals
 const SUPPLY = 1_000_000_000_000_000n;
 const TOKENS = 1_000_000n; // one token in atoms
 
 // A graduated market whose config names the crank key as leftover receiver, and its holders' base accounts.
-function setup({ holders = [], migrated = true, receiver, lost, leftover = LEFTOVER } = {}) {
+function setup({ holders = [], migrated = true, receiver, lost, leftover = LEFTOVER, landOut } = {}) {
   const authority = Keypair.generate();
   const crank = authority.publicKey;
-  const chain = fakeChain({ leftover, lost });
+  const chain = fakeChain({ leftover, lost, landOut });
   const m = rewardMarket(chain, crank, { supply: SUPPLY });
   const dbc = dbcAccounts(m, { migrated, edit: ({ config }) => (config.leftoverReceiver = receiver ?? crank) });
   chain.put(m.pool, dbc.poolInfo);
@@ -282,9 +282,12 @@ test("a buyback market with the airdrop never burns the airdrop's tokens", async
   s.chain.put(s.m.payoutQuote, tokenAccount({ owner: s.crank, mint: s.m.quoteMint, amount: owed }));
   const ctx = await moduleContext({ chain: s.chain, m: s.m, authority: s.authority, owed, ledger: s.ledger, model: { feeModel: "buyback" } });
   await runBuyback(ctx);
-  const [row] = ctx.ledger.payouts;
+  const [row, burnOnly] = ctx.ledger.payouts;
   assert.equal(row.module, "buyback");
-  assert.equal(row.detail.burned, row.detail.received);
+  // With the airdrop's tokens in the same account the swap's transaction burns
+  // only its minimum out; the rest of what it bought is burned right after.
+  assert.equal(row.detail.burned, row.detail.minOut);
+  assert.equal(row.detail.burned + burnOnly.detail.burned, row.detail.received);
   assert.equal(row.detail.received, s.chain.delivered[0]);
   assert.equal(row.detail.leftover, 0n);
   assert.equal(ctx.fields.airdropHeld, reserved);
@@ -294,4 +297,174 @@ test("a buyback market with the airdrop never burns the airdrop's tokens", async
   await s.run();
   assert.ok((await s.ledger.airdropState(s.pool)).done);
   assert.equal(s.balance(s.crankBase), LEFTOVER - (LEFTOVER / 3n) * 3n);
+});
+
+// Someone else's withdraw_leftover (the instruction is permissionless), sent before the crank's.
+async function strangerWithdraws(s, blockhashByte = 7) {
+  const dbc = readDbc(s.m, s.chain.accounts.get(s.m.pool.toBase58()), s.chain.accounts.get(s.m.config.toBase58()));
+  const stranger = Keypair.generate();
+  const tx = new Transaction({ feePayer: stranger.publicKey, blockhash: bs58.encode(Buffer.alloc(32, blockhashByte)), lastValidBlockHeight: 1000 }).add(
+    createAssociatedTokenAccountIdempotentInstruction(stranger.publicKey, s.crankBase, s.crank, s.m.baseMint, TOKEN_PROGRAM_ID),
+    await withdrawLeftoverIx({ m: s.m, dbc, crank: s.crank, crankBase: s.crankBase }),
+  );
+  tx.sign(stranger);
+  await s.chain.connection.sendRawTransaction(tx.serialize());
+  return bs58.encode(tx.signature);
+}
+// Transactions by a stranger with these instructions, each with its own blockhash.
+async function strangerSends(s, count, instructions) {
+  const stranger = Keypair.generate();
+  for (let i = 0; i < count; i++) {
+    const tx = new Transaction({ feePayer: stranger.publicKey, blockhash: bs58.encode(Buffer.alloc(32, 100 + (i % 150))), lastValidBlockHeight: 1000 })
+      .add(new TransactionInstruction({ programId: key(), keys: [], data: Buffer.from([i >> 8, i & 255]) }), ...instructions(stranger.publicKey));
+    tx.sign(stranger);
+    await s.chain.connection.sendRawTransaction(tx.serialize());
+  }
+}
+// The chain's connection, with getSignaturesForAddress honouring limit and before as the RPC does.
+function pagedConnection(connection, calls = []) {
+  return {
+    ...connection,
+    getSignaturesForAddress: async (address, { limit = 1000, before } = {}) => {
+      calls.push({ address: address.toBase58(), limit, before });
+      const all = await connection.getSignaturesForAddress(address);
+      const start = before ? all.findIndex((x) => x.signature === before) + 1 : 0;
+      return all.slice(start, start + limit);
+    },
+  };
+}
+
+test("a buyback landing below its simulated output never burns the airdrop's reserve, recorded or not", async () => {
+  // Worse than simulated by 500 atoms, still above the 2% minimum out.
+  const worse = (x, min) => quotedOut(x, min) - 500n;
+  const buyback = async (s) => {
+    const owed = 100_000_000n;
+    s.chain.put(s.m.payoutQuote, tokenAccount({ owner: s.crank, mint: s.m.quoteMint, amount: owed }));
+    const ctx = await moduleContext({ chain: s.chain, m: s.m, authority: s.authority, owed, ledger: s.ledger, model: { feeModel: "buyback" } });
+    assert.deepEqual(await runBuyback(ctx), {});
+    return ctx;
+  };
+
+  // Recorded: the airdrop withdrew and its first batch was dropped, so every row is still owed.
+  const s = setup({ holders: many(3), lost: new Set([1]), landOut: worse });
+  await s.run();
+  assert.equal(s.balance(s.crankBase), LEFTOVER);
+  const ctx = await buyback(s);
+  const [bought] = s.chain.delivered;
+  assert.equal(bought, ctx.fields.received - 500n);
+  // Everything bought is burned (the minimum out with the swap, the rest right after), none of the reserve.
+  assert.deepEqual(s.ledger.payouts.map((r) => r.detail.burned), [ctx.fields.minOut, bought - ctx.fields.minOut]);
+  assert.equal(ctx.fields.burned, bought);
+  assert.equal(s.balance(s.crankBase), LEFTOVER);
+  // The airdrop then completes from the same account.
+  s.chain.setHeight(2_000);
+  await s.run();
+  assert.ok((await s.ledger.airdropState(s.pool)).done);
+  assert.equal(s.balance(s.crankBase), LEFTOVER - (LEFTOVER / 3n) * 3n);
+
+  // Not recorded yet: someone else withdrew and the crank has not run the airdrop since.
+  const u = setup({ holders: many(3), landOut: worse });
+  await strangerWithdraws(u);
+  const uctx = await buyback(u);
+  assert.equal(uctx.fields.airdropHeld, "unknown");
+  const [ubought] = u.chain.delivered;
+  // Only the swap's minimum out is burned; the surplus waits for the reserve to be known.
+  assert.deepEqual(u.ledger.payouts.map((r) => r.detail.burned), [uctx.fields.minOut]);
+  assert.equal(u.balance(u.crankBase), LEFTOVER + ubought - uctx.fields.minOut);
+  await u.run();
+  assert.ok((await u.ledger.airdropState(u.pool)).done);
+  assert.equal(u.balance(u.crankBase), LEFTOVER - (LEFTOVER / 3n) * 3n + ubought - uctx.fields.minOut);
+});
+
+test("someone else's withdrawal is found in the pool's own history, newest first, however busy the crank's account is", async () => {
+  const s = setup({ holders: many(3) });
+  // The crank's base account gets 25 transactions before the withdrawal (as buybacks or anyone's dust would).
+  await strangerSends(s, 25, (payer) => [createAssociatedTokenAccountIdempotentInstruction(payer, s.crankBase, s.crank, s.m.baseMint, TOKEN_PROGRAM_ID)]);
+  const signature = await strangerWithdraws(s);
+  // Then the pool: 5 successful transactions naming it and 25 failed ones.
+  await strangerSends(s, 5, () => [new TransactionInstruction({ programId: key(), keys: [{ pubkey: s.m.pool, isSigner: false, isWritable: false }], data: Buffer.alloc(0) })]);
+  const failing = (payer) => [new TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    keys: [key(), s.m.baseMint, key(), payer, s.m.pool].map((pubkey, i) => ({ pubkey, isSigner: i === 3, isWritable: false })),
+    data: Buffer.concat([Buffer.from([12]), Buffer.alloc(8, 1), Buffer.from([6])]),
+  })];
+  await strangerSends(s, 25, failing);
+  assert.ok(s.chain.sent.slice(-25).every((t) => t.err));
+
+  // Pages of 10: the withdrawal is the 31st newest of the pool's signatures.
+  const calls = [];
+  const connection = pagedConnection(s.chain.connection, calls);
+  const tight = await s.run({ connection, withdrawSearch: { pageSize: 10, maxTransactions: 3 } });
+  assert.equal(tight.failed, 1);
+  assert.match(s.lines.at(-1).reason, /cannot find \(not among the pool's 3 newest successful transactions\); searched again next pass/);
+  assert.equal((await s.ledger.airdropState(s.pool)).withdrawn, null);
+  calls.length = 0;
+  const r = await s.run({ connection, withdrawSearch: { pageSize: 10 } });
+  assert.equal(r.failed, 0);
+  assert.deepEqual(calls.map((c) => [c.address, c.limit, c.before]), [
+    [s.m.pool.toBase58(), 10, undefined],
+    [s.m.pool.toBase58(), 10, calls[1].before],
+    [s.m.pool.toBase58(), 10, calls[2].before],
+    [s.m.pool.toBase58(), 10, calls[3].before],
+  ]);
+  assert.ok(calls.slice(1).every((c) => c.before));
+  const state = await s.ledger.airdropState(s.pool);
+  assert.equal(state.withdrawn, LEFTOVER);
+  assert.equal(state.withdrawSignature, signature);
+  assert.ok(state.done);
+  assert.equal(s.balance(s.crankBase), LEFTOVER - (LEFTOVER / 3n) * 3n);
+});
+
+test("a row whose account was closed or re-owned before its deferred send is paid to the holder's associated account", async () => {
+  const holders = many(4);
+  const s = setup({ holders, lost: new Set([1]) });
+  const ata = (i) => getAssociatedTokenAddressSync(s.m.baseMint, holders[i].owner, false, TOKEN_PROGRAM_ID);
+  await s.run(); // withdrawn and snapshotted; the batch was dropped
+  // Holder 0 opens its associated account after the snapshot.
+  s.chain.put(ata(0), tokenAccount({ owner: holders[0].owner, mint: s.m.baseMint, amount: 5n, program: TOKEN_PROGRAM_ID }));
+  const rows = await s.ledger.airdropRows(s.pool);
+  assert.ok(rows.every((r) => r.status === "pending"));
+  assert.ok(rows.find((r) => r.owner.equals(holders[0].owner)).recipient.equals(s.accounts[0]));
+  // Before the resend: holder 0 closes its snapshot account, holder 1 hands its account to someone else.
+  s.chain.accounts.delete(s.accounts[0].toBase58());
+  const taker = key();
+  s.chain.put(s.accounts[1], tokenAccount({ owner: taker, mint: s.m.baseMint, amount: holders[1].amount, program: TOKEN_PROGRAM_ID }));
+  s.chain.setHeight(2_000);
+  const sends = s.chain.sent.length;
+  await s.run();
+  assert.ok((await s.ledger.airdropRows(s.pool)).every((r) => r.status === "sent"));
+  assert.ok((await s.ledger.airdropState(s.pool)).done);
+  const each = LEFTOVER / 4n;
+  assert.equal(s.balance(ata(0)), 5n + each);
+  assert.equal(s.balance(ata(1)), each);
+  assert.equal(s.balance(s.accounts[1]), holders[1].amount); // the account's new owner gets nothing
+  for (const i of [2, 3]) assert.equal(s.balance(s.accounts[i]), holders[i].amount + each);
+  assert.equal(s.balance(s.crankBase), LEFTOVER - each * 4n);
+  // One transaction: holder 1's associated account created (the crank pays), then the four transfers.
+  const [tx] = s.chain.sent.slice(sends);
+  assert.equal(s.chain.sent.length, sends + 1);
+  const creates = tx.tx.instructions.filter((ix) => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID));
+  assert.equal(creates.length, 1);
+  assert.ok(creates[0].keys[0].pubkey.equals(s.crank) && creates[0].keys[1].pubkey.equals(ata(1)));
+  assert.ok(tx.tx.instructions.filter((ix) => ix.programId.equals(TOKEN_PROGRAM_ID)).every((ix) => ix.data.readBigUInt64LE(1) === each));
+  assert.equal(s.lines.filter((l) => l.result === "redirected").length, 2);
+});
+
+test("a row whose account closed and whose owner is off curve stays unpaid and reserved", async () => {
+  const s = setup({ holders: many(3), lost: new Set([1]) });
+  await s.run();
+  // A row for a program-owned address (the holder rules never snapshot one; this is the ledger's worst case).
+  const [row] = s.ledger.drops.get(s.pool).values();
+  row.owner = pda();
+  s.chain.accounts.delete(row.recipient.toBase58());
+  s.chain.setHeight(2_000);
+  const r = await s.run();
+  assert.equal(r.failed, 0);
+  const rows = await s.ledger.airdropRows(s.pool);
+  assert.deepEqual(rows.map((x) => x.status).sort(), ["sent", "sent", "unpaid"]);
+  assert.equal((await s.ledger.airdropState(s.pool)).done, false);
+  assert.ok(s.lines.some((l) => l.result === "unpaid" && /off curve/.test(l.reason)));
+  // Its amount stays in the crank's account, reserved for it.
+  assert.equal(s.balance(s.crankBase), LEFTOVER - (LEFTOVER / 3n) * 2n);
+  assert.equal((await s.ledger.airdropReserved(s.pool)).amount, LEFTOVER - (LEFTOVER / 3n) * 2n);
 });

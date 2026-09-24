@@ -495,3 +495,35 @@ export async function moduleContext({ chain, m, authority, owed, ledger = memLed
 }
 
 export { BN };
+
+// ---- Appended for the crank review fixes -------------------------------------
+
+/**
+ * A profile on Sonata's CDN as lib/server/s3-upload.ts names it (tokens/<sha256
+ * of the bytes>.json) and the fakeFetch route that serves exactly those bytes.
+ * `body` is an object (served as JSON.stringify(body), as fakeFetch does) or a string.
+ */
+export async function cdnProfile(body) {
+  const { createHash } = await import("node:crypto");
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  const uri = `https://d3lwm4c3ge2mv2.cloudfront.net/tokens/${createHash("sha256").update(text).digest("hex")}.json`;
+  return { uri, route: { body: text } };
+}
+
+/**
+ * Adds indexer/modules/crank-schema.mjs crankLedger's fee model failure record
+ * to `ledger` (in place), on the clock `now` (ms). `ledger.failures` holds the rows.
+ */
+export function withFeeModelFailures(ledger, { now = () => Date.now() } = {}) {
+  const failures = new Map();
+  return Object.assign(ledger, {
+    failures,
+    feeModelFailure: async (pool, reason) => {
+      const at = now();
+      const row = failures.get(pool) ?? { firstFailedAt: at, failures: 0 };
+      Object.assign(row, { lastFailedAt: at, failures: row.failures + 1, lastError: reason });
+      failures.set(pool, row);
+      return { firstFailedAt: new Date(row.firstFailedAt), failures: row.failures, elapsedMs: at - row.firstFailedAt };
+    },
+  });
+}
