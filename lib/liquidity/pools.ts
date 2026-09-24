@@ -1,4 +1,4 @@
-// Graduated Sonata pools. When a Sonata market completes its bonding curve,
+// Sonata's pools on Devnet. When a Sonata market completes its bonding curve,
 // Meteora DBC migrates it to a DAMM v2 pool (token A = the community token,
 // token B = its stock) and permanently locks the migrated liquidity. Anyone can
 // add their own liquidity to that pool and earn its trading fees; LP Farm tokens
@@ -11,6 +11,11 @@
 // token programs, and both mints are plain (no freeze authority, no transfer
 // fee or hook), so the SDK's quotes are exact. Every transaction re-reads and
 // re-checks the pool first.
+//
+// One more pool is listed by address: ROOM / mSPY (lib/liquidity/market.json),
+// where the flagship ROOM market's creator deploys its stock reserve from the
+// Treasury page. It is a compounding pool: its fees are added back into the
+// pool, so positions grow instead of collecting fees to claim.
 //
 // Top-level imports stay node-loadable so the checks can be unit tested; the
 // app runtime and the Meteora SDKs load lazily.
@@ -42,6 +47,14 @@ const FEE_DENOMINATOR = 1_000_000_000n;
 const QUOTE_EXTENSIONS = [ExtensionType.MetadataPointer, ExtensionType.TokenMetadata];
 
 const pk = (s: string) => new PublicKey(s);
+
+/** ROOM / mSPY, the flagship market's reserve pool (lib/liquidity/market.json). */
+export const RESERVE_POOL = {
+  address: "GHHFvUXdyEwVgadW7LRnrnVFPhSwWMs5qauNfcYZuH9v",
+  market: "BZVxHsS8DQAkigYvQAPfssFGZRVSuWSYHrYQn2QmeFSf",
+};
+// DAMM v2 CollectFeeMode: 0 = both tokens, 1 = quote only, 2 = compounding.
+const COMPOUNDING = 2;
 
 // ---------------------------------------------------------------------------
 // Pure checks and math (unit tested)
@@ -117,11 +130,9 @@ function mintProblem(
   return null;
 }
 
-/** Why this is not the market's graduated DAMM v2 pool, or null when it is. */
-export function poolProblem(market: PoolMarket, f: PoolFacts): string | null {
+function marketProblem(market: PoolMarket, f: PoolFacts): string | null {
   const d = f.dbcPool,
-    c = f.dbcConfig,
-    p = f.damm;
+    c = f.dbcConfig;
   if (!d || !c || d.owner !== DBC_PROGRAM || c.owner !== DBC_PROGRAM)
     return "Market accounts are not owned by Meteora DBC.";
   if (
@@ -131,18 +142,21 @@ export function poolProblem(market: PoolMarket, f: PoolFacts): string | null {
     c.feeClaimer !== market.vault
   )
     return "Pool configuration does not match this market.";
-  if (d.isMigrated === 0 || d.migrationProgress !== CREATED_POOL)
-    return "This market has not graduated yet.";
-  if (!f.derived) return "Unsupported migration fee option.";
-  if (f.address !== f.derived) return "This is not the pool DBC created for this market.";
-  if (!p || p.owner !== DAMM_V2_PROGRAM) return "Graduated pool not found.";
+  return null;
+}
+
+function dammProblem(market: PoolMarket, f: PoolFacts, compounding: boolean): string | null {
+  const p = f.damm;
+  if (!p || p.owner !== DAMM_V2_PROGRAM) return compounding ? "Pool not found." : "Graduated pool not found.";
   if (p.tokenAMint !== market.baseMint || p.tokenBMint !== market.quoteMint)
     return "Pool does not hold this market's tokens.";
   if (p.tokenAProgram !== SPL_TOKEN || p.tokenBProgram !== TOKEN_2022)
     return "Pool uses unexpected token programs.";
   if (p.poolStatus !== 0) return "Pool is disabled.";
-  // 0 = both tokens, 1 = quote only. Compounding pools have no claimable fees.
-  if (p.collectFeeMode !== 0 && p.collectFeeMode !== 1) return "Pool fee mode is not supported.";
+  // Graduated pools collect fees in both tokens (0) or the stock only (1); the
+  // reserve pool compounds them (2).
+  if (compounding ? p.collectFeeMode !== COMPOUNDING : p.collectFeeMode !== 0 && p.collectFeeMode !== 1)
+    return "Pool fee mode is not supported.";
   if (p.liquidity <= 0n) return "Pool has no liquidity.";
   if (baseFeeBps(p) === null) return "Pool fee changes over time, which is not supported.";
   const base = mintProblem(f.baseMint, SPL_TOKEN, market.baseDecimals, []);
@@ -150,6 +164,26 @@ export function poolProblem(market: PoolMarket, f: PoolFacts): string | null {
   const quote = mintProblem(f.quoteMint, TOKEN_2022, market.quoteDecimals, QUOTE_EXTENSIONS);
   if (quote) return `Stock mint not supported: ${quote}.`;
   return null;
+}
+
+/** Why this is not the market's graduated DAMM v2 pool, or null when it is. */
+export function poolProblem(market: PoolMarket, f: PoolFacts): string | null {
+  const problem = marketProblem(market, f);
+  if (problem) return problem;
+  const d = f.dbcPool!;
+  if (d.isMigrated === 0 || d.migrationProgress !== CREATED_POOL) return "This market has not graduated yet.";
+  if (!f.derived) return "Unsupported migration fee option.";
+  if (f.address !== f.derived) return "This is not the pool DBC created for this market.";
+  return dammProblem(market, f, false);
+}
+
+/** Why this is not the flagship market's ROOM / mSPY reserve pool, or null when it is. */
+export function reservePoolProblem(market: PoolMarket, f: PoolFacts): string | null {
+  const problem = marketProblem(market, f);
+  if (problem) return problem;
+  if (market.pool !== RESERVE_POOL.market || f.address !== RESERVE_POOL.address)
+    return "This is not Sonata's reserve pool.";
+  return dammProblem(market, f, true);
 }
 
 /** Why a wallet cannot act on this position, or null when it holds it. */
@@ -165,6 +199,19 @@ export function positionProblem(
   if (!nft || nft.owner !== wallet || nft.amount !== 1n || nft.mint !== position.nftMint)
     return "This wallet does not hold the position NFT.";
   return null;
+}
+
+// The reserve pool trades apart from its market's curve; a price more than 5%
+// away from the curve's gets a warning wherever liquidity is added.
+export const RESERVE_PRICE_GAP_BPS = 500;
+
+/**
+ * One price as a share of another, in basis points, from two Q64 square-root
+ * prices of the same pair (e.g. a pool against its market's bonding curve).
+ */
+export function priceRatioBps(sqrtPrice: bigint, referenceSqrtPrice: bigint) {
+  if (referenceSqrtPrice <= 0n) return null;
+  return Number((sqrtPrice * sqrtPrice * 10_000n) / (referenceSqrtPrice * referenceSqrtPrice));
 }
 
 /** Pool value in raw quote units: B plus A at the pool price (sqrtPrice is Q64). */
@@ -262,10 +309,16 @@ export type GraduatedPool = {
   feeBps: number;
   /** Meteora's dynamic fee is on: fast moves pay more. */
   dynamicFee: boolean;
-  /** Percent of each trading fee that goes to liquidity providers. */
+  /** Percent of each trading fee that liquidity providers claim. */
   lpFeePercent: number;
-  /** 0: fees in both tokens; 1: fees in the stock only. */
+  /** Percent of each trading fee added back into the pool (compounding pools). */
+  compoundPercent: number;
+  /** 0: fees in both tokens; 1: fees in the stock only; 2: fees compound into the pool. */
   collectFeeMode: number;
+  /** The flagship market's ROOM / mSPY reserve pool, listed by address rather than by graduation. */
+  reserve: boolean;
+  /** For the reserve pool: the market's price on its bonding curve (Q64 sqrt, like the pool's), to compare. */
+  curveSqrtPrice?: bigint;
   tokenA: bigint;
   tokenB: bigint;
   liquidity: bigint;
@@ -276,8 +329,8 @@ export type GraduatedPool = {
 };
 export type PoolList = {
   pools: GraduatedPool[];
-  /** Graduated markets whose pool failed a check, so it is not offered. */
-  skipped: { market: Market; reason: string }[];
+  /** Markets whose pool failed a check, so it is not offered (with the pool, when one was found). */
+  skipped: { market: Market; reason: string; pool?: string }[];
 };
 
 function mintFacts(address: string, info: Info): MintFacts | null {
@@ -297,6 +350,7 @@ function mintFacts(address: string, info: Info): MintFacts | null {
 
 type DbcRead = {
   pool: PoolFacts["dbcPool"];
+  sqrtPrice?: bigint;
   config: PoolFacts["dbcConfig"];
   derived: string | null;
   airdrop: boolean;
@@ -318,6 +372,7 @@ function readDbc(L: Libs, market: Market, poolInfo: Info, configInfo: Info): Dbc
         isMigrated: vp.isMigrated,
         migrationProgress: vp.migrationProgress,
       },
+      sqrtPrice: BigInt(vp.sqrtPrice.toString()),
       config: {
         owner: configInfo.owner.toBase58(),
         quoteMint: config.quoteMint.toBase58(),
@@ -375,9 +430,10 @@ function checkPool(
   baseInfo: Info,
   quoteInfo: Info,
   slot: number,
+  reserve = false,
 ): GraduatedPool | string {
   const damm = decodeDamm(L, dammInfo);
-  const problem = poolProblem(market, {
+  const problem = (reserve ? reservePoolProblem : poolProblem)(market, {
     dbcPool: dbc.pool,
     dbcConfig: dbc.config,
     derived: dbc.derived,
@@ -400,7 +456,10 @@ function checkPool(
     feeBps: baseFeeBps(damm.facts)!,
     dynamicFee: fees.dynamicFee.initialized !== 0,
     lpFeePercent: ((100 - fees.protocolFeePercent) * (10_000 - fees.compoundingFeeBps)) / 10_000,
+    compoundPercent: ((100 - fees.protocolFeePercent) * fees.compoundingFeeBps) / 10_000,
     collectFeeMode: s.collectFeeMode,
+    reserve,
+    ...(reserve && dbc.sqrtPrice && { curveSqrtPrice: dbc.sqrtPrice }),
     tokenA,
     tokenB,
     liquidity: damm.facts.liquidity,
@@ -445,20 +504,24 @@ export async function listGraduatedPools(markets: Market[]): Promise<PoolList> {
   const first = await readAccounts(L, known.flatMap((m) => [m.pool, m.config]));
   const graduated = known.flatMap((market, i) => {
     const dbc = readDbc(L, market, first.infos[2 * i], first.infos[2 * i + 1]);
+    // The flagship market's reserve pool is listed whether or not the market has graduated.
+    const reserve =
+      market.pool === RESERVE_POOL.market ? [{ market, dbc, address: RESERVE_POOL.address, reserve: true }] : [];
     // Not graduated (still on its curve) is not a problem, just not listed.
-    if (dbc.pool && dbc.pool.isMigrated === 0) return [];
+    if (dbc.pool && dbc.pool.isMigrated === 0) return reserve;
     if (!dbc.derived) {
       skipped.push({ market, reason: poolProblem(market, emptyFacts(dbc)) ?? "Pool not found." });
-      return [];
+      // Unreadable market accounts fail the reserve pool too: report them once.
+      return dbc.pool ? reserve : [];
     }
-    return [{ market, dbc, address: dbc.derived }];
+    return [...reserve, { market, dbc, address: dbc.derived, reserve: false }];
   });
   if (!graduated.length) return { pools: [], skipped };
   const mints = [...new Set(graduated.flatMap((g) => [g.market.baseMint, g.market.quoteMint]))];
   const second = await readAccounts(L, [...graduated.map((g) => g.address), ...mints]);
   const mintInfo = (mint: string) => second.infos[graduated.length + mints.indexOf(mint)];
   const pools: GraduatedPool[] = [];
-  graduated.forEach(({ market, dbc, address }, i) => {
+  graduated.forEach(({ market, dbc, address, reserve }, i) => {
     const result = checkPool(
       L,
       market,
@@ -468,10 +531,13 @@ export async function listGraduatedPools(markets: Market[]): Promise<PoolList> {
       mintInfo(market.baseMint),
       mintInfo(market.quoteMint),
       second.slot,
+      reserve,
     );
-    if (typeof result === "string") skipped.push({ market, reason: result });
+    if (typeof result === "string") skipped.push({ market, reason: result, pool: address });
     else pools.push(result);
   });
+  // Graduated pools first; the reserve pool last.
+  pools.sort((a, b) => Number(a.reserve) - Number(b.reserve));
   return { pools, skipped };
 }
 const emptyFacts = (dbc: DbcRead): PoolFacts => ({
@@ -498,7 +564,7 @@ async function freshPool(L: Libs, pool: GraduatedPool, extra: string[] = []) {
     ...extra,
   ]);
   const dbc = readDbc(L, m, infos[0], infos[1]);
-  const result = checkPool(L, m, dbc, pool.address, infos[2], infos[3], infos[4], slot);
+  const result = checkPool(L, m, dbc, pool.address, infos[2], infos[3], infos[4], slot, pool.reserve);
   if (typeof result === "string") throw Error(`${m.symbol} pool check failed: ${result}`);
   return { pool: result, extra: infos.slice(5) };
 }
@@ -708,8 +774,9 @@ export async function preparePoolDeposit(
       b: q.b.toString(),
       limitA: limits.maxA.toString(),
       limitB: limits.maxB.toString(),
-      description:
-        "Adds both tokens to the Meteora DAMM v2 pool at its current price. A new position NFT goes to your wallet: it earns this pool's trading fees and you can withdraw it any time.",
+      description: pool.compoundPercent
+        ? "Adds both tokens to the Meteora DAMM v2 pool at its current price. A new position NFT goes to your wallet. This pool adds its trading fees back into the pool, so your position grows; you can withdraw it any time."
+        : "Adds both tokens to the Meteora DAMM v2 pool at its current price. A new position NFT goes to your wallet: it earns this pool's trading fees and you can withdraw it any time.",
     },
   };
 }
@@ -793,7 +860,9 @@ export async function preparePoolWithdrawal(
       b: outB.toString(),
       limitA: minA.toString(),
       limitB: minB.toString(),
-      description: `Withdraws ${percent} of this position's unlocked liquidity. Both tokens go to your wallet and the position NFT stays with you. Unclaimed fees stay on the position; claim them separately.`,
+      description: pool.lpFeePercent
+        ? `Withdraws ${percent} of this position's unlocked liquidity. Both tokens go to your wallet and the position NFT stays with you. Unclaimed fees stay on the position; claim them separately.`
+        : `Withdraws ${percent} of this position's unlocked liquidity, including the fees it has compounded. Both tokens go to your wallet and the position NFT stays with you.`,
     },
   };
 }

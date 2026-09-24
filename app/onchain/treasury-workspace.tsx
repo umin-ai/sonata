@@ -338,7 +338,9 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
             ? `Backed token: half of net trading fees goes into this market's backing, which any ${market.symbol} holder can burn for their share and the creator can never withdraw.`
             : market.mode === "refrain"
               ? "All net trading fees go to the creator's payout wallet, paid in the stock."
-              : "Collected creator reserves can fund liquidity positions or fixed community rewards."}
+              : market.quoteMint === REWARDS_MINT
+                ? "Half of net trading fees goes to the creator's payout wallet. The other half builds a creator reserve, which the creator can withdraw or put into the ROOM / mSPY pool from the Treasury page."
+                : "Half of net trading fees goes to the creator's payout wallet. The other half builds a creator reserve, which only the creator can withdraw."}
         </AlertDescription>
       </Alert>
       {error && (
@@ -679,15 +681,10 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
               Deploy into liquidity <ArrowUpRight />
             </Link>
           </Button>
-          <Button asChild variant="outline">
-            <Link href="/rewards">
-              Fund member rewards <ArrowUpRight />
-            </Link>
-          </Button>
         </div>
         ) : (
           <p className="sr-note">
-            Liquidity deployment and holder rewards currently use mSPY, so this
+            Deploying into liquidity currently uses mSPY, so this
             {" "}{q} reserve can only be withdrawn by the creator.
           </p>
         )}

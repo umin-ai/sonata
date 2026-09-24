@@ -1,6 +1,6 @@
 "use client";
 import { TokenName, TokenPair } from "@/app/token-identity";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "@/app/plain-link";
 import { ArrowUpRight, RefreshCw, Sprout } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -12,12 +12,41 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { LiveWallet, useLive } from "@/app/onchain/live-session";
 import { formatUnits } from "@/lib/treasury/units";
 import { prepareReserveDeployment } from "@/lib/liquidity/runtime";
+import { RESERVE_PRICE_GAP_BPS, listGraduatedPools, priceRatioBps } from "@/lib/liquidity/pools";
+import { discoverMarkets } from "@/lib/treasury/runtime";
 import { ReservePicker, useReserves } from "./reserves";
+// The ROOM / mSPY pool's price as a share of ROOM's bonding-curve price, in bps.
+function useReservePriceGap() {
+  const [gap, setGap] = useState<number | null>(null);
+  useEffect(() => {
+    let active = true;
+    discoverMarkets()
+      .then(listGraduatedPools)
+      .then(
+        (list) => {
+          const pool = list.pools.find((p) => p.reserve);
+          if (active)
+            setGap(
+              pool?.curveSqrtPrice
+                ? priceRatioBps(BigInt(pool.state.sqrtPrice.toString()), pool.curveSqrtPrice)
+                : null,
+            );
+        },
+        () => {},
+      );
+    return () => {
+      active = false;
+    };
+  }, []);
+  return gap;
+}
+
 export default function CapitalPage() {
   const { address, busy, pending, execute } = useLive(),
     reserves = useReserves(),
     [amount, setAmount] = useState(""),
     source = reserves.source;
+  const gap = useReservePriceGap();
   return (
     <>
       <div className="sr-heading">
@@ -25,8 +54,8 @@ export default function CapitalPage() {
           <span className="sr-eyebrow">SONATA / TREASURY</span>
           <h1>Treasury</h1>
           <p>
-            Put collected trading revenue into liquidity, or commit it to
-            community rewards.
+            Put your market&apos;s creator reserve into the ROOM / mSPY pool,
+            where its trading fees compound.
           </p>
         </div>
         <Button
@@ -73,6 +102,13 @@ export default function CapitalPage() {
                   Add matching ROOM from your wallet. Review both amounts before
                   signing. Any unused mSPY buffer returns to your wallet.
                 </p>
+                {gap !== null && Math.abs(gap - 10_000) > RESERVE_PRICE_GAP_BPS && (
+                  <Alert>
+                    <AlertDescription>
+                      {`The ROOM / mSPY pool prices ROOM at ${Number((gap / 100).toFixed(1))}% of its bonding-curve price. Deploying adds your ROOM and mSPY at the pool's price, and trades between the two can move value out of the pool.`}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <Button
                   disabled={
                     !address ||
@@ -107,19 +143,13 @@ export default function CapitalPage() {
             Meteora LP position. If either step fails, both roll back.
           </p>
           <p className="sr-note">
-            You own the resulting NFT and control withdrawals from the Earn
-            page. This does not give community holders a claim on your position.
+            You own the resulting NFT and manage it, including withdrawals,
+            on the Pools page. This does not give community holders a claim on your position.
           </p>
           <div className="flex gap-3 flex-wrap mt-5">
             <Button asChild variant="outline">
-              <Link href="/earn?net=devnet">
+              <Link href="/earn?net=devnet&pool=GHHFvUXdyEwVgadW7LRnrnVFPhSwWMs5qauNfcYZuH9v">
                 Manage LP positions
-                <ArrowUpRight />
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/rewards">
-                Configure holder rewards
                 <ArrowUpRight />
               </Link>
             </Button>

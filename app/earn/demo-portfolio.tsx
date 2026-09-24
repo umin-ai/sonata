@@ -11,8 +11,8 @@ import { useLive } from "@/app/onchain/live-session";
 import { readLiquidity, type LiquiditySnapshot } from "@/lib/liquidity/runtime";
 import { formatUnits } from "@/lib/treasury/units";
 
-// The portfolio page's card for the ROOM / mSPY Devnet demo pool, which is no
-// longer on the Pools page. Positions there stay readable here.
+// The portfolio page's card for the ROOM / mSPY Devnet pool, where creators put
+// their reserve. The Pools page's Devnet tab manages these positions.
 export function LiquidityPortfolio({ refreshToken = 0 }: { refreshToken?: number }) {
   const { address, revision } = useLive();
   const key = `${address}:${revision}:${refreshToken}`;
@@ -67,8 +67,8 @@ export function LiquidityPortfolio({ refreshToken = 0 }: { refreshToken?: number
         </>
       )}
       <Button asChild variant="outline">
-        <Link href="/earn?net=devnet">
-          Graduated pools <ArrowUpRight />
+        <Link href="/earn?net=devnet&pool=GHHFvUXdyEwVgadW7LRnrnVFPhSwWMs5qauNfcYZuH9v">
+          Manage on Pools <ArrowUpRight />
         </Link>
       </Button>
     </Card>

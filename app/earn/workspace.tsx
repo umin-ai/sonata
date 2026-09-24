@@ -30,7 +30,9 @@ import {
   preparePoolClaim,
   preparePoolDeposit,
   preparePoolWithdrawal,
+  priceRatioBps,
   quoteDeposit,
+  RESERVE_PRICE_GAP_BPS,
   readPoolPositions,
   type GraduatedPool,
   type PoolList,
@@ -209,8 +211,9 @@ function PoolCard({
             <strong>{percent(pool.feeBps)}</strong>
           </span>
         </span>
-        {(lpFarm || mine) && (
+        {(lpFarm || mine || pool.reserve) && (
           <span className="pool-tags">
+            {pool.reserve && <span className="pool-tag">Creator reserve pool · fees compound</span>}
             {lpFarm && (
               <span className="pool-tag" data-tone="farm">
                 <Sprout size={12} aria-hidden /> Pays LP Farm rewards
@@ -364,6 +367,7 @@ function PositionItem({ pool, position: p }: { pool: GraduatedPool; position: Po
           <strong>{p.unlocked > 0n ? "Part of this position" : "All of it"}: earns fees, can&apos;t be withdrawn</strong>
         </div>
       )}
+      {pool.lpFeePercent > 0 && (
       <div className="sr-detail-row">
         <span>Unclaimed fees</span>
         <strong>
@@ -382,6 +386,7 @@ function PositionItem({ pool, position: p }: { pool: GraduatedPool; position: Po
           )}
         </strong>
       </div>
+      )}
       <div className="pool-position-actions">
         {p.unlocked > 0n && (
           <>
@@ -401,13 +406,15 @@ function PositionItem({ pool, position: p }: { pool: GraduatedPool; position: Po
             </Button>
           </>
         )}
-        <Button
-          variant="outline"
-          disabled={!enabled || !hasFees}
-          onClick={() => void execute(() => preparePoolClaim(address, pool, p))}
-        >
-          Claim fees
-        </Button>
+        {pool.lpFeePercent > 0 && (
+          <Button
+            variant="outline"
+            disabled={!enabled || !hasFees}
+            onClick={() => void execute(() => preparePoolClaim(address, pool, p))}
+          >
+            Claim fees
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -445,7 +452,9 @@ function Positions({
         positions.map((p) => <PositionItem key={p.address} pool={pool} position={p} />)
       )}
       <p className="sr-note">
-        Withdrawing doesn&apos;t claim fees; claim them separately.
+        {pool.lpFeePercent > 0
+          ? "Withdrawing doesn't claim fees; claim them separately."
+          : "Fees are added back into the pool, so withdrawing includes them."}
         {lpFarm && " LP Farm rewards go to unlocked liquidity."}
       </p>
     </Card>
@@ -465,6 +474,9 @@ function PoolDetail({
     q = pool.quoteSymbol;
   const profile = useTokenProfile(m.uri);
   const lpFarm = isLpFarm(m, profile?.feeModel);
+  // The reserve pool trades apart from its market's curve, so the two prices can drift.
+  const gap = pool.curveSqrtPrice ? priceRatioBps(BigInt(pool.state.sqrtPrice.toString()), pool.curveSqrtPrice) : null;
+  const drifted = gap !== null && Math.abs(gap - 10_000) > RESERVE_PRICE_GAP_BPS;
   return (
     <section className="pool-detail" ref={detail} aria-labelledby="pool-detail-title">
       <div className="sr-section-top pool-detail-top">
@@ -507,9 +519,27 @@ function PoolDetail({
         <div className="sr-detail-row">
           <span>To liquidity providers</span>
           <strong>
-            {Number(pool.lpFeePercent.toFixed(2))}% of each fee{pool.collectFeeMode === 1 ? `, paid in ${q}` : ""}
+            {pool.compoundPercent > 0
+              ? `${Number(pool.compoundPercent.toFixed(2))}% of each fee, added back into the pool`
+              : `${Number(pool.lpFeePercent.toFixed(2))}% of each fee${pool.collectFeeMode === 1 ? `, paid in ${q}` : ""}`}
           </strong>
         </div>
+        {pool.reserve && (
+          <div className="sr-detail-row">
+            <span>About this pool</span>
+            <strong>
+              Creators of mSPY markets can put their creator reserve here from the Treasury page; anyone can add too
+            </strong>
+          </div>
+        )}
+        {gap !== null && (
+          <div className="sr-detail-row">
+            <span>Pool price</span>
+            <strong>
+              {Number((gap / 100).toFixed(1))}% of {m.symbol}&apos;s price on its bonding curve
+            </strong>
+          </div>
+        )}
         {lpFarm && (
           <div className="sr-detail-row">
             <span>LP Farm</span>
@@ -517,6 +547,13 @@ function PoolDetail({
           </div>
         )}
       </Card>
+      {drifted && (
+        <Alert className="mb-4">
+          <AlertDescription>
+            {`This pool prices ${m.symbol} ${gap! < 10_000 ? "below" : "above"} its bonding curve (${Number((gap! / 100).toFixed(1))}%). Adding liquidity here puts your ${m.symbol} in at the pool's price, and trades between the two can move value out of the pool.`}
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="pool-detail-grid">
         <AddLiquidity key={pool.address} pool={pool} />
         <Positions
@@ -583,7 +620,7 @@ export function LiquidityWorkspace() {
           <p>
             {network === "mainnet"
               ? "Put your stocks to work: add them to a live Meteora pool on Solana mainnet and earn its trading fees."
-              : "Add liquidity to a graduated token's Meteora pool and earn its trading fees. LP Farm tokens also pay their LPs."}
+              : "Add liquidity to a Sonata token's Meteora pool and earn its trading fees. LP Farm tokens also pay their LPs."}
           </p>
         </div>
         <Button variant="outline" disabled={reading} onClick={network === "mainnet" ? mainnet.refresh : refresh}>
@@ -610,6 +647,7 @@ export function LiquidityWorkspace() {
           positions={positions}
           detail={detail}
           choose={choose}
+          wanted={wanted}
         />
       )}
     </>
@@ -626,7 +664,9 @@ function DevnetPools({
   positions,
   detail,
   choose,
+  wanted,
 }: {
+  wanted: string | null;
   list?: PoolList;
   error?: string;
   loading: boolean;
@@ -636,6 +676,11 @@ function DevnetPools({
   detail: RefObject<HTMLElement | null>;
   choose: (pool: GraduatedPool) => void;
 }) {
+  // A link to one pool (?pool=) that is not listed says so, with the check it failed.
+  const missing =
+    wanted && list && !pools.some((p) => p.address === wanted || p.market.pool === wanted)
+      ? { reason: list.skipped.find((s) => s.pool === wanted || s.market.pool === wanted)?.reason }
+      : null;
   return (
     <>
       <LiveWallet />
@@ -645,11 +690,11 @@ function DevnetPools({
         </Alert>
       )}
       {!list ? (
-        loading && <p className="sr-note">Reading graduated pools…</p>
+        loading && <p className="sr-note">Reading Sonata pools…</p>
       ) : !pools.length ? (
         <Card className="sr-panel pools-empty">
           <Sprout size={24} aria-hidden />
-          <h3>No graduated pools yet</h3>
+          <h3>No pools yet</h3>
           <p className="sr-note">
             {"A token's pool shows up here once it completes its bonding curve."}
           </p>
@@ -661,7 +706,16 @@ function DevnetPools({
         </Card>
       ) : (
         <>
-          <div className="pool-list" role="list" aria-label="Graduated pools">
+          {missing && (
+            <Alert className="mb-4">
+              <AlertDescription>
+                {missing.reason
+                  ? `The pool you opened isn't offered: ${missing.reason} Showing the others.`
+                  : "The pool you opened isn't listed right now. Showing the others."}
+              </AlertDescription>
+            </Alert>
+          )}
+          <div className="pool-list" role="list" aria-label="Sonata pools">
             {pools.map((p) => (
               <PoolCard
                 key={p.address}

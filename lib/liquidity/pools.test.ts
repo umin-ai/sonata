@@ -2,14 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ExtensionType, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { maximum } from "./math.ts";
+import { readFileSync } from "node:fs";
 import {
   DAMM_V2_PROGRAM,
   DBC_PROGRAM,
   baseFeeBps,
   depositLimits,
   displayAmount,
+  RESERVE_POOL,
   poolProblem,
   poolValue,
+  priceRatioBps,
+  reservePoolProblem,
   positionProblem,
   sharePercent,
   underBuffer,
@@ -116,6 +120,52 @@ test("a pool that is not this market's graduated pool is never offered", () => {
     assert.ok(problem, `${name}: accepted`);
     assert.match(problem, reason, name);
   }
+});
+
+// The flagship ROOM market's reserve pool: listed by address, still on its
+// curve, and compounding its fees back into the pool.
+const reserveMarket: PoolMarket = { ...market, pool: RESERVE_POOL.market };
+const reserveFacts = (): PoolFacts => {
+  const f = facts();
+  f.dbcPool!.isMigrated = 0;
+  f.dbcPool!.migrationProgress = 0;
+  f.address = RESERVE_POOL.address;
+  f.damm!.collectFeeMode = 2;
+  return f;
+};
+
+test("the ROOM / mSPY reserve pool is listed by its address, not by graduation", () => {
+  const manifest = JSON.parse(readFileSync(new URL("./market.json", import.meta.url), "utf8"));
+  assert.equal(RESERVE_POOL.address, manifest.pool);
+  assert.equal(RESERVE_POOL.market, manifest.sourceMarket);
+  assert.equal(reservePoolProblem(reserveMarket, reserveFacts()), null);
+  // The graduation check still refuses it, so it never passes as a graduated pool.
+  assert.match(poolProblem(reserveMarket, reserveFacts())!, /not graduated/);
+  const cases: [string, PoolMarket, (f: PoolFacts) => void, RegExp][] = [
+    ["another market", market, () => {}, /not Sonata's reserve pool/],
+    ["another pool", reserveMarket, (f) => (f.address = DAMM_POOL), /not Sonata's reserve pool/],
+    ["fees not claimed by the vault", reserveMarket, (f) => (f.dbcConfig!.feeClaimer = OTHER), /does not match/],
+    ["claimable fees instead of compounding", reserveMarket, (f) => (f.damm!.collectFeeMode = 0), /fee mode/],
+    ["tokens of another market", reserveMarket, (f) => (f.damm!.tokenBMint = OTHER), /this market's tokens/],
+    ["stock with a transfer fee", reserveMarket, (f) => f.quoteMint!.extensions.push(ExtensionType.TransferFeeConfig), /unsupported token extension/],
+    ["pool missing", reserveMarket, (f) => (f.damm = null), /not found/],
+  ];
+  for (const [name, m, change, reason] of cases) {
+    const f = reserveFacts();
+    change(f);
+    const problem = reservePoolProblem(m, f);
+    assert.ok(problem, `${name}: accepted`);
+    assert.match(problem, reason, name);
+  }
+});
+
+test("a pool's price against its market's curve price", () => {
+  const q64 = 1n << 64n;
+  assert.equal(priceRatioBps(q64, q64), 10_000);
+  // Half the square-root price is a quarter of the price.
+  assert.equal(priceRatioBps(q64 / 2n, q64), 2_500);
+  assert.equal(priceRatioBps(q64 * 2n, q64), 40_000);
+  assert.equal(priceRatioBps(q64, 0n), null);
 });
 
 test("base fee: fixed fees in bps, anything that changes is rejected", () => {

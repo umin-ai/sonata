@@ -436,19 +436,13 @@ export function LivePortfolio() {
           <Card className="sr-panel mt-6">
             <h3>Use your creator revenue.</h3>
             <p className="sr-note">
-              Deploy your allocated reserve into liquidity, or share newly retained
-              fees through a proportional holder-reward policy.
+              Put your creator reserve into the ROOM / mSPY pool from the
+              Treasury page, where its trading fees compound.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button asChild variant="outline">
                 <Link href="/capital">
                   Treasury
-                  <ArrowUpRight />
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link href="/rewards">
-                  Community rewards
                   <ArrowUpRight />
                 </Link>
               </Button>
