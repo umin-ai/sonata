@@ -348,7 +348,7 @@ async function addMarket(accounts, rows, {
 // `trades` stand in for the indexer's trades table.
 function memLedger({ trades = [] } = {}) {
   const payouts = [], pending = new Map(), models = new Map(), statuses = new Map();
-  return {
+  return kit.payoutLedger({
     payouts,
     trades,
     models,
@@ -372,7 +372,7 @@ function memLedger({ trades = [] } = {}) {
       return ends.length ? Math.max(...ends) : null;
     },
     buyerNets: async (pool, start, end) => netByTrader(trades.filter((t) => t.pool === pool), { start, end }),
-  };
+  });
 }
 // Moves quote atoms as a sent Token-2022 transfer_checked would.
 function applyTransfers(accounts, tx) {
@@ -584,9 +584,9 @@ test("a reward market's holders are paid pro rata; no quote account, PDAs, the p
   assert.match(chain.lines.at(-1), /^summary .*rewardMarkets=1 rewardTxs=1 rewardAtoms=777777 rewardFailed=0/);
 });
 
-test("later passes pay only what is still owed, and nothing below REWARD_MIN_ATOMS", async () => {
+test("later passes pay only what is still owed; an unpaid share stays its holder's, and nothing below REWARD_MIN_ATOMS", async () => {
   const payer = Keypair.generate(), ledger = memLedger();
-  const [h1, h2] = [wallet(), wallet()];
+  const [h1, h2, h3] = [wallet(), wallet(), wallet()];
   const chain = await fakeChain({
     payer, funded: true, dryRun: false, ledger, vaultAdminKey: wallet(),
     markets: [{
@@ -594,25 +594,31 @@ test("later passes pay only what is still owed, and nothing below REWARD_MIN_ATO
       holders: [
         { owner: h1, amount: 400_000_000n, quote: true },
         { owner: h2, amount: 300_000_000n, quote: true },
-        { owner: wallet(), amount: 200_000_000n, quote: false },
+        { owner: h3, amount: 200_000_000n, quote: false },
       ],
     }],
   });
   const total = () => ledger.payouts.reduce((s, r) => s + r.amount, 0n);
   assert.equal(total(), 777_777n);
-  // Second pass: 222223 still owed (the holder without a quote account keeps its share owed).
+  // Second pass: 222223 still owed, 222222 of it h3's share (no quote account
+  // yet). It stays h3's: nothing is re-split to h1 and h2.
   const second = await chain.pass();
-  assert.equal(second.rewards.atoms, 98_765n + 74_074n);
-  assert.equal(total(), 950_616n);
-  // Third pass: 49384 owed, below the 100000 default.
+  assert.equal(second.rewards.atoms, 0n);
+  assert.match(chain.lines.findLast((l) => l.startsWith("rewards ")), /owed=222223 carried=222222 action=pay .*noAta=1 paidNow=0 /);
+  // Once h3 has a quote account it is paid exactly its share.
+  chain.accounts.set(quoteAta(h3).toBase58(), tokenAccount(h3, QUOTE));
   const third = await chain.pass();
-  assert.deepEqual({ ...third.rewards, markets: undefined }, { markets: undefined, txs: 0, atoms: 0n, recipients: 0, simulated: 0, skipped: 1, failed: 0 });
-  assert.match(chain.lines.findLast((l) => l.startsWith("rewards ")), /owed=49384 action=skip reason="owed below 100000"/);
-  // A lower threshold pays it; never more than the treasury distributed.
-  await chain.pass({ rewardMinAtoms: 10_000n });
+  assert.equal(third.rewards.atoms, 222_222n);
+  assert.deepEqual([h1, h2, h3].map((h) => balanceOf(chain, h)), [444_444n, 333_333n, 222_222n]);
+  // Fourth pass: 1 atom owed, below the 100000 default.
+  const fourth = await chain.pass();
+  assert.deepEqual({ ...fourth.rewards, markets: undefined }, { markets: undefined, txs: 0, atoms: 0n, recipients: 0, simulated: 0, skipped: 1, failed: 0 });
+  assert.match(chain.lines.findLast((l) => l.startsWith("rewards ")), /owed=1 action=skip reason="owed below 100000"/);
+  // A lower threshold tries it; never more than the treasury distributed.
+  await chain.pass({ rewardMinAtoms: 1n });
   assert.ok(total() <= 1_000_000n);
   assert.equal(balanceOf(chain, payer.publicKey), 1_000_000n - total());
-  assert.equal(balanceOf(chain, h1) + balanceOf(chain, h2), total());
+  assert.equal(balanceOf(chain, h1) + balanceOf(chain, h2) + balanceOf(chain, h3), total());
 });
 
 test("an underfunded crank quote account pays nobody", async () => {
@@ -718,6 +724,7 @@ test("a dry run simulates the first reward batch as the creator and writes nothi
 // (indexer/modules/testkit.mjs), whose swaps, burns, transfers and account
 // creations are applied as sent. Each market: { feeModel, json, owed, dbc }.
 async function modulePass({ markets, trades = [], routes = {}, dryRun = false, ledger = kit.memLedger({ trades }) }) {
+  kit.payoutLedger(ledger);
   const payer = Keypair.generate();
   const chain = kit.fakeChain();
   const admin = wallet();
@@ -981,17 +988,16 @@ test("a pass over a graduated market simulates claim_graduated, then claims and 
 test("a diamond market pays its holders weighted by how long they have held", async () => {
   const [steady, flipper, gifted] = [wallet(), wallet(), wallet()];
   const now = Math.floor(Date.now() / 1000);
-  const at = (s) => new Date(s * 1000).toISOString();
   const ledger = kit.memLedger();
   const run = await modulePass({ ledger, markets: [{ feeModel: "diamond", owed: 1_100_000n }] });
   const [m] = run.added;
   const pool = m.pool.toBase58();
-  ledger.trades.push(
-    { pool, trader: steady.toBase58(), side: "buy", quote_amount: "1", block_time: at(now - 8 * 86400) },
-    { pool, trader: flipper.toBase58(), side: "buy", quote_amount: "1", block_time: at(now - 8 * 86400) },
-    { pool, trader: flipper.toBase58(), side: "sell", quote_amount: "1", block_time: at(now - 3600) },
-  );
-  // Equal balances, each with a quote account; 3x, 1x (sold an hour ago) and 1x (no trades).
+  // Earlier passes' holder snapshots (in place of the first pass's empty one):
+  // both held for 8 days, and an hour ago the flipper held nothing.
+  ledger.snapshots.get(`${pool}|holders`).clear();
+  await ledger.recordSnapshot(pool, "holders", now - 8 * 86400, [[steady.toBase58(), 10n ** 12n], [flipper.toBase58(), 10n ** 12n]]);
+  await ledger.recordSnapshot(pool, "holders", now - 3600, [[steady.toBase58(), 10n ** 12n]]);
+  // Equal balances, each with a quote account; 3x, 1x (sold out an hour ago, bought back) and 1x (never seen before).
   for (const owner of [steady, flipper, gifted]) {
     run.chain.put(Keypair.generate().publicKey, kit.tokenAccount({ owner, mint: m.baseMint, amount: 10n ** 12n, program: TOKEN_PROGRAM_ID }));
     run.chain.put(quoteAta(owner), kit.tokenAccount({ owner, mint: QUOTE }));
