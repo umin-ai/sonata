@@ -27,17 +27,25 @@
 //                      never make the next pass pay the same recipients twice.
 //   market_fee_models  each pool's fee module, read once from its metadata.
 //   airdrop_state, airdrop_payouts  the graduation airdrop (modules/airdrop.mjs).
+//   reward_allocations each allocation round's recipients and amounts, for the
+//                      modules that pay a set of recipients (holders, diamond,
+//                      lpFarm, split; modules/payout.mjs payAllocated). An
+//                      allocated but unpaid amount stays its recipient's.
+//   balance_snapshots, balance_snapshot_rows  the balances each pass saw
+//                      (diamond tenure, lpFarm position liquidity).
+//   lp_nft_holders     where a moved LP position NFT was found.
+// (modules/ledger-schema.mjs creates the last four.)
 import { PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync, unpackAccount, unpackMint } from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync, unpackAccount } from "@solana/spl-token";
 import { VAULT_ADMIN, errText, toJson } from "./modules/common.mjs";
-import { payShares, rewardShares, verdict } from "./modules/payout.mjs";
+import { payShares, verdict } from "./modules/payout.mjs";
 import { DEFAULT_FEE_MODEL, resolveFeeModels } from "./modules/fee-model.mjs";
 import { runBuyback } from "./modules/buyback.mjs";
 import { runTopBuyers } from "./modules/top-buyers.mjs";
-import { runLpFarm } from "./modules/lp-farm.mjs";
+import { observeLpFarm, runLpFarm } from "./modules/lp-farm.mjs";
 import { runSplit } from "./modules/split.mjs";
-import { runDiamond } from "./modules/diamond.mjs";
-import { selectHolders } from "./modules/holders.mjs";
+import { observeDiamond, runDiamond } from "./modules/diamond.mjs";
+import { payHolders } from "./modules/holders.mjs";
 
 export { MAX_RECIPIENTS, MIN_HOLDING_DIVISOR, selectHolders } from "./modules/holders.mjs";
 
@@ -54,7 +62,11 @@ export {
 
 // 100000 atoms = 0.001 of an 8-decimal quote token.
 export const DEFAULT_REWARD_MIN_ATOMS = 100_000n;
-const TOKEN_ACCOUNT_SIZE = 165;
+const LEDGER_TABLES = [
+  "reward_payouts", "reward_pending", "market_fee_models", "airdrop_state", "airdrop_payouts",
+  "reward_allocations", "balance_snapshots", "balance_snapshot_rows", "lp_nft_holders",
+];
+const big = (v) => (v == null ? null : BigInt(v));
 
 /** Quote atoms still owed to a market. Throws if the ledger overpaid. */
 export function owedAtoms(totalDistributed, paid) {
@@ -70,9 +82,7 @@ export function pgLedger(db) {
     // The tables and columns this crank writes; sonata-indexer's migrate() creates them.
     async ready() {
       return (await first(
-        `select to_regclass('reward_payouts') is not null and to_regclass('reward_pending') is not null
-                and to_regclass('market_fee_models') is not null
-                and to_regclass('airdrop_state') is not null and to_regclass('airdrop_payouts') is not null
+        `select ${LEDGER_TABLES.map((t) => `to_regclass('${t}') is not null`).join(" and ")}
                 and (select count(*) from information_schema.columns
                       where table_schema = current_schema() and column_name = 'detail'
                         and table_name in ('reward_payouts', 'reward_pending')) = 2 as ok`,
@@ -96,25 +106,167 @@ export function pgLedger(db) {
         lastValidBlockHeight: Number(r.lvbh), module: r.module ?? DEFAULT_FEE_MODEL,
       }));
     },
-    async begin({ signature, pool, amount, recipients, lastValidBlockHeight, module = DEFAULT_FEE_MODEL, detail = null }) {
-      await db.query(
-        "insert into reward_pending (signature, pool, amount, recipients, last_valid_block_height, module, detail) values ($1, $2, $3, $4, $5, $6, $7::jsonb)",
-        [signature, pool, amount.toString(), recipients, lastValidBlockHeight, module, toJson(detail)],
+    // `allocations` ({ round, recipient, paidTo, creates }): the allocation rows
+    // this transaction pays. They are marked pending and the transaction
+    // recorded in one statement, and only if every row is still unpaid and
+    // they add up to `amount` (the rows are locked while it checks); otherwise
+    // nothing is written and this throws.
+    async begin({ signature, pool, amount, recipients, lastValidBlockHeight, module = DEFAULT_FEE_MODEL, detail = null, allocations = null }) {
+      const row = [signature, pool, amount.toString(), recipients, lastValidBlockHeight, module, toJson(detail)];
+      if (!allocations?.length) {
+        await db.query(
+          "insert into reward_pending (signature, pool, amount, recipients, last_valid_block_height, module, detail) values ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+          row,
+        );
+        return;
+      }
+      const r = await db.query(
+        `with want as (
+           select * from unnest($8::int[], $9::text[], $10::text[], $11::boolean[]) as w(round, recipient, paid_to, creates)),
+         locked as (
+           select a.amount from reward_allocations a join want w on a.round = w.round and a.recipient = w.recipient
+            where a.pool = $2 and a.status = 'unpaid' for update of a),
+         ok as (select count(*) = $12::bigint and coalesce(sum(amount), 0) = $3::numeric as ok from locked),
+         marked as (
+           update reward_allocations a set status = 'pending', signature = $1, paid_to = w.paid_to, creates_account = w.creates
+             from want w, ok
+            where ok.ok and a.pool = $2 and a.round = w.round and a.recipient = w.recipient and a.status = 'unpaid')
+         insert into reward_pending (signature, pool, amount, recipients, last_valid_block_height, module, detail)
+         select $1, $2, $3::numeric, $4, $5, $6, $7::jsonb from ok where ok.ok
+         returning signature`,
+        [
+          ...row,
+          allocations.map((a) => a.round), allocations.map((a) => a.recipient), allocations.map((a) => a.paidTo), allocations.map((a) => Boolean(a.creates)),
+          allocations.length,
+        ],
       );
+      if (r.rowCount !== 1) throw Error("allocation rows changed; nothing sent");
     },
     // paid_at is when the transaction was sent; it lands within its blockhash's
-    // lifetime (about a minute) or not at all.
+    // lifetime (about a minute) or not at all. Its allocation rows are paid in
+    // the same statement.
     async confirm(signature) {
       await db.query(
-        `with moved as (delete from reward_pending where signature = $1 returning *)
+        `with moved as (delete from reward_pending where signature = $1 returning *),
+         settled as (update reward_allocations set status = 'paid', paid_at = now() where signature = $1 and status = 'pending')
          insert into reward_payouts (pool, signature, amount, recipients, paid_at, module, detail)
          select pool, signature, amount, recipients, sent_at, module, detail from moved
          on conflict (signature) do nothing`,
         [signature],
       );
     },
+    // Nothing moved: its allocation rows are unpaid again, still their recipients'.
     async drop(signature) {
-      await db.query("delete from reward_pending where signature = $1", [signature]);
+      await db.query(
+        `with gone as (delete from reward_pending where signature = $1)
+         update reward_allocations set status = 'unpaid', signature = null, paid_to = null, creates_account = false
+          where signature = $1 and status = 'pending'`,
+        [signature],
+      );
+    },
+    // ---- Allocation rounds (modules/payout.mjs payAllocated) ----
+    // What rounds have allocated to recipients and not paid (or sent) yet.
+    async allocatedUnpaid(pool) {
+      const row = await first("select coalesce(sum(amount), 0)::text as carried from reward_allocations where pool = $1 and status = 'unpaid'", [pool]);
+      return BigInt(row.carried);
+    },
+    async allocations(pool) {
+      const { rows } = await db.query(
+        `select round, recipient, kind, module, amount::text as atoms, weight::text as weight
+           from reward_allocations where pool = $1 and status = 'unpaid'
+          order by reward_allocations.amount desc, round, recipient`,
+        [pool],
+      );
+      return rows.map(allocationRow);
+    },
+    // One statement: the new round's number and all its rows are written together.
+    async allocate(pool, { module, shares }) {
+      const { rows } = await db.query(
+        `insert into reward_allocations (pool, round, recipient, kind, module, amount, weight)
+         select $1, (select coalesce(max(round), 0) + 1 from reward_allocations where pool = $1), t.recipient, t.kind, $2, t.amount, t.weight
+           from unnest($3::text[], $4::text[], $5::numeric[], $6::numeric[]) as t(recipient, kind, amount, weight)
+         returning round, recipient, kind, module, amount::text as atoms, weight::text as weight`,
+        [pool, module, shares.map((s) => s.recipient), shares.map((s) => s.kind), shares.map((s) => s.amount.toString()), shares.map((s) => s.weight?.toString() ?? null)],
+      );
+      return rows.map(allocationRow);
+    },
+    // Wallets whose quote account a payout of this pool created (or is creating).
+    async createdAccounts(pool) {
+      const { rows } = await db.query(
+        `select distinct coalesce(paid_to, recipient) as owner from reward_allocations
+          where pool = $1 and creates_account and status in ('pending', 'paid')`,
+        [pool],
+      );
+      return new Set(rows.map((r) => r.owner));
+    },
+    // ---- Balance snapshots (modules/diamond.mjs, modules/lp-farm.mjs) ----
+    // `at` is unix seconds; entries are [holder, amount]. One snapshot per pass.
+    async recordSnapshot(pool, kind, at, entries) {
+      await db.query(
+        `with taken as (
+           insert into balance_snapshots (pool, kind, taken_at) values ($1, $2, to_timestamp($3::bigint)) on conflict do nothing returning taken_at)
+         insert into balance_snapshot_rows (pool, kind, taken_at, holder, amount)
+         select $1, $2, taken.taken_at, t.holder, t.amount from taken, unnest($4::text[], $5::numeric[]) as t(holder, amount)`,
+        [pool, kind, at, entries.map(([h]) => h), entries.map(([, a]) => a.toString())],
+      );
+    },
+    // Drops snapshots older than keepSeconds, except the newest of those (a window's start).
+    async pruneSnapshots(pool, kind, keepSeconds, at) {
+      await db.query(
+        `delete from balance_snapshots
+          where pool = $1 and kind = $2
+            and taken_at < (select max(taken_at) from balance_snapshots where pool = $1 and kind = $2 and taken_at <= to_timestamp($3::bigint - $4::bigint))`,
+        [pool, kind, at, keepSeconds],
+      );
+    },
+    // The newest snapshot before `at`: { takenAt, amounts: Map holder → amount }, or null.
+    async previousSnapshot(pool, kind, at) {
+      const { rows } = await db.query(
+        `with s as (select taken_at from balance_snapshots where pool = $1 and kind = $2 and taken_at < to_timestamp($3::bigint) order by taken_at desc limit 1)
+         select floor(extract(epoch from s.taken_at))::bigint::text as taken, r.holder, r.amount::text as amount
+           from s left join balance_snapshot_rows r on r.pool = $1 and r.kind = $2 and r.taken_at = s.taken_at`,
+        [pool, kind, at],
+      );
+      if (!rows.length) return null;
+      return { takenAt: Number(rows[0].taken), amounts: new Map(rows.filter((r) => r.holder != null).map((r) => [r.holder, BigInt(r.amount)])) };
+    },
+    // For each window d (seconds): the least each holder held over the
+    // snapshots before `at`, from the newest one at least d old on, for
+    // holders present in every one of them. Map holder → Map(d → least).
+    async heldMinimums(pool, kind, holders, at, windows) {
+      const { rows } = await db.query(
+        `with w as (select unnest($4::bigint[]) as d),
+         spans as (
+           select w.d, s.since,
+                  (select count(*) from balance_snapshots x where x.pool = $1 and x.kind = $2 and x.taken_at >= s.since and x.taken_at < to_timestamp($3::bigint)) as snaps
+             from w cross join lateral (
+               select max(taken_at) as since from balance_snapshots x where x.pool = $1 and x.kind = $2 and x.taken_at <= to_timestamp($3::bigint - w.d)) s
+            where s.since is not null)
+         select spans.d::text as d, b.holder, min(b.amount)::text as low
+           from spans join balance_snapshot_rows b
+             on b.pool = $1 and b.kind = $2 and b.taken_at >= spans.since and b.taken_at < to_timestamp($3::bigint) and b.holder = any($5::text[])
+          group by spans.d, spans.snaps, b.holder
+         having count(*) = spans.snaps`,
+        [pool, kind, at, windows, holders],
+      );
+      const out = new Map();
+      for (const r of rows) (out.get(r.holder) ?? out.set(r.holder, new Map()).get(r.holder)).set(Number(r.d), BigInt(r.low));
+      return out;
+    },
+    // ---- LP position NFT holders (modules/lp-farm.mjs) ----
+    async nftHolders(mints) {
+      const { rows } = await db.query(
+        "select nft_mint, account, owner, floor(extract(epoch from checked_at))::bigint::text as checked from lp_nft_holders where nft_mint = any($1::text[])",
+        [mints],
+      );
+      return new Map(rows.map((r) => [r.nft_mint, { account: r.account, owner: r.owner, checkedAt: Number(r.checked) }]));
+    },
+    async saveNftHolder(mint, { account, owner }) {
+      await db.query(
+        `insert into lp_nft_holders (nft_mint, account, owner, checked_at) values ($1, $2, $3, now())
+         on conflict (nft_mint) do update set account = excluded.account, owner = excluded.owner, checked_at = excluded.checked_at`,
+        [mint, account, owner],
+      );
     },
     // ---- Fee modules ----
     async feeModels(pools) {
@@ -291,20 +443,10 @@ export function pgLedger(db) {
       const withdrawn = r.withdrawn == null ? null : BigInt(r.withdrawn);
       return { withdrawn, amount: withdrawn == null ? 0n : withdrawn - BigInt(r.sent), unknown: withdrawn == null && r.withdraw_signature != null };
     },
-    // Each trader's first indexed buy and last indexed sell on the pool, unix seconds.
-    async tenure(pool, traders) {
-      const { rows } = await db.query(
-        `select trader,
-                floor(extract(epoch from min(block_time) filter (where side = 'buy')))::bigint::text as first_buy,
-                floor(extract(epoch from max(block_time) filter (where side = 'sell')))::bigint::text as last_sell
-           from trades where pool = $1 and trader = any($2::text[]) group by trader`,
-        [pool, traders],
-      );
-      const n = (v) => (v == null ? null : Number(v));
-      return new Map(rows.map((r) => [r.trader, { firstBuy: n(r.first_buy), lastSell: n(r.last_sell) }]));
-    },
   };
 }
+
+const allocationRow = (r) => ({ round: r.round, recipient: r.recipient, kind: r.kind, module: r.module, amount: BigInt(r.atoms), weight: big(r.weight) });
 
 /** Settles transactions left pending by an earlier pass (crashed, killed or timed out). */
 export async function resolvePending({ ledger, connection, rpc, log }) {
@@ -337,32 +479,10 @@ export async function resolvePending({ ledger, connection, rpc, log }) {
   }
 }
 
-/**
- * "holders": owed pro rata to the base token's holders (see selectHolders),
- * each to an existing quote account. lpFarm uses it on the curve; diamond
- * passes `weigh` to scale each holder's balance before the shares are taken.
- */
-async function payHolders(ctx, { module = DEFAULT_FEE_MODEL, detail = null, weigh = null } = {}) {
-  const { m, owed, get, rpc, connection, authority, result } = ctx;
-  result.holders = 0;
-  result.payable = 0;
-  if (!m.baseVault) throw Error("DBC pool not verified this pass; base vault unknown");
-  const supply = unpackMint(m.baseMint, get(m.baseMint), TOKEN_PROGRAM_ID).supply;
-  const listed = await rpc(() =>
-    connection.getProgramAccounts(TOKEN_PROGRAM_ID, {
-      commitment: "confirmed",
-      filters: [{ dataSize: TOKEN_ACCOUNT_SIZE }, { memcmp: { offset: 0, bytes: m.baseMint.toBase58() } }],
-    }),
-  );
-  const holders = selectHolders(listed, { mint: m.baseMint, supply, excludedAccounts: [m.baseVault, m.treasuryBase], excludedOwners: [authority.publicKey] });
-  result.holders = holders.length;
-  const weighted = weigh ? await weigh(holders) : holders;
-  const detailOf = () => (typeof detail === "function" ? detail() : detail);
-  await payShares(ctx, rewardShares(weighted, owed), { module, detailOf, emptyNote: "no payable holders" });
-  return {};
-}
-
 const MODULES = { holders: payHolders, buyback: runBuyback, topBuyers: runTopBuyers, lpFarm: runLpFarm, split: runSplit, diamond: runDiamond };
+// Modules that keep a per-pass record (balance snapshots) even on a pass that
+// does not pay the market, so their history has no gaps.
+const OBSERVERS = { diamond: observeDiamond, lpFarm: observeLpFarm };
 
 /**
  * Pays every reward market what it is owed, by its fee module. `markets` are
@@ -372,6 +492,10 @@ const MODULES = { holders: payHolders, buyback: runBuyback, topBuyers: runTopBuy
  * account. `excluded` are addresses no module ever pays (the Vault; the crank
  * key and the Vault admin are added here). Per-market failures are logged and
  * counted, never thrown. Returns the counts.
+ *
+ * A module's ctx.owed is what no allocation round holds yet (owed less the
+ * rounds' unpaid rows, ctx.owedTotal less ctx.carried), so no module can spend
+ * an amount already allocated to someone.
  */
 export async function payRewards({
   markets,
@@ -437,7 +561,11 @@ export async function payRewards({
         throw Error("not a reward market of this crank key");
       const { totalDistributed } = readTreasury(get(m.treasury), m);
       const paid = await ledger.paid(pool);
-      rows.push({ m, line: { ...line, distributed: totalDistributed, paid }, owed: owedAtoms(totalDistributed, paid) });
+      const owed = owedAtoms(totalDistributed, paid);
+      // A ledger without allocation rounds holds none (modules that need them then fail, paying nobody).
+      const carried = ledger.allocatedUnpaid ? await ledger.allocatedUnpaid(pool) : 0n;
+      if (carried > owed) throw Error(`ledger holds ${carried} allocated but unpaid, more than the ${owed} owed`);
+      rows.push({ m, line: { ...line, distributed: totalDistributed, paid }, owed, carried });
     } catch (e) {
       out.failed++;
       log("rewards", { ...line, action: "fail", reason: errText(e) });
@@ -465,12 +593,33 @@ export async function payRewards({
   }
 
   for (const r of rows) {
-    const { m, owed } = r;
+    const { m, owed, carried } = r;
     const fund = funds.get(m.quoteMint.toBase58());
-    const line = { ...r.line, owed };
+    const line = { ...r.line, owed, ...(carried ? { carried } : {}) };
+    const model = models.get(line.pool);
+    const result = { paid: 0n, recipients: 0, txs: 0, simulated: 0, skipped: {} };
+    const fields = {};
+    const ctx = {
+      m, owed: owed - carried, owedTotal: owed, carried, minAtoms, fund, line, model, result, fields, authority, connection, rpc, simulate, blockhash, ledger, get, fetchAll,
+      feePayer: feePayerOf(m), dryRun, deadline, pollMs, log, now,
+      excludedOwners: [crank, VAULT_ADMIN, m.platformOwner, ...excluded].filter(Boolean),
+    };
+    ctx.payShares = (shares, opts) => payShares(ctx, shares, opts);
+    ctx.payHolders = (opts) => payHolders(ctx, opts);
+    // A market not paid this pass still gets its snapshot (diamond, lpFarm).
+    const observe = async () => {
+      const run = model && !model.error && !dryRun && OBSERVERS[model.feeModel];
+      if (!run || Date.now() > deadline) return undefined;
+      try {
+        await run(ctx);
+        return undefined;
+      } catch (e) {
+        return `snapshot failed: ${errText(e)}`;
+      }
+    };
     if (owed === 0n || owed < minAtoms) {
       out.skipped++;
-      log("rewards", { ...line, action: "skip", reason: `owed below ${minAtoms}` });
+      log("rewards", { ...line, action: "skip", reason: `owed below ${minAtoms}`, note: await observe() });
       continue;
     }
     if (fund.error || fund.balance < fund.owed) {
@@ -479,6 +628,7 @@ export async function payRewards({
         ...line,
         action: "fail",
         reason: fund.error ?? `crank quote balance ${fund.balance} is below the ${fund.owed} owed to this quote token's reward markets; nothing paid`,
+        note: await observe(),
       });
       continue;
     }
@@ -487,21 +637,11 @@ export async function payRewards({
       log("rewards", { ...line, action: "skip", reason: "pass time budget used; next pass" });
       continue;
     }
-    const model = models.get(line.pool);
     if (!model || model.error) {
       out.skipped++;
       log("rewards", { ...line, action: "skip", reason: `fee model not read (${model?.error ?? modelError ?? "unknown"}); read again next pass, funds stay owed` });
       continue;
     }
-    const result = { paid: 0n, recipients: 0, txs: 0, simulated: 0, skipped: {} };
-    const fields = {};
-    const ctx = {
-      m, owed, fund, line, model, result, fields, authority, connection, rpc, simulate, blockhash, ledger, get, fetchAll,
-      feePayer: feePayerOf(m), dryRun, deadline, pollMs, log, now,
-      excludedOwners: [crank, VAULT_ADMIN, m.platformOwner, ...excluded].filter(Boolean),
-    };
-    ctx.payShares = (shares, opts) => payShares(ctx, shares, opts);
-    ctx.payHolders = (opts) => payHolders(ctx, opts);
     let error = null, outcome = {};
     try {
       outcome = (await MODULES[model.feeModel](ctx)) ?? {};

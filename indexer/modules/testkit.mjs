@@ -495,3 +495,148 @@ export async function moduleContext({ chain, m, authority, owed, ledger = memLed
 }
 
 export { BN };
+
+// ---- Allocation rounds, balance snapshots, the LP NFT cache ------------------
+
+/**
+ * Adds pgLedger's allocation rounds (reward_allocations), balance snapshots
+ * and LP position-NFT cache to an in-memory ledger (memLedger by default),
+ * behaving as pgLedger does: begin marks a transaction's allocation rows
+ * pending in the same step (or throws and writes nothing), confirm pays them,
+ * drop makes them unpaid again. Returns the same ledger, with every row in
+ * `allocationRows` and the snapshots in `snapshots`. Adding them twice is a no-op.
+ */
+export function payoutLedger(ledger = memLedger()) {
+  if (ledger.allocationRows) return ledger;
+  const rows = [], snapshots = new Map(), nfts = new Map();
+  let checks = 0;
+  const base = { begin: ledger.begin, confirm: ledger.confirm, drop: ledger.drop };
+  const unpaid = (pool) => rows.filter((r) => r.pool === pool && r.status === "unpaid");
+  const view = (r) => ({ round: r.round, recipient: r.recipient, kind: r.kind, module: r.module, amount: r.amount, weight: r.weight });
+  const series = (pool, kind) => snapshots.get(`${pool}|${kind}`) ?? snapshots.set(`${pool}|${kind}`, new Map()).get(`${pool}|${kind}`);
+  const byAmount = (a, b) => (a.amount === b.amount ? a.round - b.round || (a.recipient < b.recipient ? -1 : 1) : a.amount > b.amount ? -1 : 1);
+  return Object.assign(ledger, {
+    allocationRows: rows,
+    snapshots,
+    nftCache: nfts,
+    allocatedUnpaid: async (pool) => unpaid(pool).reduce((s, r) => s + r.amount, 0n),
+    allocations: async (pool) => unpaid(pool).sort(byAmount).map(view),
+    allocate: async (pool, { module, shares }) => {
+      const round = rows.filter((r) => r.pool === pool).reduce((n, r) => Math.max(n, r.round), 0) + 1;
+      const added = shares.map((s) => ({ pool, round, module, ...s, status: "unpaid", signature: null, paidTo: null, createsAccount: false }));
+      if (new Set(added.map((r) => r.recipient)).size !== added.length || added.some((r) => r.amount <= 0n)) throw Error("bad allocation round");
+      rows.push(...added);
+      return added.map(view);
+    },
+    createdAccounts: async (pool) =>
+      new Set(rows.filter((r) => r.pool === pool && r.createsAccount && r.status !== "unpaid").map((r) => r.paidTo ?? r.recipient)),
+    begin: async (row) => {
+      const { allocations, ...rest } = row;
+      if (allocations?.length) {
+        const found = allocations.map((a) => rows.find((r) => r.pool === row.pool && r.round === a.round && r.recipient === a.recipient && r.status === "unpaid"));
+        if (found.some((r) => !r) || found.reduce((s, r) => s + r.amount, 0n) !== row.amount) throw Error("allocation rows changed; nothing sent");
+        found.forEach((r, i) => Object.assign(r, { status: "pending", signature: row.signature, paidTo: allocations[i].paidTo, createsAccount: Boolean(allocations[i].creates) }));
+      }
+      return base.begin(rest);
+    },
+    confirm: async (signature) => {
+      await base.confirm(signature);
+      for (const r of rows) if (r.signature === signature && r.status === "pending") r.status = "paid";
+    },
+    drop: async (signature) => {
+      await base.drop(signature);
+      for (const r of rows)
+        if (r.signature === signature && r.status === "pending") Object.assign(r, { status: "unpaid", signature: null, paidTo: null, createsAccount: false });
+    },
+    recordSnapshot: async (pool, kind, at, entries) => {
+      const s = series(pool, kind);
+      if (!s.has(at)) s.set(at, new Map(entries.map(([h, a]) => [h, BigInt(a)])));
+    },
+    pruneSnapshots: async (pool, kind, keep, at) => {
+      const s = series(pool, kind);
+      const old = [...s.keys()].filter((t) => t <= at - keep);
+      if (old.length) for (const t of [...s.keys()]) if (t < Math.max(...old)) s.delete(t);
+    },
+    previousSnapshot: async (pool, kind, at) => {
+      const s = series(pool, kind);
+      const before = [...s.keys()].filter((t) => t < at);
+      if (!before.length) return null;
+      const t = Math.max(...before);
+      return { takenAt: t, amounts: new Map(s.get(t)) };
+    },
+    heldMinimums: async (pool, kind, holders, at, windows) => {
+      const s = series(pool, kind);
+      const out = new Map();
+      for (const d of windows) {
+        const old = [...s.keys()].filter((t) => t <= at - d);
+        if (!old.length) continue;
+        const since = Math.max(...old);
+        const span = [...s.keys()].filter((t) => t >= since && t < at);
+        for (const h of holders) {
+          if (!span.every((t) => s.get(t).has(h))) continue;
+          const low = span.map((t) => s.get(t).get(h)).reduce((a, b) => (b < a ? b : a));
+          (out.get(h) ?? out.set(h, new Map()).get(h)).set(d, low);
+        }
+      }
+      return out;
+    },
+    nftHolders: async (mints) => new Map(mints.filter((k) => nfts.has(k)).map((k) => [k, { ...nfts.get(k) }])),
+    saveNftHolder: async (mint, { account, owner }) => void nfts.set(mint, { account, owner, checkedAt: ++checks }),
+  });
+}
+
+/**
+ * A module context for one pass over `m`, as payRewards builds it: owedTotal
+ * is `distributed` less what `ledger` has paid (pending included), ctx.owed
+ * that less what allocation rounds hold unpaid, with the real holders module
+ * (payHolders) and ctx.minAtoms (default 1). Other options as moduleContext.
+ */
+export async function passContext({ chain, m, authority, distributed, ledger, minAtoms = 1n, ...rest }) {
+  const { payHolders } = await import("./holders.mjs");
+  const pool = m.pool.toBase58();
+  const owedTotal = BigInt(distributed) - (await ledger.paid(pool));
+  const carried = await ledger.allocatedUnpaid(pool);
+  const ctx = await moduleContext({ chain, m, authority, owed: owedTotal - carried, ledger, ...rest });
+  Object.assign(ctx, { owedTotal, carried, minAtoms, fund: { balance: chain.balance(m.payoutQuote) ?? 0n, owed: owedTotal } });
+  ctx.line.owed = owedTotal;
+  ctx.payHolders = (opts) => payHolders(ctx, opts);
+  return ctx;
+}
+
+/** A classic SPL token account of the market's base token, held by `owner` (a holder). */
+export function holdBase(chain, m, owner, amount, address = key()) {
+  chain.put(address, tokenAccount({ owner, mint: m.baseMint, amount, program: TOKEN_PROGRAM_ID }));
+  return address;
+}
+
+/** Gives `owner` an empty Token-2022 quote account (its associated one) for the market's quote mint. */
+export function quoteAccount(chain, m, owner, over = {}) {
+  const address = getAssociatedTokenAddressSync(m.quoteMint, owner, false, TOKEN_2022_PROGRAM_ID);
+  chain.put(address, tokenAccount({ owner, mint: m.quoteMint, ...over }));
+  return address;
+}
+
+/**
+ * One payRewards call over `markets` on `chain`, as the crank makes it:
+ * treasury totals from `distributed` (atoms, or a Map pool → atoms), fee
+ * models from `ledger` (set ledger.models first), `now` for the modules.
+ * Returns { out, lines }.
+ */
+export async function rewardsPass({ chain, markets, authority, ledger, distributed, minAtoms = 1n, now = Date.now, dryRun = false, deadline = Infinity, excluded = [] }) {
+  const { payRewards } = await import("../rewards.mjs");
+  const lines = [];
+  const simulate = async (steps, payer) => {
+    const tx = new Transaction().add(...steps.map((s) => s.ix));
+    tx.feePayer = payer;
+    tx.recentBlockhash = PublicKey.default.toBase58();
+    return (await chain.connection.simulateTransaction(new VersionedTransaction(tx.compileMessage()), {})).value;
+  };
+  const totalOf = (m) => BigInt(distributed instanceof Map ? distributed.get(m.pool.toBase58()) : distributed);
+  const out = await payRewards({
+    markets, authority, connection: chain.connection, rpc: (fn) => fn(), simulate, blockhash: chain.blockhash, ledger,
+    readTreasury: (_, m) => ({ totalDistributed: totalOf(m) }),
+    minAtoms, dryRun, deadline, pollMs: 0, now, excluded, log: (tag, f) => lines.push({ tag, ...f }),
+    fetchImpl: async () => new Response("not found", { status: 404 }),
+  });
+  return { out, lines };
+}

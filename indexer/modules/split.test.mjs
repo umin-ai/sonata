@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Keypair, SystemProgram } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { CRANK_KEY, SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, ExtensionType, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { CRANK_KEY, DBC_PROGRAM, KNOWN_PROGRAMS, SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
 import { MAX_TX_BYTES } from "./payout.mjs";
-import { runSplit, splitRecipients, splitShares, validateSplit } from "./split.mjs";
-import { fakeChain, key, memLedger, moduleContext, pda, rewardMarket, tokenAccount } from "./testkit.mjs";
+import { SPLIT_BLOCKED_KEYS, runSplit, splitRecipients, splitShares, validateSplit } from "./split.mjs";
+import * as rules from "../../lib/split-rules.mjs";
+import { fakeChain, key, memLedger, moduleContext, passContext, payoutLedger, pda, quoteAccount, rewardMarket, tokenAccount } from "./testkit.mjs";
 
 const entry = (weight = 1, wallet = key()) => ({ wallet: wallet.toBase58(), weight });
 
@@ -81,9 +82,15 @@ async function splitMarket({ split, owed = 1_000_000n, accountsFor = [] }) {
   const chain = fakeChain();
   const m = rewardMarket(chain, authority.publicKey, { owed });
   for (const w of accountsFor) chain.put(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID), tokenAccount({ owner: w, mint: m.quoteMint }));
-  const ledger = memLedger();
+  const ledger = payoutLedger(memLedger());
   const ctx = await moduleContext({ chain, m, authority, owed, ledger, model: { feeModel: "split", config: { split } } });
-  return { authority, chain, m, ledger, ctx };
+  // Later passes: the treasury has distributed `distributed` in total.
+  const pass = async (distributed) => {
+    const c = await passContext({ chain, m, authority, distributed, ledger, model: { feeModel: "split", config: { split } } });
+    await runSplit(c);
+    return c;
+  };
+  return { authority, chain, m, ledger, ctx, pass };
 }
 const quoteOf = (chain, m, w) => chain.balance(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID));
 
@@ -129,4 +136,87 @@ test("the API lists the split's wallets with what each has been paid", () => {
   });
   assert.deepEqual(splitRecipients({ split: [entry(0)] }, new Map()).recipients, []);
   assert.match(splitRecipients(null, new Map()).splitError, /not a list/);
+});
+
+test("the split rules are one set, shared with the app: Sonata's keys and every known program are blocked", () => {
+  assert.equal(SPLIT_BLOCKED_KEYS, rules.SPLIT_BLOCKED_KEYS);
+  assert.equal(validateSplit, rules.validateSplit);
+  assert.ok(Object.isFrozen(SPLIT_BLOCKED_KEYS));
+  const expected = [CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, ...KNOWN_PROGRAMS].map((k) => k.toBase58());
+  assert.deepEqual([...SPLIT_BLOCKED_KEYS].sort(), [...new Set(expected)].sort());
+  assert.ok(SPLIT_BLOCKED_KEYS.every((k) => typeof k === "string"));
+  // Every one is refused as a wallet, on curve or not.
+  for (const k of SPLIT_BLOCKED_KEYS) assert.equal(validateSplit([{ wallet: k, weight: 1 }]).ok, false, k);
+  // The API lists only what the bot would pay: a program id makes the split invalid there too.
+  const r = splitRecipients({ split: [entry(50), { wallet: DBC_PROGRAM.toBase58(), weight: 50 }] }, new Map());
+  assert.deepEqual(r.recipients, []);
+  assert.match(r.splitError, /Sonata or program/);
+  // And the keys the bot adds at run time (the key it runs with, the admin it reads).
+  const runtime = key();
+  assert.match(splitRecipients({ split: [entry(1, runtime)] }, new Map(), { excluded: [runtime] }).splitError, /Sonata or program/);
+});
+
+const memoAccount = (m, owner, on) =>
+  tokenAccount({ owner, mint: m.quoteMint, extensions: [[ExtensionType.ImmutableOwner], [ExtensionType.MemoTransfer, Buffer.from([on ? 1 : 0])]] });
+
+test("a wallet that cannot receive keeps its share until it can; the others are never paid it", async () => {
+  const [a, b] = [key(), key()];
+  const { chain, m, ledger, pass } = await splitMarket({ split: [entry(50, a), entry(50, b)], accountsFor: [a] });
+  // b's account requires memos: it cannot receive a plain transfer.
+  const bAta = getAssociatedTokenAddressSync(m.quoteMint, b, false, TOKEN_2022_PROGRAM_ID);
+  chain.put(bAta, memoAccount(m, b, true));
+  const first = await pass(100_000n);
+  assert.equal(first.result.skipped.memo, 1);
+  assert.deepEqual([a, b].map((w) => quoteOf(chain, m, w)), [50_000n, 0n]);
+  // New fees: a gets its half of them only; b's first half stays b's.
+  await pass(200_000n);
+  assert.deepEqual([a, b].map((w) => quoteOf(chain, m, w)), [100_000n, 0n]);
+  assert.equal(await ledger.allocatedUnpaid(m.pool.toBase58()), 100_000n);
+  // b turns memos off: it is paid both its halves, in one transfer.
+  chain.put(bAta, memoAccount(m, b, false));
+  const third = await pass(200_000n);
+  assert.deepEqual([a, b].map((w) => quoteOf(chain, m, w)), [100_000n, 100_000n]);
+  assert.equal(third.result.recipients, 1);
+  assert.deepEqual(ledger.payouts.at(-1).detail.recipients.map((r) => [r.wallet.toBase58(), r.weight, r.amount]), [[b.toBase58(), 50, 100_000n]]);
+});
+
+test("the crank creates a wallet's quote account at most once per market; after it is closed the share waits", async () => {
+  const [w1, w2] = [key(), key()];
+  const { chain, m, ledger, pass } = await splitMarket({ split: [entry(50, w1), entry(50, w2)], accountsFor: [w2] });
+  const creates = (s) => s.tx.instructions.filter((ix) => ix.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).length;
+  await pass(100_000n);
+  assert.deepEqual(chain.sent.map(creates), [1]);
+  assert.deepEqual([w1, w2].map((w) => quoteOf(chain, m, w)), [50_000n, 50_000n]);
+  // w1 empties and closes it (its rent back); every later pass would pay for a new one.
+  const w1Ata = getAssociatedTokenAddressSync(m.quoteMint, w1, false, TOKEN_2022_PROGRAM_ID);
+  chain.accounts.delete(w1Ata.toBase58());
+  const second = await pass(200_000n);
+  const third = await pass(300_000n);
+  assert.deepEqual(chain.sent.map(creates), [1, 0, 0]);
+  assert.equal(second.result.skipped.closed, 1);
+  assert.equal(third.result.skipped.closed, 1);
+  assert.equal(quoteOf(chain, m, w2), 150_000n);
+  assert.equal(await ledger.allocatedUnpaid(m.pool.toBase58()), 100_000n);
+  // w1 opens it again (at its own cost): it is paid everything held for it.
+  quoteAccount(chain, m, w1);
+  await pass(300_000n);
+  assert.deepEqual([w1, w2].map((w) => quoteOf(chain, m, w)), [100_000n, 150_000n]);
+  assert.equal(chain.sent.map(creates).reduce((s, n) => s + n, 0), 1);
+});
+
+test("an account creation that never landed is not remembered: the next pass creates it", async () => {
+  const w = key();
+  const { chain, m, ledger, pass } = await splitMarket({ split: [entry(1, w)] });
+  chain.lost.add(0);
+  await assert.rejects(pass(100_000n), /not confirmed yet/);
+  // Still pending: counted as paid, the account not yet known to exist.
+  assert.equal(await ledger.paid(m.pool.toBase58()), 100_000n);
+  // Its blockhash expires; the pending row is dropped and its allocation is unpaid again.
+  chain.setHeight(10_000);
+  const { resolvePending } = await import("../rewards.mjs");
+  await resolvePending({ ledger, connection: chain.connection, rpc: (fn) => fn(), log: () => {} });
+  assert.deepEqual([...(await ledger.createdAccounts(m.pool.toBase58()))], []);
+  await pass(100_000n);
+  assert.equal(quoteOf(chain, m, w), 100_000n);
+  assert.deepEqual(ledger.allocationRows.map((r) => [r.status, r.createsAccount]), [["paid", true]]);
 });

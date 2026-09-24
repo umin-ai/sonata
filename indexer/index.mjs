@@ -137,6 +137,7 @@ async function migrate() {
       found_at timestamptz not null default now()
     );
   `);
+  await (await import("./modules/ledger-schema.mjs")).migrateLedgerTables(db);
 }
 
 // Markets are the pools that have a Sonata treasury.

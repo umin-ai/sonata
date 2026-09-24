@@ -309,6 +309,41 @@ test("the ledger counts pending payouts as paid and moves them on confirmation",
   assert.deepEqual(JSON.parse(queries.at(-1).args[6]), { roundEnd: 60, winners: [{ trader: winner.toBase58(), amount: "7" }] });
   await ledger.confirm("s2");
   assert.match(queries.at(-1).sql, /delete from reward_pending where signature = \$1 returning \*.*insert into reward_payouts .*module, detail\) select .*module, detail from moved on conflict \(signature\) do nothing/);
+  // Its allocation rows are paid in the same statement; a drop makes them unpaid again, also in one.
+  assert.match(queries.at(-1).sql, /update reward_allocations set status = 'paid'.* where signature = \$1 and status = 'pending'/);
   await ledger.drop("s2");
-  assert.equal(queries.at(-1).sql, "delete from reward_pending where signature = $1");
+  assert.match(queries.at(-1).sql, /^with gone as \(delete from reward_pending where signature = \$1\) update reward_allocations set status = 'unpaid', signature = null.* where signature = \$1 and status = 'pending'$/);
+  assert.deepEqual(queries.at(-1).args, ["s2"]);
+});
+
+test("the ledger marks a payout's allocation rows pending in the statement that records it, or records nothing", async () => {
+  const queries = [];
+  let inserted = 1;
+  const db = {
+    query: async (sql, args) => {
+      queries.push({ sql: sql.replace(/\s+/g, " ").trim(), args });
+      if (/to_regclass/.test(sql)) return { rows: [{ ok: true }] };
+      if (/insert into reward_pending/.test(sql)) return { rows: [], rowCount: inserted };
+      return { rows: [] };
+    },
+  };
+  const ledger = pgLedger(db);
+  // Every table the crank uses must exist.
+  await ledger.ready();
+  for (const t of ["reward_allocations", "balance_snapshots", "balance_snapshot_rows", "lp_nft_holders", "airdrop_payouts"])
+    assert.match(queries[0].sql, new RegExp(`to_regclass\\('${t}'\\) is not null`));
+  const allocations = [{ round: 3, recipient: "w1", paidTo: "w1", creates: true }, { round: 4, recipient: "w1", paidTo: "w1" }];
+  await ledger.begin({ signature: "s", pool: "p", amount: 15n, recipients: 1, lastValidBlockHeight: 9, module: "split", allocations });
+  const { sql, args } = queries.at(-1);
+  assert.match(sql, /^with want as .* locked as \( ?select a\.amount from reward_allocations a join want w .* where a\.pool = \$2 and a\.status = 'unpaid' for update of a\), ok as \(select count\(\*\) = \$12::bigint and coalesce\(sum\(amount\), 0\) = \$3::numeric as ok from locked\)/);
+  assert.match(sql, /marked as \( ?update reward_allocations a set status = 'pending', signature = \$1, .* where ok\.ok and .* a\.status = 'unpaid'\) insert into reward_pending /);
+  assert.match(sql, / from ok where ok\.ok returning signature$/);
+  assert.deepEqual(args, ["s", "p", "15", 1, 9, "split", null, [3, 4], ["w1", "w1"], ["w1", "w1"], [true, false], 2]);
+  // Rows already pending or paid, or an amount that does not match: nothing is written, nothing sent.
+  inserted = 0;
+  await assert.rejects(ledger.begin({ signature: "s", pool: "p", amount: 15n, recipients: 1, lastValidBlockHeight: 9, allocations }), /allocation rows changed; nothing sent/);
+  // A new round takes its number and writes all its rows in one statement.
+  await ledger.allocate("p", { module: "holders", shares: [{ recipient: "w1", kind: "wallet", amount: 5n, weight: 2n }, { recipient: "pos", kind: "position", amount: 7n, weight: null }] });
+  assert.match(queries.at(-1).sql, /^insert into reward_allocations .* select \$1, \(select coalesce\(max\(round\), 0\) \+ 1 from reward_allocations where pool = \$1\), .* from unnest/);
+  assert.deepEqual(queries.at(-1).args, ["p", "holders", ["w1", "pos"], ["wallet", "position"], ["5", "7"], ["2", null]]);
 });
