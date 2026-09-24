@@ -271,6 +271,9 @@
 .sr-app .swap-box-top{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted-foreground)}
 .sr-app .swap-box-main{display:flex;align-items:center;gap:8px;min-width:0}
 .sr-app .swap-box-main input,.sr-app .swap-box-main output{flex:1;min-width:0;padding:2px 0;border:0;outline:0;background:transparent;color:var(--foreground);font-size:22px;font-weight:650;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The amount field is part of its box: no ring or fill of its own; the box shows focus. */
+.sr-app .swap-box-main input,.sr-app .swap-box-main input:focus,.sr-app .swap-box-main input:focus-visible{min-height:0;height:auto;border:0;border-radius:0;outline:none!important;box-shadow:none!important;background:transparent}
+.sr-app .swap-box:focus-within{border-color:var(--primary)}
 .sr-app .swap-token{display:inline-flex;align-items:center;flex-shrink:0;padding:3px 10px 3px 4px;border:1px solid var(--border);border-radius:999px;font-size:14px;font-weight:650;white-space:nowrap}
 .sr-app .swap-token .sr-token-name{gap:6px}
 .sr-app .swap-usd{min-height:16px;font-size:12px;color:var(--muted-foreground)}
