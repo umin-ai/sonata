@@ -61,15 +61,33 @@ echo "INDEXER_URL=http://127.0.0.1:8790/api/index" >> $APP_DIR/dist/server/.dev.
 install -o sonata -g sonata -m 600 /dev/null $HOME_DIR/indexer.env
 echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" > $HOME_DIR/indexer.env
 
+# Creator payout crank: its own fee-payer key, generated here once and never
+# printed. It can only pay network fees, so it needs a little Devnet SOL.
+CRANK_KEY=$HOME_DIR/crank-keypair.json
+if [ ! -f $CRANK_KEY ]; then
+  CRANK_PUBKEY=$(cd $APP_DIR && sudo -u sonata env CRANK_KEY=$CRANK_KEY node -e '
+    const { Keypair } = require("@solana/web3.js");
+    const key = Keypair.generate();
+    require("node:fs").writeFileSync(process.env.CRANK_KEY, JSON.stringify(Array.from(key.secretKey)), { mode: 0o600, flag: "wx" });
+    console.log(key.publicKey.toBase58());')
+  echo "Created the payout crank key. Public key: $CRANK_PUBKEY"
+  echo "Fund it with a little Devnet SOL (about 0.5 SOL, e.g. from https://faucet.solana.com) so it can pay transaction fees."
+fi
+chown sonata:sonata $CRANK_KEY && chmod 600 $CRANK_KEY
+
 sed "s/__HOST__/$HOST/g" "$HERE/sonata.service" > /etc/systemd/system/sonata.service
 install -m 644 "$HERE/sonata-indexer.service" /etc/systemd/system/sonata-indexer.service
+install -m 644 "$HERE/sonata-crank.service" /etc/systemd/system/sonata-crank.service
+install -m 644 "$HERE/sonata-crank.timer" /etc/systemd/system/sonata-crank.timer
 sed "s/__HOST__/$HOST/g" "$HERE/Caddyfile" > /etc/caddy/Caddyfile
 if [ -n "$ALIASES" ]; then
   printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "${ALIASES// /, }" "$HOST" >> /etc/caddy/Caddyfile
 fi
 systemctl daemon-reload
-systemctl enable sonata sonata-indexer >/dev/null 2>&1
+systemctl enable sonata sonata-indexer sonata-crank.timer >/dev/null 2>&1
 systemctl restart sonata sonata-indexer
+# The crank is started by its timer, never enabled on its own.
+systemctl restart sonata-crank.timer
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
 echo "Deployed $(sudo -u sonata git -C $APP_DIR rev-parse --short HEAD) to https://$HOST"

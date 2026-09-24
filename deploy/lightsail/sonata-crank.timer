@@ -1,0 +1,14 @@
+# Runs sonata-crank.service 2 minutes after boot, then every 15 minutes.
+[Unit]
+Description=Sonata creator payout crank every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+# systemd applies Persistent= only to OnCalendar= timers; OnBootSec= covers
+# runs missed while the instance was down.
+Persistent=true
+Unit=sonata-crank.service
+
+[Install]
+WantedBy=timers.target

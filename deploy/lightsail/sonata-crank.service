@@ -1,0 +1,33 @@
+# Sonata creator payout crank: one pass of permissionless claim + distribute
+# over every Sonata market on Solana Devnet, then exit. Started every 15 minutes
+# by sonata-crank.timer. Its key only pays network fees (and rent for a missing
+# payout token account); every destination is pinned onchain.
+[Unit]
+Description=Sonata creator payout crank (Solana Devnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sonata
+Group=sonata
+WorkingDirectory=/opt/sonata/app
+Environment=CRANK_KEYPAIR=/opt/sonata/crank-keypair.json
+# Optional overrides: SOLANA_RPC_URL, CRANK_MIN_ATOMS, CRANK_DRY_RUN=1.
+EnvironmentFile=-/opt/sonata/crank.env
+ExecStart=/usr/bin/node indexer/crank.mjs
+# A stuck pass must end so the timer can start the next one.
+TimeoutStartSec=10min
+NoNewPrivileges=true
+# The crank writes nothing to disk, so no ReadWritePaths are needed.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
