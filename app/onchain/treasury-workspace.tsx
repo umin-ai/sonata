@@ -1,6 +1,6 @@
 "use client";
 import { MeteoraLabel } from "@/app/protocol-identity";
-import { TokenName, TokenPair } from "@/app/token-identity";
+import { TokenName } from "@/app/token-identity";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import Link from "@/app/plain-link";
 import { Button } from "@/components/ui/button";
@@ -329,8 +329,8 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       {view === "trade" && <div className="terminal-trade-layout">
       {/* As on other launchpads: the chart, the market's details and its trades on the left; the swap on the right, kept in view. */}
       <div className="terminal-trade-main">
-        <Card className="sr-panel terminal-chart-card"><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /></Card>
-        <Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+        {/* One card: the chart, then the curve's details (the pair is already in the page header). */}
+        <Card className="sr-panel terminal-chart-card terminal-market-overview"><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {data?.migrated && (
         <Card className="sr-panel">
           <div className="sr-section-top">

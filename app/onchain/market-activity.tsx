@@ -124,7 +124,6 @@ export function PriceChart({ pool, quote, revision = 0, supply }: { pool: string
           </ComposedChart>
         </ChartContainer>
       )}
-      <p className="sr-note">From indexed Devnet trades on this market&apos;s bonding curve. Display only.</p>
     </div>
   );
 }
