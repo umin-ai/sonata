@@ -8,6 +8,63 @@ declare_id!("GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj");
 
 pub const VAULT_SEED: &[u8] = b"stockroom";
 pub const TREASURY_SEED: &[u8] = b"treasury";
+/// Sonata's payout bot: the one leftover receiver besides the Vault (a graduation
+/// airdrop's held-back supply goes to it, and it airdrops that supply to holders).
+pub const PAYOUT_BOT: Pubkey = pubkey!("Fb83XLPdUM11FrUUBNaB1JXJ2feJacNkcPGUzP8dtGz");
+/// The highest trading fee a Sonata launch offers: 3% of Meteora's 1e9 denominator.
+pub const MAX_BASE_FEE_NUMERATOR: u64 = 30_000_000;
+
+/// Sonata's standard launch settings (cash-access lib/treasury/dbc-preview.ts). A
+/// config built outside Sonata's launch page registers only if it matches, so no
+/// Sonata market can have liquidity its creator can pull after graduation, a token
+/// that can still be minted or changed, tokens vesting to anyone, a separate
+/// creator fee, a fee at graduation, or a fee that can climb against traders.
+/// The app applies the same rules (lib/treasury/standard.ts).
+pub fn check_standard_config(
+    c: &dynamic_bonding_curve::state::PoolConfig,
+    vault: Pubkey,
+) -> Result<()> {
+    let base = &c.pool_fees.base_fee;
+    let standard = c.token_type == 0 // an SPL token
+        && c.token_update_authority == 1 // Immutable: no update or mint authority
+        && c.fixed_token_supply_flag == 1
+        && c.migration_option == 1 // graduates into Meteora DAMM v2
+        && c.migration_fee_option == 2 // a 1% pool (FixedBps100)
+        && c.migration_fee_percentage == 0
+        && c.creator_migration_fee_percentage == 0
+        && c.partner_liquidity_percentage == 0
+        && c.creator_liquidity_percentage == 0
+        && u16::from(c.partner_permanent_locked_liquidity_percentage)
+            + u16::from(c.creator_permanent_locked_liquidity_percentage)
+            == 100
+        && c.partner_liquidity_vesting_info.is_initialized == 0
+        && c.creator_liquidity_vesting_info.is_initialized == 0
+        && c.locked_vesting_config.amount_per_period == 0
+        && c.locked_vesting_config.cliff_unlock_amount == 0
+        && c.creator_trading_fee_percentage == 0
+        && c.collect_fee_mode == 0 // fees in the stock (quote) token
+        && (c.leftover_receiver == vault || c.leftover_receiver == PAYOUT_BOT)
+        && base.base_fee_mode <= 1 // a fee scheduler, not the rate limiter
+        && base.first_factor == 0 // with no periods: one flat fee
+        && base.cliff_fee_numerator <= MAX_BASE_FEE_NUMERATOR;
+    require!(standard, TreasuryError::NonStandardConfig);
+    let dynamic = &c.pool_fees.dynamic_fee;
+    if dynamic.initialized != 0 {
+        // Meteora's variable fee at its peak, ceil((max accumulator × bin step)² ×
+        // control / 1e11), may add at most 20% of the base fee.
+        let peak = (u128::from(dynamic.max_volatility_accumulator) * u128::from(dynamic.bin_step))
+            .checked_pow(2)
+            .and_then(|v| v.checked_mul(u128::from(dynamic.variable_fee_control)))
+            .ok_or(TreasuryError::NonStandardConfig)?;
+        let max_variable = (peak + 99_999_999_999) / 100_000_000_000;
+        require!(
+            max_variable.saturating_mul(5) <= u128::from(base.cliff_fee_numerator),
+            TreasuryError::NonStandardConfig
+        );
+    }
+    Ok(())
+}
+
 /// Meteora DAMM v2, where graduated Sonata pools live (same address on every cluster).
 pub const DAMM_V2_PROGRAM_ID: Pubkey = pubkey!("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG");
 /// DAMM v2 `Pool` account: discriminator, and the offsets of its token A and B mints.
@@ -192,6 +249,7 @@ pub mod stockroom_treasury {
             payout_owner != Pubkey::default(),
             TreasuryError::InvalidRecipient
         );
+        check_standard_config(&config, ctx.accounts.vault.key())?;
         let t = &mut ctx.accounts.treasury;
         t.pool = ctx.accounts.pool.key();
         t.config = ctx.accounts.config.key();
@@ -810,4 +868,6 @@ pub enum TreasuryError {
     InvalidPlatformRecipient,
     #[msg("This mode keeps no creator-withdrawable reserve")]
     NoCreatorReserve,
+    #[msg("This Meteora config does not use Sonata's standard launch settings")]
+    NonStandardConfig,
 }

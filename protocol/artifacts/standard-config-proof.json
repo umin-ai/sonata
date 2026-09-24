@@ -1,0 +1,24 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-24T15:10:55.363Z",
+  "intent": "A Meteora config built outside Sonata's launch page with unlocked creator liquidity cannot be registered as a Sonata market.",
+  "pool": "EjwFcGyf1TBY8WL6bBa2DbtL8LfjTfBV2GLNW7vLbMrE",
+  "config": "9ffk6vAXyJpJ5TUy7zGZx1wmubBZmxWRnUa2tdqHrt2K",
+  "treasury": "82QMkMZW8wXmtpdpm7T7XXQJdSqkTm7t7ejN683GKbyA",
+  "unlockedCreatorLiquidityPercent": 50,
+  "checks": {
+    "registrationFailed": true,
+    "refusedAsNonStandard": true,
+    "noTreasuryCreated": true
+  },
+  "traces": [
+    {
+      "label": "Create a rug-capable Meteora config (half the graduated liquidity unlocked for the creator) and its pool",
+      "signature": "3osfdL238tdsRWgPxnhgbJbyBh18CC5V2qsEnqUoJR49YB5pfiChKEVaFLDxwkT3FP268cJ3oYjTKjN2kyiABgFR"
+    },
+    {
+      "label": "Register it with Sonata: refused (NonStandardConfig)",
+      "signature": "2CdjLo5En77FJ6x167AEnU8DnkoWVGCEmc9xysbv85sSeLQNYn6rdB4ajwP8WCiXzdPd3SMouAtatesPaayNgBGS"
+    }
+  ]
+}
