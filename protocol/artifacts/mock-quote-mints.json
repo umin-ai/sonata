@@ -1,6 +1,6 @@
 {
   "network": "solana:devnet",
-  "createdAt": "2026-09-23T13:29:20.114Z",
+  "createdAt": "2026-09-24T15:34:26.630Z",
   "note": "Mock stock quote tokens, no monetary value. Same profile as mSPY; permissionless DBC quote assets.",
   "tokens": [
     {
@@ -29,8 +29,7 @@
           "label": "Mint 10000 mQQQ to the deployer",
           "signature": "3Lvg31bB79ihPN4VfBEs4TFDxA5Lxw1uEmAZcuHR7wypuuJKCdJidheW4dx8etyzd4qJLHEN5umPK2gjW4CMvFnz"
         }
-      ],
-      "createdAt": "2026-09-22T23:25:58.855Z"
+      ]
     },
     {
       "symbol": "mTSLA",
@@ -58,8 +57,7 @@
           "label": "Mint 10000 mTSLA to the deployer",
           "signature": "2zoB9WBrUYrovrJ2qd6Kyad54m1RzSE6rU1V8d6jMZGVwSRvCs9RB4jgfegHDqxBBwBBMSQr86SB4p7TzZ4GYZZb"
         }
-      ],
-      "createdAt": "2026-09-22T23:25:58.855Z"
+      ]
     },
     {
       "symbol": "mMSFT",
@@ -198,6 +196,34 @@
         {
           "label": "Mint 10000 mANTHROPIC to the deployer",
           "signature": "2Y49L7LcoHipUfVaezoWPiU3g65JFVGRQiTBasBpsVR7qGqLEiQ1gUrKTNSGLgZ12Yu1xNKVpG7qmaRDkQc68zeQ"
+        }
+      ]
+    },
+    {
+      "symbol": "mNVDA",
+      "name": "Mock NVIDIA (Sonata devnet)",
+      "mint": "H6Z6SdHpiVudTeUM8iNJ8mDMgZNHv5VgX6vJXoNuDiJd",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": [
+        {
+          "label": "Create mNVDA mint with metadata",
+          "signature": "Mm7cAiCMv1oThtCqXj9ND6sdrXr16oRjUwb5oRwm9LPe5nsH58f6t53fyPmPEWzW2ftEcG9ivveKRpehjRNzP23"
+        },
+        {
+          "label": "Mint 10000 mNVDA to the deployer",
+          "signature": "46NNhXSMwUWYent3kAruacWEcvewfWumXTrZZxf3eH1gHJWMYszAvCtNfsKq1Qoe7V8EDEG8wcYmJ2WpFqYFrxdv"
         }
       ]
     }

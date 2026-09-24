@@ -43,6 +43,7 @@ const TOKENS = [
   { symbol: "mMETA", name: "Mock Meta (Sonata devnet)", key: ".keys/mock-mmeta.json" },
   { symbol: "mMCD", name: "Mock McDonald's (Sonata devnet)", key: ".keys/mock-mmcd.json" },
   { symbol: "mANTHROPIC", name: "Mock Anthropic pre-IPO (Sonata devnet)", key: ".keys/mock-manthropic.json" },
+  { symbol: "mNVDA", name: "Mock NVIDIA (Sonata devnet)", key: ".keys/mock-mnvda.json" },
 ];
 
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
