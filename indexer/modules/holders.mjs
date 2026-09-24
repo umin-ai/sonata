@@ -3,7 +3,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, unpackAccount, unpackMint } from "@solana/spl-token";
 import { CRANK_KEY, SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
-import { payAllocated, rewardShares } from "./payout.mjs";
+import { payAllocated, receivers, rewardShares } from "./payout.mjs";
 
 export const MAX_RECIPIENTS = 200;
 // A holder needs at least supply / MIN_HOLDING_DIVISOR (0.01% of supply).
@@ -17,10 +17,11 @@ const TOKEN_ACCOUNT_SIZE = 165;
  * owners (the crank key it runs with, the Vault admin it read), Sonata's own
  * keys (the payout bot, the Vault, its admin) whatever the caller passes,
  * owners off the ed25519 curve (PDAs: pool authorities, DAMM v2 pools,
- * program vaults) and holders of less than 0.01% of supply. Largest first
- * (ties by address), at most `max`.
+ * program vaults) and holders of less than 0.01% of supply (supply /
+ * `minHoldingDivisor`; null keeps every holder). Largest first (ties by
+ * address), at most `max`.
  */
-export function selectHolders(accounts, { mint, supply, excludedAccounts = [], excludedOwners = [], max = MAX_RECIPIENTS }) {
+export function selectHolders(accounts, { mint, supply, excludedAccounts = [], excludedOwners = [], max = MAX_RECIPIENTS, minHoldingDivisor = MIN_HOLDING_DIVISOR }) {
   const skipAccounts = new Set(excludedAccounts.filter(Boolean).map((k) => k.toBase58()));
   const skipOwners = new Set([CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, ...excludedOwners].filter(Boolean).map((k) => k.toBase58()));
   const byOwner = new Map();
@@ -46,7 +47,7 @@ export function selectHolders(accounts, { mint, supply, excludedAccounts = [], e
   }
   if (supply <= 0n) return [];
   return [...byOwner.values()]
-    .filter((h) => h.balance * MIN_HOLDING_DIVISOR >= supply)
+    .filter((h) => minHoldingDivisor == null || h.balance * minHoldingDivisor >= supply)
     .sort((a, b) =>
       a.balance === b.balance
         ? (a.owner.toBase58() < b.owner.toBase58() ? -1 : 1)
@@ -59,9 +60,9 @@ export function selectHolders(accounts, { mint, supply, excludedAccounts = [], e
 /**
  * A reward market's holders now (see selectHolders), read from the chain:
  * the crank key, ctx.excludedOwners (the Vault admin, the Vault) and Sonata's
- * own keys are never among them.
+ * own keys are never among them. `max` and `minHoldingDivisor` as selectHolders.
  */
-export async function listHolders(ctx) {
+export async function listHolders(ctx, { max = MAX_RECIPIENTS, minHoldingDivisor = MIN_HOLDING_DIVISOR } = {}) {
   const { m, get, rpc, connection, authority, excludedOwners = [] } = ctx;
   if (!m.baseVault) throw Error("DBC pool not verified this pass; base vault unknown");
   const supply = unpackMint(m.baseMint, get(m.baseMint), TOKEN_PROGRAM_ID).supply;
@@ -76,16 +77,23 @@ export async function listHolders(ctx) {
     supply,
     excludedAccounts: [m.baseVault, m.treasuryBase],
     excludedOwners: [authority.publicKey, ...excludedOwners],
+    max,
+    minHoldingDivisor,
   });
 }
 
 /**
  * "holders": owed pro rata to the base token's holders, each to an existing
  * quote account, by allocation rounds (payout.mjs payAllocated): a holder's
- * share of a round stays theirs until it is paid. lpFarm uses it on the
- * curve (with `resolve` for its position rows); diamond passes the `holders`
- * it has already read and `weigh` to scale each holder's balance before the
- * round is split.
+ * share of a round stays theirs until it is paid. A round is split only among
+ * the holders who can be paid when it is allocated: a holder whose quote
+ * account is missing or cannot receive (counted in result.skipped), or who
+ * still has an unpaid row, gets no row this round, so no holder collects a
+ * new never-paid row every round. (A curve buyer paid in the quote token, so
+ * has the account.) Rows allocated earlier stay payable to their holders.
+ * lpFarm uses it on the curve (with `resolve` for its position rows); diamond
+ * passes the `holders` it has already read and `weigh` to scale each
+ * holder's balance before the round is split.
  */
 export async function payHolders(ctx, { module = "holders", detail = null, weigh = null, holders = null, resolve = null } = {}) {
   const { result } = ctx;
@@ -97,10 +105,13 @@ export async function payHolders(ctx, { module = "holders", detail = null, weigh
     detailOf,
     resolve,
     emptyNote: "no payable holders",
-    allocate: async (amount) => {
+    allocate: async (amount, { unpaid = new Set() } = {}) => {
       const list = holders ?? (await listHolders(ctx));
       result.holders = list.length;
-      return rewardShares(weigh ? await weigh(list) : list, amount);
+      const waiting = list.filter((h) => !unpaid.has(h.owner.toBase58()));
+      const ok = waiting.length ? await receivers(ctx, waiting.map((h) => h.owner)) : new Set();
+      const eligible = waiting.filter((h) => ok.has(h.owner.toBase58()));
+      return rewardShares(weigh ? await weigh(eligible) : eligible, amount);
     },
   });
   return {};

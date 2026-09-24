@@ -330,7 +330,7 @@ test("the ledger marks a payout's allocation rows pending in the statement that 
   const ledger = pgLedger(db);
   // Every table the crank uses must exist.
   await ledger.ready();
-  for (const t of ["reward_allocations", "balance_snapshots", "balance_snapshot_rows", "lp_nft_holders", "airdrop_payouts"])
+  for (const t of ["reward_allocations", "balance_snapshots", "balance_snapshot_rows", "lp_nft_holders", "lp_position_holders", "airdrop_payouts"])
     assert.match(queries[0].sql, new RegExp(`to_regclass\\('${t}'\\) is not null`));
   const allocations = [{ round: 3, recipient: "w1", paidTo: "w1", creates: true }, { round: 4, recipient: "w1", paidTo: "w1" }];
   await ledger.begin({ signature: "s", pool: "p", amount: 15n, recipients: 1, lastValidBlockHeight: 9, module: "split", allocations });
@@ -346,4 +346,40 @@ test("the ledger marks a payout's allocation rows pending in the statement that 
   await ledger.allocate("p", { module: "holders", shares: [{ recipient: "w1", kind: "wallet", amount: 5n, weight: 2n }, { recipient: "pos", kind: "position", amount: 7n, weight: null }] });
   assert.match(queries.at(-1).sql, /^insert into reward_allocations .* select \$1, \(select coalesce\(max\(round\), 0\) \+ 1 from reward_allocations where pool = \$1\), .* from unnest/);
   assert.deepEqual(queries.at(-1).args, ["p", "holders", ["w1", "pos"], ["wallet", "position"], ["5", "7"], ["2", null]]);
+});
+
+test("the ledger's LP Farm reads: the last round's time, the least held since it, released position rows and the last NFT holders", async () => {
+  const queries = [];
+  const answers = [];
+  const db = {
+    query: async (sql, args) => {
+      queries.push({ sql: sql.replace(/\s+/g, " ").trim(), args });
+      return answers.shift() ?? { rows: [] };
+    },
+  };
+  const ledger = pgLedger(db);
+  answers.push({ rows: [{ at: "1900000000" }] }, { rows: [{ at: null }] });
+  assert.equal(await ledger.lastRoundAt("p", "lpFarm"), 1_900_000_000);
+  assert.match(queries.at(-1).sql, /max\(created_at\).* from reward_allocations where pool = \$1 and module = \$2$/);
+  assert.equal(await ledger.lastRoundAt("p", "lpFarm"), null);
+  // From the newest snapshot at or before `since` (else the oldest), before `at`; a holder must be in every one.
+  answers.push({ rows: [{ snaps: 3, holder: "a", low: "8" }, { snaps: 3, holder: "b", low: "5" }] }, { rows: [{ snaps: 2, holder: null, low: null }] });
+  assert.deepEqual(await ledger.heldSince("p", "lp", 100, 200, ["a", "b"]), { snapshots: 3, lows: new Map([["a", 8n], ["b", 5n]]) });
+  const { sql, args } = queries.at(-1);
+  assert.match(sql, /coalesce\( ?\(select max\(taken_at\) from balance_snapshots where .* taken_at <= to_timestamp\(\$3::bigint\).*\), ?\(select min\(taken_at\) from balance_snapshots/);
+  assert.match(sql, /having count\(\*\) = \(select count\(\*\) from span\)/);
+  assert.deepEqual(args, ["p", "lp", 100, 200, ["a", "b"]]);
+  assert.deepEqual(await ledger.heldSince("p", "lp", null, 200, ["a"]), { snapshots: 2, lows: new Map() });
+  // Only unpaid rows of that kind, allocated long enough ago, are deleted, and returned.
+  answers.push({ rows: [{ round: 2, recipient: "pos", kind: "position", module: "lpFarm", atoms: "700", weight: null }] });
+  assert.deepEqual(await ledger.releaseAllocations("p", { kind: "position", recipients: ["pos"], olderThanSeconds: 86400 }), [
+    { round: 2, recipient: "pos", kind: "position", module: "lpFarm", amount: 700n, weight: null },
+  ]);
+  assert.match(queries.at(-1).sql, /^delete from reward_allocations where pool = \$1 and kind = \$2 and status = 'unpaid' and recipient = any\(\$3::text\[\]\) and created_at <= now\(\) - \$4::int \* interval '1 second' returning /);
+  assert.deepEqual(queries.at(-1).args, ["p", "position", ["pos"], 86400]);
+  await ledger.savePositionHolders("p", [["pos", "w"]]);
+  assert.match(queries.at(-1).sql, /^insert into lp_position_holders .* on conflict \(position\) do update set owner = excluded\.owner, seen_at = excluded\.seen_at$/);
+  assert.deepEqual(queries.at(-1).args, ["p", ["pos"], ["w"]]);
+  answers.push({ rows: [{ position: "pos", owner: "w", seen: "1900000000" }] });
+  assert.deepEqual(await ledger.positionHolders(["pos"]), new Map([["pos", { owner: "w", seenAt: 1_900_000_000 }]]));
 });

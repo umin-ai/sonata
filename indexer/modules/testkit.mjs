@@ -727,3 +727,80 @@ export function withFeeModelFailures(ledger, { now = () => Date.now() } = {}) {
     },
   });
 }
+
+// ---- Appended for the payout-bot review fixes (LP Farm, Top Buyer, holders) ----
+
+/**
+ * Adds pgLedger's LP Farm reads to a payoutLedger (in place; payoutLedger()
+ * by default): lastRoundAt (rounds are stamped `createdAt` from
+ * ledger.clock(), unix seconds, when allocated), heldSince over the balance
+ * snapshots, releaseAllocations, and the last NFT holder of positions
+ * (positionHolders, savePositionHolders; kept in `positionOwners`). Set
+ * ledger.clock to move its time. Adding them twice is a no-op.
+ */
+export function lpFarmLedger(ledger = payoutLedger(), { clock = () => Math.floor(Date.now() / 1000) } = {}) {
+  payoutLedger(ledger);
+  if (ledger.heldSince) return ledger;
+  const rows = ledger.allocationRows;
+  const owners = new Map();
+  const inner = ledger.allocate;
+  const view = (r) => ({ round: r.round, recipient: r.recipient, kind: r.kind, module: r.module, amount: r.amount, weight: r.weight });
+  return Object.assign(ledger, {
+    clock,
+    positionOwners: owners,
+    allocate: async (pool, args) => {
+      const added = await inner(pool, args);
+      const at = ledger.clock();
+      for (const r of rows) if (r.pool === pool && r.round === added[0]?.round) r.createdAt ??= at;
+      return added;
+    },
+    lastRoundAt: async (pool, module) => {
+      const times = rows.filter((r) => r.pool === pool && r.module === module && r.createdAt != null).map((r) => r.createdAt);
+      return times.length ? Math.max(...times) : null;
+    },
+    heldSince: async (pool, kind, since, at, holders) => {
+      const s = ledger.snapshots.get(`${pool}|${kind}`) ?? new Map();
+      const times = [...s.keys()].filter((t) => t < at).sort((a, b) => a - b);
+      const upTo = since == null ? [] : times.filter((t) => t <= since);
+      const from = upTo.length ? upTo.at(-1) : times[0];
+      const span = from === undefined ? [] : times.filter((t) => t >= from);
+      const lows = new Map();
+      for (const h of holders) {
+        if (!span.length || !span.every((t) => s.get(t).has(h))) continue;
+        lows.set(h, span.map((t) => s.get(t).get(h)).reduce((a, b) => (b < a ? b : a)));
+      }
+      return { snapshots: span.length, lows };
+    },
+    releaseAllocations: async (pool, { kind, recipients, olderThanSeconds }) => {
+      const cutoff = ledger.clock() - olderThanSeconds;
+      const gone = rows.filter((r) => r.pool === pool && r.kind === kind && r.status === "unpaid" && recipients.includes(r.recipient) && (r.createdAt ?? Infinity) <= cutoff);
+      for (const r of gone) rows.splice(rows.indexOf(r), 1);
+      return gone.map(view);
+    },
+    positionHolders: async (positions) => new Map(positions.filter((p) => owners.has(p)).map((p) => [p, { ...owners.get(p) }])),
+    savePositionHolders: async (pool, entries) => {
+      for (const [position, owner] of entries) owners.set(position, { pool, owner, seenAt: ledger.clock() });
+    },
+  });
+}
+
+/** Rewrites a DAMM v2 position account in `chain` (edit gets its decoded state); edit returning null closes the account. */
+export function editPosition(chain, address, edit) {
+  const coder = amm._program.coder.accounts;
+  const s = coder.decode("position", Buffer.from(chain.accounts.get(address.toBase58()).data));
+  if (edit(s) === null) return void chain.accounts.delete(address.toBase58());
+  chain.put(address, encode(coder, "position", s, CP_AMM_PROGRAM_ID));
+}
+
+/** getTokenAccountsByOwner(owner, { mint }) as the RPC answers it, added to a fakeChain's connection (it has none). */
+export function withOwnerLookup(chain) {
+  chain.connection.getTokenAccountsByOwner = async (owner, { mint }) => {
+    chain.calls.push("getTokenAccountsByOwner");
+    const value = [...chain.accounts]
+      .filter(([, i]) => (i.owner.equals(TOKEN_PROGRAM_ID) || i.owner.equals(TOKEN_2022_PROGRAM_ID)) && i.data.length >= ACCOUNT_SIZE)
+      .filter(([, i]) => new PublicKey(i.data.subarray(0, 32)).equals(mint) && new PublicKey(i.data.subarray(32, 64)).equals(owner))
+      .map(([k, account]) => ({ pubkey: new PublicKey(k), account }));
+    return { context: { slot: 1 }, value };
+  };
+  return chain;
+}

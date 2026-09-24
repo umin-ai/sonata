@@ -572,27 +572,27 @@ test("a reward market's holders are paid pro rata; no quote account, PDAs, the p
   const pool = chain.added[1].pool.toBase58();
   // The ordinary market still claims and distributes; the reward market has nothing to claim.
   assert.equal(chain.counts.sent, 1);
-  assert.deepEqual(chain.counts.rewards, { markets: 1, txs: 1, atoms: 777_777n, recipients: 2, simulated: 0, skipped: 0, failed: 0 });
-  // owed 1000000 over 4:3:2 of the eligible 900000000: h3 (222222) has no quote account.
+  assert.deepEqual(chain.counts.rewards, { markets: 1, txs: 1, atoms: 999_999n, recipients: 2, simulated: 0, skipped: 0, failed: 0 });
+  // owed 1000000 over 4:3 of the 700000000 held by holders who can be paid: h3 has no quote account, so no share.
   const [tx] = rewardTxs(chain);
-  assert.deepEqual(transfersOf(tx.tx), [[quoteAta(h1).toBase58(), 444_444n], [quoteAta(h2).toBase58(), 333_333n]]);
+  assert.deepEqual(transfersOf(tx.tx), [[quoteAta(h1).toBase58(), 571_428n], [quoteAta(h2).toBase58(), 428_571n]]);
   assert.ok(tx.tx.feePayer.equals(payer.publicKey));
   for (const ix of tx.tx.instructions) {
     assert.ok(ix.keys[0].pubkey.equals(quoteAta(payer.publicKey)));
     assert.ok(ix.keys[3].pubkey.equals(payer.publicKey) && ix.keys[3].isSigner);
   }
-  assert.equal(balanceOf(chain, payer.publicKey), 222_223n);
+  assert.equal(balanceOf(chain, payer.publicKey), 1n);
   assert.deepEqual(ledger.payouts.map(({ pool: p, amount, recipients, signature }) => ({ p, amount, recipients, signature })), [
-    { p: pool, amount: 777_777n, recipients: 2, signature: tx.signature },
+    { p: pool, amount: 999_999n, recipients: 2, signature: tx.signature },
   ]);
   assert.equal(ledger.pendingRows.size, 0);
   const paid = chain.lines.find((l) => l.startsWith("reward "));
-  assert.match(paid, new RegExp(`^reward pool=${pool} sig=${tx.signature} amount=777777 recipients=2 bytes=\\d+ result=paid$`));
-  assert.match(chain.lines.find((l) => l.startsWith("rewards ")), /action=pay holders=3 payable=2 noAta=1 paidNow=777777 recipients=2 txs=1 left=222223/);
-  assert.match(chain.lines.at(-1), /^summary .*rewardMarkets=1 rewardTxs=1 rewardAtoms=777777 rewardFailed=0/);
+  assert.match(paid, new RegExp(`^reward pool=${pool} sig=${tx.signature} amount=999999 recipients=2 bytes=\\d+ result=paid$`));
+  assert.match(chain.lines.find((l) => l.startsWith("rewards ")), /action=pay holders=3 payable=2 noAta=1 paidNow=999999 recipients=2 txs=1 left=1/);
+  assert.match(chain.lines.at(-1), /^summary .*rewardMarkets=1 rewardTxs=1 rewardAtoms=999999 rewardFailed=0/);
 });
 
-test("later passes pay only what is still owed; an unpaid share stays its holder's, and nothing below REWARD_MIN_ATOMS", async () => {
+test("later passes pay only what is still owed; a holder without a quote account gets no share, and nothing below REWARD_MIN_ATOMS", async () => {
   const payer = Keypair.generate(), ledger = memLedger();
   const [h1, h2, h3] = [wallet(), wallet(), wallet()];
   const chain = await fakeChain({
@@ -607,21 +607,15 @@ test("later passes pay only what is still owed; an unpaid share stays its holder
     }],
   });
   const total = () => ledger.payouts.reduce((s, r) => s + r.amount, 0n);
-  assert.equal(total(), 777_777n);
-  // Second pass: 222223 still owed, 222222 of it h3's share (no quote account
-  // yet). It stays h3's: nothing is re-split to h1 and h2.
-  const second = await chain.pass();
-  assert.equal(second.rewards.atoms, 0n);
-  assert.match(chain.lines.findLast((l) => l.startsWith("rewards ")), /owed=222223 carried=222222 action=pay .*noAta=1 paidNow=0 /);
-  // Once h3 has a quote account it is paid exactly its share.
+  // h3 had no quote account when the round was allocated: h1 and h2 shared all of it, and no row waits for h3.
+  assert.equal(total(), 999_999n);
+  assert.ok(!ledger.allocationRows.some((r) => r.recipient === h3.toBase58()));
+  // Second pass: 1 atom owed, below the 100000 default.
   chain.accounts.set(quoteAta(h3).toBase58(), tokenAccount(h3, QUOTE));
-  const third = await chain.pass();
-  assert.equal(third.rewards.atoms, 222_222n);
-  assert.deepEqual([h1, h2, h3].map((h) => balanceOf(chain, h)), [444_444n, 333_333n, 222_222n]);
-  // Fourth pass: 1 atom owed, below the 100000 default.
-  const fourth = await chain.pass();
-  assert.deepEqual({ ...fourth.rewards, markets: undefined }, { markets: undefined, txs: 0, atoms: 0n, recipients: 0, simulated: 0, skipped: 1, failed: 0 });
+  const second = await chain.pass();
+  assert.deepEqual({ ...second.rewards, markets: undefined }, { markets: undefined, txs: 0, atoms: 0n, recipients: 0, simulated: 0, skipped: 1, failed: 0 });
   assert.match(chain.lines.findLast((l) => l.startsWith("rewards ")), /owed=1 action=skip reason="owed below 100000"/);
+  assert.deepEqual([h1, h2, h3].map((h) => balanceOf(chain, h)), [571_428n, 428_571n, 0n]);
   // A lower threshold tries it; never more than the treasury distributed.
   await chain.pass({ rewardMinAtoms: 1n });
   assert.ok(total() <= 1_000_000n);
@@ -805,8 +799,8 @@ test("top buyers, split and holders markets are each paid by their own module; u
   const [a, b, w1, w2] = [wallet(), wallet(), wallet(), wallet()];
   const now = Math.floor(Date.now() / 1000);
   const trades = [
-    { trader: a.toBase58(), side: "buy", quote_amount: "900", block_time: new Date((now - 600) * 1000).toISOString() },
-    { trader: b.toBase58(), side: "buy", quote_amount: "500", block_time: new Date((now - 600) * 1000).toISOString() },
+    { trader: a.toBase58(), side: "buy", quote_amount: "900", base_amount: "9000", block_time: new Date((now - 600) * 1000).toISOString() },
+    { trader: b.toBase58(), side: "buy", quote_amount: "500", base_amount: "5000", block_time: new Date((now - 600) * 1000).toISOString() },
   ];
   const split = [{ wallet: w1.toBase58(), weight: 3 }, { wallet: w2.toBase58(), weight: 1 }];
   const ledger = kit.memLedger({ trades });
@@ -821,6 +815,11 @@ test("top buyers, split and holders markets are each paid by their own module; u
   const [bounty, splitMarket, unknown] = run.added.map((m) => m.pool.toBase58());
   for (const t of trades) t.pool = bounty;
   // The bounty's trades were attached after the first pass: run it again for the bounty.
+  // The winners hold what they bought, and held none at a snapshot from before the round.
+  kit.withOwnerLookup(run.chain);
+  kit.holdBase(run.chain, run.added[0], a, 9_000n);
+  kit.holdBase(run.chain, run.added[0], b, 5_000n);
+  await ledger.recordSnapshot(bounty, "holders", now - 5000, []);
   const [ta, tb] = [a, b].map((w) => quoteAta(w));
   run.chain.put(ta, kit.tokenAccount({ owner: a, mint: QUOTE }));
   run.chain.put(tb, kit.tokenAccount({ owner: b, mint: QUOTE }));
