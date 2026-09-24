@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import anchor from "@coral-xyz/anchor";
 import bs58 from "bs58";
 import { Keypair, PublicKey, Transaction, TransactionInstruction, VersionedTransaction } from "@solana/web3.js";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, AccountLayout, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { airdropShares, airdropTotals, runAirdrops, withdrawLeftoverIx, withdrawnFromTransaction } from "./airdrop.mjs";
+import { WITHDRAW_SEARCH, airdropShares, airdropTotals, runAirdrops, withdrawLeftoverIx, withdrawnFromTransaction } from "./airdrop.mjs";
+import { crankLedger, migrateCrank } from "./crank-schema.mjs";
 import { airdropReserve, burnable, runBuyback } from "./buyback.mjs";
 import { SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
 import { selectHolders } from "./holders.mjs";
@@ -16,12 +18,18 @@ const SUPPLY = 1_000_000_000_000_000n;
 const TOKENS = 1_000_000n; // one token in atoms
 
 // A graduated market whose config names the crank key as leftover receiver, and its holders' base accounts.
-function setup({ holders = [], migrated = true, receiver, lost, leftover = LEFTOVER, landOut } = {}) {
+function setup({ holders = [], migrated = true, receiver, lost, leftover = LEFTOVER, landOut, finishCurveAt } = {}) {
   const authority = Keypair.generate();
   const crank = authority.publicKey;
   const chain = fakeChain({ leftover, lost, landOut });
   const m = rewardMarket(chain, crank, { supply: SUPPLY });
-  const dbc = dbcAccounts(m, { migrated, edit: ({ config }) => (config.leftoverReceiver = receiver ?? crank) });
+  const dbc = dbcAccounts(m, {
+    migrated,
+    edit: ({ config, pool }) => {
+      config.leftoverReceiver = receiver ?? crank;
+      if (finishCurveAt) pool.finishCurveTimestamp = new anchor.BN(finishCurveAt);
+    },
+  });
   chain.put(m.pool, dbc.poolInfo);
   chain.put(m.config, dbc.configInfo);
   const damm = dammPoolAccount(m, { migrationFeeOption: dbc.config.migrationFeeOption });
@@ -31,7 +39,7 @@ function setup({ holders = [], migrated = true, receiver, lost, leftover = LEFTO
     chain.put(address, tokenAccount({ owner: h.owner, mint: m.baseMint, amount: h.amount, program: TOKEN_PROGRAM_ID }));
     return address;
   });
-  const ledger = memLedger();
+  const ledger = withWithdrawSearch(memLedger());
   const lines = [];
   const job = (over = {}) => ({
     markets: [m],
@@ -62,6 +70,15 @@ function setup({ holders = [], migrated = true, receiver, lost, leftover = LEFTO
   return { authority, crank, chain, m, ledger, lines, run, pool, crankBase, accounts, balance, job };
 }
 const many = (n, amount = 1_000_000n * TOKENS) => Array.from({ length: n }, () => ({ owner: key(), amount }));
+// crank-schema.mjs crankLedger's withdrawal search cursor, in memory (as its airdrop_withdraw_search table).
+function withWithdrawSearch(ledger) {
+  const searches = new Map();
+  return Object.assign(ledger, {
+    searches,
+    airdropSearch: async (pool) => (searches.has(pool) ? { ...searches.get(pool) } : null),
+    airdropSaveSearch: async (pool, cursor) => void (cursor ? searches.set(pool, { ...cursor }) : searches.delete(pool)),
+  });
+}
 
 test("airdrop rows are withdrawn × balance ÷ total, rounded down, to each holder's largest account", () => {
   const mint = key();
@@ -322,17 +339,37 @@ async function strangerSends(s, count, instructions) {
   }
 }
 // The chain's connection, with getSignaturesForAddress honouring limit and before as the RPC does.
-function pagedConnection(connection, calls = []) {
+// `timeOf` gives signatures a blockTime, `hidden` ones are not listed (yet), `reads` records getTransaction;
+// with the chain's `sent`, a listing is reused until something new is sent.
+function pagedConnection(connection, calls = [], { timeOf, hidden = new Set(), reads = [], sent } = {}) {
+  let cache = { at: -1, lists: new Map() };
+  const listed = async (address) => {
+    if (!sent) return connection.getSignaturesForAddress(address);
+    if (cache.at !== sent.length) cache = { at: sent.length, lists: new Map() };
+    const k = address.toBase58();
+    if (!cache.lists.has(k)) cache.lists.set(k, await connection.getSignaturesForAddress(address));
+    return cache.lists.get(k);
+  };
   return {
     ...connection,
     getSignaturesForAddress: async (address, { limit = 1000, before } = {}) => {
       calls.push({ address: address.toBase58(), limit, before });
-      const all = await connection.getSignaturesForAddress(address);
+      const all = (await listed(address))
+        .filter((x) => !hidden.has(x.signature))
+        .map((x) => (timeOf ? { ...x, blockTime: timeOf.get(x.signature) ?? null } : x));
       const start = before ? all.findIndex((x) => x.signature === before) + 1 : 0;
       return all.slice(start, start + limit);
     },
+    getTransaction: async (signature, opts) => (reads.push(signature), connection.getTransaction(signature, opts)),
   };
 }
+// A transaction naming `address` (read-only) that succeeds, and one that fails.
+const naming = (address) => () => [new TransactionInstruction({ programId: key(), keys: [{ pubkey: address, isSigner: false, isWritable: false }], data: Buffer.alloc(0) })];
+const failingOn = (address, mint) => (payer) => [new TransactionInstruction({
+  programId: TOKEN_PROGRAM_ID,
+  keys: [key(), mint, key(), payer, address].map((pubkey, i) => ({ pubkey, isSigner: i === 3, isWritable: false })),
+  data: Buffer.concat([Buffer.from([12]), Buffer.alloc(8, 1), Buffer.from([6])]),
+})];
 
 test("a buyback landing below its simulated output never burns the airdrop's reserve, recorded or not", async () => {
   // Worse than simulated by 500 atoms, still above the 2% minimum out.
@@ -395,24 +432,142 @@ test("someone else's withdrawal is found in the pool's own history, newest first
   const calls = [];
   const connection = pagedConnection(s.chain.connection, calls);
   const tight = await s.run({ connection, withdrawSearch: { pageSize: 10, maxTransactions: 3 } });
-  assert.equal(tight.failed, 1);
-  assert.match(s.lines.at(-1).reason, /cannot find \(not among the pool's 3 newest successful transactions\); searched again next pass/);
+  // Three transactions read (the failed ones are passed unread): not found yet, the search goes on.
+  assert.equal(tight.failed, 0);
+  assert.deepEqual(calls.map((c) => [c.address, c.limit, c.before]), [
+    [s.m.pool.toBase58(), 10, undefined],
+    [s.m.pool.toBase58(), 10, s.chain.sent[46].signature],
+    [s.m.pool.toBase58(), 10, s.chain.sent[36].signature],
+  ]);
+  assert.equal(s.lines.at(-1).action, "wait");
+  assert.match(s.lines.at(-1).reason, /someone else; searching the pool's history, 3 transactions read so far; continues from there next pass/);
   assert.equal((await s.ledger.airdropState(s.pool)).withdrawn, null);
+  // Saved: the oldest signature checked, the third of the five successful ones.
+  assert.deepEqual(s.ledger.searches.get(s.pool), { before: s.chain.sent[28].signature, read: 3, unreadable: 0 });
   calls.length = 0;
   const r = await s.run({ connection, withdrawSearch: { pageSize: 10 } });
   assert.equal(r.failed, 0);
-  assert.deepEqual(calls.map((c) => [c.address, c.limit, c.before]), [
-    [s.m.pool.toBase58(), 10, undefined],
-    [s.m.pool.toBase58(), 10, calls[1].before],
-    [s.m.pool.toBase58(), 10, calls[2].before],
-    [s.m.pool.toBase58(), 10, calls[3].before],
-  ]);
-  assert.ok(calls.slice(1).every((c) => c.before));
+  // The next pass carries on from there: one page, and the withdrawal is on it.
+  assert.deepEqual(calls.map((c) => [c.address, c.limit, c.before]), [[s.m.pool.toBase58(), 10, s.chain.sent[28].signature]]);
+  assert.equal(s.ledger.searches.has(s.pool), false, "the search is cleared once the withdrawal is recorded");
   const state = await s.ledger.airdropState(s.pool);
   assert.equal(state.withdrawn, LEFTOVER);
   assert.equal(state.withdrawSignature, signature);
   assert.ok(state.done);
   assert.equal(s.balance(s.crankBase), LEFTOVER - (LEFTOVER / 3n) * 3n);
+});
+
+test("a withdrawal behind 100 newer transactions and 1,000 failed ones naming the pool is found within three passes, each carrying on from the last", async () => {
+  assert.deepEqual(WITHDRAW_SEARCH, { pageSize: 100, maxPages: 10, maxTransactions: 40 });
+  const s = setup({ holders: many(3) });
+  const signature = await strangerWithdraws(s);
+  // Newest first, the pool's history is then: 40 successful, 1,000 failed, 60 successful, the withdrawal.
+  await strangerSends(s, 60, naming(s.m.pool));
+  await strangerSends(s, 1000, failingOn(s.m.pool, s.m.baseMint));
+  await strangerSends(s, 40, naming(s.m.pool));
+  assert.equal(s.chain.sent.filter((t) => t.err).length, 1000);
+  const calls = [], reads = [];
+  const connection = pagedConnection(s.chain.connection, calls, { reads, sent: s.chain.sent });
+  const pass = async () => {
+    calls.length = 0;
+    reads.length = 0;
+    return s.run({ connection });
+  };
+
+  // Pass 1: the 40 newest successful transactions read, then the failed ones passed unread, to the page limit.
+  assert.deepEqual(await pass(), { markets: 1, txs: 0, atoms: 0n, failed: 0 });
+  assert.equal(reads.length, 40);
+  assert.equal(calls.length, 10);
+  assert.equal(s.lines.at(-1).action, "wait");
+  assert.match(s.lines.at(-1).reason, /40 transactions read so far; continues from there next pass/);
+  const first = s.ledger.searches.get(s.pool);
+  assert.equal(first.read, 40);
+  assert.equal(first.before, s.chain.sent.at(-(40 + 960)).signature, "after the 960th failed one");
+  assert.equal((await s.ledger.airdropState(s.pool)).withdrawn, null);
+
+  // Pass 2 carries on from there (the newest are not read again): 40 more.
+  assert.equal((await pass()).failed, 0);
+  assert.equal(calls[0].before, first.before);
+  assert.equal(reads.length, 40);
+  assert.ok(!reads.some((r) => s.chain.sent.slice(-40).some((t) => t.signature === r)));
+  assert.equal(s.ledger.searches.get(s.pool).read, 80);
+
+  // Pass 3: the last 20 and the withdrawal. Its exact amount is recorded and airdropped.
+  assert.equal((await pass()).failed, 0);
+  assert.equal(reads.length, 21);
+  assert.equal(reads.at(-1), signature);
+  const state = await s.ledger.airdropState(s.pool);
+  assert.equal(state.withdrawn, LEFTOVER);
+  assert.equal(state.withdrawSignature, signature);
+  assert.ok(state.done);
+  assert.equal(s.ledger.searches.has(s.pool), false);
+  assert.equal(s.balance(s.crankBase), LEFTOVER - (LEFTOVER / 3n) * 3n);
+});
+
+test("the withdrawal search stops at the curve's finish time and then starts again from the newest; a dry run saves no progress", async () => {
+  const F = 1_900_000_000;
+  const s = setup({ holders: many(2), finishCurveAt: F });
+  await strangerSends(s, 30, naming(s.m.pool)); // curve trades, before the curve finished
+  const signature = await strangerWithdraws(s);
+  await strangerSends(s, 5, naming(s.m.pool)); // after graduation
+  const timeOf = new Map(s.chain.sent.map((t, i) => [t.signature, i < 30 ? F - 3600 + i : F + i]));
+  // Not listed yet by the RPC node the crank asks (behind the one that served the pool account).
+  const hidden = new Set([signature]);
+  const calls = [], reads = [];
+  const connection = pagedConnection(s.chain.connection, calls, { timeOf, hidden, reads, sent: s.chain.sent });
+
+  const first = await s.run({ connection, withdrawSearch: { pageSize: 10 } });
+  assert.equal(first.failed, 1);
+  assert.match(s.lines.at(-1).reason, /cannot find \(not in the pool's history since the curve finished \(5 transactions read\); the search starts again from the newest\)/);
+  assert.equal(calls.length, 1);
+  assert.equal(reads.length, 5, "nothing from before the curve finished is read");
+  assert.equal(s.ledger.searches.has(s.pool), false, "a walk that ended is cleared");
+
+  // Listed now. A dry run reads, finds nothing within its budget, and saves nothing.
+  hidden.clear();
+  reads.length = 0;
+  const dry = await s.run({ connection, dryRun: true, withdrawSearch: { pageSize: 10, maxTransactions: 2 } });
+  assert.equal(dry.failed, 0);
+  assert.equal(reads.length, 2);
+  assert.match(s.lines.at(-1).note, /dry run: search progress not saved/);
+  assert.equal(s.ledger.searches.has(s.pool), false);
+  assert.equal((await s.ledger.airdropState(s.pool)).withdrawn, null);
+
+  // The next pass starts from the newest again and finds it.
+  calls.length = 0;
+  reads.length = 0;
+  assert.equal((await s.run({ connection, withdrawSearch: { pageSize: 10 } })).failed, 0);
+  assert.equal(calls[0].before, undefined);
+  assert.deepEqual(reads, [...s.chain.sent.slice(31, 36).map((t) => t.signature).reverse(), signature]);
+  const state = await s.ledger.airdropState(s.pool);
+  assert.equal(state.withdrawn, LEFTOVER);
+  assert.equal(state.withdrawSignature, signature);
+  assert.ok(state.done);
+});
+
+test("the crank's withdrawal search table: created if missing, one row per pool, saved by upsert and cleared by delete", async () => {
+  const queries = [];
+  let row = null;
+  const db = {
+    query: async (sql, args) => {
+      queries.push({ sql: sql.replace(/\s+/g, " ").trim(), args });
+      return { rows: /^select/.test(sql) && row ? [row] : [] };
+    },
+  };
+  await migrateCrank(db);
+  assert.match(queries[0].sql, /create table if not exists airdrop_withdraw_search \( pool text primary key, before_signature text,/);
+  assert.doesNotMatch(queries[0].sql, /\bdrop\b|\bdelete\b|\bupdate\b/i);
+  const ledger = crankLedger({ ready: async () => true }, db);
+  assert.equal(await ledger.airdropSearch("P"), null);
+  assert.deepEqual(queries.at(-1).args, ["P"]);
+  row = { before_signature: "S", read: 80, unreadable: 1 };
+  assert.deepEqual(await ledger.airdropSearch("P"), { before: "S", read: 80, unreadable: 1 });
+  await ledger.airdropSaveSearch("P", { before: "S2", read: 120, unreadable: 1 });
+  assert.match(queries.at(-1).sql, /^insert into airdrop_withdraw_search .* on conflict \(pool\) do update set before_signature = excluded.before_signature, read = excluded.read, unreadable = excluded.unreadable/);
+  assert.deepEqual(queries.at(-1).args, ["P", "S2", 120, 1]);
+  await ledger.airdropSaveSearch("P", null);
+  assert.equal(queries.at(-1).sql, "delete from airdrop_withdraw_search where pool = $1");
+  assert.deepEqual(queries.at(-1).args, ["P"]);
 });
 
 test("a row whose account was closed or re-owned before its deferred send is paid to the holder's associated account", async () => {

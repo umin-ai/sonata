@@ -18,6 +18,23 @@ export async function migrateCrank(db) {
       failures integer not null default 1,
       last_error text
     );
+    -- How far the search for a leftover withdrawal someone else sent has got
+    -- (indexer/modules/airdrop.mjs findWithdrawal), one row per pool while it
+    -- runs. The DBC pool's history is read newest first, a bounded number of
+    -- transactions per pass; each pass carries on after before_signature (the
+    -- oldest signature already checked), so transactions newer than the
+    -- withdrawal delay it but never hide it. The row is deleted when the
+    -- withdrawal is recorded, or when a walk ends without it (the next one
+    -- starts at the newest). read and unreadable count this walk's
+    -- transactions, for the log.
+    create table if not exists airdrop_withdraw_search (
+      pool text primary key,
+      before_signature text,
+      read integer not null default 0,
+      unreadable integer not null default 0,
+      started_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
   `);
 }
 
@@ -36,6 +53,24 @@ export function crankLedger(ledger, db) {
         [pool, String(reason).slice(0, 300)],
       );
       return { firstFailedAt: new Date(r.first_failed_at), failures: Number(r.failures), elapsedMs: Number(r.elapsed_ms) };
+    },
+    // Where the pool's withdrawal search stopped last pass: { before, read, unreadable }, or null to start at the newest.
+    async airdropSearch(pool) {
+      const { rows: [r] } = await db.query("select before_signature, read, unreadable from airdrop_withdraw_search where pool = $1", [pool]);
+      return r ? { before: r.before_signature ?? null, read: Number(r.read), unreadable: Number(r.unreadable) } : null;
+    },
+    // Saves where the search carries on next pass; null clears it (found, or a walk that ended).
+    async airdropSaveSearch(pool, cursor) {
+      if (!cursor) {
+        await db.query("delete from airdrop_withdraw_search where pool = $1", [pool]);
+        return;
+      }
+      await db.query(
+        `insert into airdrop_withdraw_search (pool, before_signature, read, unreadable) values ($1, $2, $3, $4)
+         on conflict (pool) do update
+           set before_signature = excluded.before_signature, read = excluded.read, unreadable = excluded.unreadable, updated_at = now()`,
+        [pool, cursor.before ?? null, cursor.read ?? 0, cursor.unreadable ?? 0],
+      );
     },
   };
 }

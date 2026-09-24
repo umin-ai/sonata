@@ -37,8 +37,14 @@ const TOKEN_ACCOUNT_SIZE = 165;
 // A withdrawal made by someone else is looked for in the DBC pool's history,
 // newest first: at most `maxPages` pages of `pageSize` signatures and
 // `maxTransactions` transactions read per pass (it is normally among the
-// pool's first few transactions after migration).
+// pool's first few transactions after migration). Each pass carries on from
+// where the last one stopped (findWithdrawal), so newer transactions naming
+// the pool can delay the search but never hide the withdrawal.
 export const WITHDRAW_SEARCH = { pageSize: 100, maxPages: 10, maxTransactions: 40 };
+// Seconds of block-time slack below the curve's finish time before the search
+// stops: withdraw_leftover needs the migration, which comes after the curve
+// finished, so nothing older can be it.
+const WITHDRAW_SEARCH_SLACK_SECONDS = 60;
 const WITHDRAW_LEFTOVER = Buffer.from(dbcClient.pool.program.idl.instructions.find((i) => i.name === "withdrawLeftover").discriminator);
 
 /** The airdrop rows: withdrawn × balance ÷ total per holder, rounded down, to the holder's largest token account. */
@@ -191,10 +197,20 @@ async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, si
   if (state.withdrawn == null) {
     if (dbc.state.isWithdrawLeftover !== 0) {
       // Withdrawn by someone else (the instruction is permissionless); the tokens are in the crank's account.
-      const found = await findWithdrawal({ m, crankBase, connection, rpc, search: withdrawSearch });
-      if (found.amount == null)
+      // The search carries on from where the last pass stopped (not saved in a dry run).
+      const cursor = await ledger.airdropSearch(pool);
+      const since = Number(dbc.state.finishCurveTimestamp?.toString() ?? 0);
+      const found = await findWithdrawal({ m, crankBase, connection, rpc, search: withdrawSearch, cursor, since });
+      if (found.amount == null) {
+        if (!dryRun) await ledger.airdropSaveSearch(pool, found.cursor);
+        if (found.cursor && !found.signature)
+          return log("airdrop", { ...line, action: "wait", reason: `leftover withdrawn by someone else; ${found.reason}`, note: dryRun ? "dry run: search progress not saved" : undefined });
         throw Error(`leftover already withdrawn by a transaction the crank cannot find (${found.reason}); searched again next pass, or set airdrop_state.withdrawn and withdraw_signature by hand`);
-      if (!dryRun) await ledger.airdropWithdrawn(pool, found.amount, found.signature);
+      }
+      if (!dryRun) {
+        await ledger.airdropWithdrawn(pool, found.amount, found.signature);
+        await ledger.airdropSaveSearch(pool, null);
+      }
       state = dryRun ? { ...state, withdrawn: found.amount } : await ledger.airdropState(pool);
     } else {
       const [baseInfo] = await fetchAll([crankBase]);
@@ -396,33 +412,55 @@ async function withdrawnBy(signature, { m, crankBase, connection, rpc }) {
 
 /**
  * A withdraw_leftover sent by someone else: { signature, amount }, or
- * { reason } when it is not found this pass. It can only land after
- * migration, so it is among the DBC pool's newest transactions (the crank base
- * account's history fills up with buybacks and anyone's transfers): the
- * pool's signatures are read newest first, a page at a time, and the search
- * stops at the first successful withdraw_leftover of this pool, the only one
- * there can be.
+ * { reason, cursor } when it is not found this pass. It can only land after
+ * migration, so it is in the DBC pool's history after the curve finished (the
+ * crank base account's history fills up with buybacks and anyone's
+ * transfers): the pool's signatures are read newest first, a page at a time,
+ * and the search stops at the first successful withdraw_leftover of this
+ * pool, the only one there can be.
+ *
+ * One pass reads at most `maxPages` pages and `maxTransactions` transactions
+ * (a failed signature is passed without reading it). `cursor` ({ before,
+ * read, unreadable }, or null to start at the newest) is where the last pass
+ * stopped: the walk carries on from `before`, the oldest signature already
+ * checked, so however many transactions are newer than the withdrawal, each
+ * pass gets closer to it. The walk ends at `since` (the curve's finish time,
+ * unix seconds; 0 when unknown, then at the start of the pool's history). The
+ * returned cursor is where to carry on next pass; it is null when the walk
+ * ended without finding the withdrawal (the next pass starts again at the
+ * newest, and reads again any transaction the RPC did not serve).
  */
-export async function findWithdrawal({ m, crankBase, connection, rpc, search }) {
+export async function findWithdrawal({ m, crankBase, connection, rpc, search, cursor = null, since = 0 }) {
   const { pageSize, maxPages, maxTransactions } = { ...WITHDRAW_SEARCH, ...search };
-  let before, read = 0, unreadable = 0;
+  let before = cursor?.before ?? undefined;
+  let read = 0;
+  const walk = { read: cursor?.read ?? 0, unreadable: cursor?.unreadable ?? 0 };
+  const here = () => ({ before: before ?? null, read: walk.read, unreadable: walk.unreadable });
+  const unreadable = () => (walk.unreadable ? `, ${walk.unreadable} not readable` : "");
+  const ended = (where) => ({ reason: `not in the pool's history ${where} (${walk.read} transactions read${unreadable()}); the search starts again from the newest`, cursor: null });
+  const carryOn = () => ({ reason: `searching the pool's history, ${walk.read} transactions read so far${unreadable()}; continues from there next pass`, cursor: here() });
+  const bound = since > 0 ? since - WITHDRAW_SEARCH_SLACK_SECONDS : null;
   for (let page = 0; page < maxPages; page++) {
     const signatures = await rpc(() => connection.getSignaturesForAddress(m.pool, { limit: pageSize, ...(before ? { before } : {}) }, "confirmed"));
-    for (const { signature, err } of signatures) {
-      if (err) continue;
-      if (read >= maxTransactions) return { reason: `not among the pool's ${read} newest successful transactions` };
-      read++;
-      const tx = await rpc(() => connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }));
-      if (!tx) {
-        unreadable++; // too fresh for this RPC node; read again next pass
+    for (const { signature, err, blockTime } of signatures) {
+      if (bound !== null && Number.isFinite(blockTime) && blockTime < bound) return ended("since the curve finished");
+      if (err) {
+        before = signature;
         continue;
       }
-      if (!withdrawLeftoverOf(tx, m.pool)) continue;
-      const amount = withdrawnFromTransaction(tx, { pool: m.pool, crankBase });
-      return amount == null ? { signature, reason: `withdraw_leftover ${signature} moved nothing into the crank's base account` } : { signature, amount };
+      if (read >= maxTransactions) return carryOn();
+      read++;
+      walk.read++;
+      const tx = await rpc(() => connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }));
+      if (!tx) walk.unreadable++; // too fresh for this RPC node; read again when the walk starts over
+      else if (withdrawLeftoverOf(tx, m.pool)) {
+        const amount = withdrawnFromTransaction(tx, { pool: m.pool, crankBase });
+        // Kept before this signature, so the next pass reads it again.
+        return amount == null ? { signature, reason: `withdraw_leftover ${signature} moved nothing into the crank's base account`, cursor: here() } : { signature, amount };
+      }
+      before = signature;
     }
-    if (signatures.length < pageSize) return { reason: `not in the pool's history${unreadable ? ` (${unreadable} transactions not readable yet)` : ""}` };
-    before = signatures.at(-1).signature;
+    if (signatures.length < pageSize) return ended("back to its start");
   }
-  return { reason: `not among the pool's newest ${maxPages * pageSize} signatures` };
+  return carryOn();
 }
