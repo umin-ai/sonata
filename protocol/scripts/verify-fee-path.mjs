@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exercises the full fee path on a per-launch pool: a small buy through the
-// Meteora DBC curve, then claim (CPI into DBC signed by the vault PDA),
-// distribute (50/50) and a creator withdrawal of part of the retained share.
+// Meteora DBC curve, then claim (CPI into DBC signed by the vault PDA) and
+// distribute: 50/50 plus a creator withdrawal of part of the retained share in
+// Duet mode, or 100% to the payout owner in Refrain mode.
 // Every step is checked against on-chain state read back afterwards.
 //
 // Usage: node scripts/verify-fee-path.mjs [proof.json] [out.json]
@@ -35,7 +36,7 @@ import assert from "node:assert/strict";
 
 const proofPath = process.argv[2] ?? "artifacts/configurable-launch-proof.json";
 const out = process.argv[3] ?? "artifacts/fee-path-proof.json";
-const BUY_ATOMS = 5_000_000n; // 0.05 mSPY at 8 decimals
+const BUY_ATOMS = 5_000_000n; // 0.05 of the quote token at 8 decimals
 const DBC = JSON.parse(readFileSync("../cash-access/lib/treasury/dbc-addresses.json"));
 
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
@@ -53,6 +54,9 @@ const baseMint = pk(proof.baseMint), quoteMint = pk(proof.quoteMint), vault = pk
 const t0 = await program.account.treasury.fetch(treasury);
 assert.ok(t0.creator.equals(admin.publicKey), "This key did not create the pool.");
 const payoutOwner = t0.payoutOwner;
+const MODE = Object.keys(t0.mode)[0];
+assert.ok(MODE === "duet" || MODE === "refrain", `Fee path covers duet and refrain, not ${MODE}.`);
+const FEE_BPS = BigInt(proof.settings?.feeBps ?? 300);
 const treasuryBase = getAssociatedTokenAddressSync(baseMint, treasury, true, TOKEN_PROGRAM_ID);
 const treasuryQuote = getAssociatedTokenAddressSync(quoteMint, treasury, true, TOKEN_2022_PROGRAM_ID);
 const payoutQuote = getAssociatedTokenAddressSync(quoteMint, payoutOwner, true, TOKEN_2022_PROGRAM_ID);
@@ -89,7 +93,7 @@ const swapTx = await dbc.pool.swap({
   swapBaseForQuote: false,
   referralTokenAccount: null,
 });
-await send("Buy 0.05 mSPY through the 3% curve", swapTx);
+await send(`Buy 0.05 ${proof.settings?.quote ?? "mSPY"} through the ${Number(FEE_BPS) / 100}% curve`, swapTx);
 const partnerAfter = BigInt((await poolState()).partnerQuoteFee.toString());
 
 // 2. Claim: the treasury program signs as the vault PDA.
@@ -115,9 +119,10 @@ const tAfterClaim = await program.account.treasury.fetch(treasury);
 const claimed = BigInt(tAfterClaim.totalClaimed.sub(tBeforeClaim.totalClaimed).toString());
 const custodyAfterClaim = await balance(treasuryQuote);
 
-// 3. Distribute: 50% to the fixed payout owner, 50% retained.
+// 3. Distribute: Duet sends 50% to the fixed payout owner and retains 50%;
+// Refrain sends 100%.
 const payoutBefore = await balance(payoutQuote);
-await send("Allocate 50% payout / 50% retained", new Transaction().add(
+await send(MODE === "refrain" ? "Allocate 100% to the payout owner" : "Allocate 50% payout / 50% retained", new Transaction().add(
   await program.methods.distribute().accounts({
     treasury, treasuryQuote, payoutQuote, quoteMint, tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
   }).instruction(),
@@ -127,31 +132,38 @@ const paid = BigInt(tAfterDist.totalDistributed.sub(tAfterClaim.totalDistributed
 const retained = BigInt(tAfterDist.totalRetained.sub(tAfterClaim.totalRetained).toString());
 const payoutAfter = await balance(payoutQuote);
 
-// 4. Creator withdraws half of what was just retained.
+// 4. Duet only: the creator withdraws half of what was just retained.
 const withdraw = retained / 2n;
-const creatorBefore = await balance(creatorQuote);
-await send("Creator withdraws half of the retained share", new Transaction().add(
-  createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, creatorQuote, admin.publicKey, quoteMint, TOKEN_2022_PROGRAM_ID),
-  await program.methods.withdrawRetained(new BN(withdraw.toString())).accounts({
-    treasury, creator: admin.publicKey, treasuryQuote, creatorQuote, quoteMint, tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
-  }).instruction(),
-));
-const tEnd = await program.account.treasury.fetch(treasury);
-const creatorAfter = await balance(creatorQuote);
+let creatorBefore = 0n, creatorAfter = 0n, tEnd = tAfterDist;
+if (MODE === "duet") {
+  creatorBefore = await balance(creatorQuote);
+  await send("Creator withdraws half of the retained share", new Transaction().add(
+    createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, creatorQuote, admin.publicKey, quoteMint, TOKEN_2022_PROGRAM_ID),
+    await program.methods.withdrawRetained(new BN(withdraw.toString())).accounts({
+      treasury, creator: admin.publicKey, treasuryQuote, creatorQuote, quoteMint, tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+    }).instruction(),
+  ));
+  tEnd = await program.account.treasury.fetch(treasury);
+  creatorAfter = await balance(creatorQuote);
+}
 
-// Fee rate: DBC computes it from the config's 3% numerator; allow 1 atom rounding.
-const expectedTotal = (BUY_ATOMS * 300n) / 10_000n;
+// Fee rate: DBC computes it from the config's fee numerator; allow 1 atom rounding.
+const expectedTotal = (BUY_ATOMS * FEE_BPS) / 10_000n;
 const checks = {
-  feeIsThreePercentOfInput: totalFee >= expectedTotal - 1n && totalFee <= expectedTotal + 1n,
+  feeMatchesConfiguredRate: totalFee >= expectedTotal - 1n && totalFee <= expectedTotal + 1n,
   meteoraTakesTwentyPercent: protocolFee * 5n >= totalFee - 5n && protocolFee * 5n <= totalFee + 5n,
   partnerFeeAccruedOnPool: partnerAfter - partnerBefore === partnerFee,
   claimMatchesAccruedPartnerFee: claimed === partnerAfter,
   custodyReceivedClaim: custodyAfterClaim - custodyBefore === claimed,
-  splitIsFiftyFifty: paid === claimed / 2n && paid + retained === claimed,
-  payoutOwnerReceivedHalf: payoutAfter - payoutBefore === paid,
-  creatorReceivedWithdrawal: creatorAfter - creatorBefore === withdraw,
-  treasuryLedgerRecordsWithdrawal:
-    BigInt(tEnd.totalWithdrawn.sub(tAfterDist.totalWithdrawn).toString()) === withdraw,
+  splitMatchesMode: MODE === "refrain"
+    ? paid === claimed && retained === 0n
+    : paid === claimed / 2n && paid + retained === claimed,
+  payoutOwnerReceivedAllocation: payoutAfter - payoutBefore === paid,
+  ...(MODE === "duet" ? {
+    creatorReceivedWithdrawal: creatorAfter - creatorBefore === withdraw,
+    treasuryLedgerRecordsWithdrawal:
+      BigInt(tEnd.totalWithdrawn.sub(tAfterDist.totalWithdrawn).toString()) === withdraw,
+  } : {}),
 };
 console.log(checks);
 for (const [name, ok] of Object.entries(checks)) assert.ok(ok, `Verification failed: ${name}`);
@@ -159,12 +171,15 @@ for (const [name, ok] of Object.entries(checks)) assert.ok(ok, `Verification fai
 writeFileSync(out, JSON.stringify({
   network: "solana:devnet",
   createdAt: new Date().toISOString(),
-  intent: "Full fee path on a per-launch 3% pool: buy, claim via vault-PDA CPI, 50/50 allocation, creator withdrawal.",
+  intent: MODE === "refrain"
+    ? `Full fee path on a per-launch ${Number(FEE_BPS) / 100}% Refrain pool: buy, claim via vault-PDA CPI, 100% to the payout owner.`
+    : `Full fee path on a per-launch ${Number(FEE_BPS) / 100}% pool: buy, claim via vault-PDA CPI, 50/50 allocation, creator withdrawal.`,
+  mode: MODE,
   pool: pool.toBase58(), config: config.toBase58(), treasury: treasury.toBase58(),
   amounts: {
     buyAtoms: BUY_ATOMS.toString(), totalFee: totalFee.toString(), meteoraProtocolFee: protocolFee.toString(),
     partnerFee: partnerFee.toString(), claimed: claimed.toString(), paidOut: paid.toString(),
-    retained: retained.toString(), withdrawn: withdraw.toString(),
+    retained: retained.toString(), withdrawn: (MODE === "duet" ? withdraw : 0n).toString(),
   },
   checks, traces,
 }, null, 2));

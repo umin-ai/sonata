@@ -1,0 +1,42 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-24T07:07:33.859Z",
+  "intent": "Full fee path on a per-launch 1% Refrain pool: buy, claim via vault-PDA CPI, 100% to the payout owner.",
+  "mode": "refrain",
+  "pool": "5PYgYNjxy51XUNM5jNjc7dCfHNErroPMJUAqjVbCxcgj",
+  "config": "815okHS87GFHW22ewkFB6Vm49SFUMkUVNh1TStwo8Npy",
+  "treasury": "7YNTbRABpSanNbLEnk2NL8oFgD9zyR3V4xixWYLgdEuy",
+  "amounts": {
+    "buyAtoms": "5000000",
+    "totalFee": "50000",
+    "meteoraProtocolFee": "10000",
+    "partnerFee": "40000",
+    "claimed": "40000",
+    "paidOut": "40000",
+    "retained": "0",
+    "withdrawn": "0"
+  },
+  "checks": {
+    "feeMatchesConfiguredRate": true,
+    "meteoraTakesTwentyPercent": true,
+    "partnerFeeAccruedOnPool": true,
+    "claimMatchesAccruedPartnerFee": true,
+    "custodyReceivedClaim": true,
+    "splitMatchesMode": true,
+    "payoutOwnerReceivedAllocation": true
+  },
+  "traces": [
+    {
+      "label": "Buy 0.05 mQQQ through the 1% curve",
+      "signature": "5UQNeFtd9mEcxjzAxd4eNwu4Pz9HMuzqNZTccLXnMCat1hU3RdxrDbhzo5JYHz5oMhQk8Cud6ZkabPhR3dwZcpYn"
+    },
+    {
+      "label": "Claim partner fees into treasury custody",
+      "signature": "41TSSzwKP4MRYoYd9FWkUDwFBYrhgw2gxrWR1jmhkySGzMRSzRuGoMDkFbe27YjMtW1ywmhwRNXmgvoWV1DC3NC"
+    },
+    {
+      "label": "Allocate 100% to the payout owner",
+      "signature": "EwaHrCwErav81xoirZpALHpY2tBgGkHFGDGhpowMwE8HbxKfst5c5Uy3qt9v4JTXioUMKPhUgyX6BPrpRqoS1bD"
+    }
+  ]
+}
