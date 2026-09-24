@@ -910,7 +910,17 @@ if (isMain) {
   console.log(MIGRATED_LINE);
   // LP Farm readings at random times between crank passes (lpReadings).
   const lp = lpReadings({ db, conn, rpc });
-  const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: lp.tick });
+  // One reading at a time, whoever asks. Readings also run on their own timer,
+  // so a long read of one address (a backfill, or an address flooded with
+  // transactions) cannot hold them off and reopen the gap between crank passes.
+  let reading = null;
+  const tick = () =>
+    (reading ??= lp
+      .tick()
+      .catch((e) => console.error("LP reading failed:", String(e?.message ?? e).slice(0, 300)))
+      .finally(() => (reading = null)));
+  setInterval(tick, 15_000);
+  const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: tick });
   for (;;) {
     try {
       await syncAll();
@@ -918,7 +928,7 @@ if (isMain) {
       state.lastError = String(e?.message ?? e).slice(0, 300);
       console.error("sync failed:", state.lastError);
     }
-    await lp.tick();
+    await tick();
     await sleep(POLL_MS);
   }
 }
