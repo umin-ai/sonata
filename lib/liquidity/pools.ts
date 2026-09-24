@@ -909,3 +909,110 @@ export async function preparePoolClaim(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Trading a graduated token: its DBC curve is closed, so buys and sells go to
+// the DAMM v2 pool, in the stock. Same 0.5% slippage limit as the curve swap.
+
+export type SwapSide = "buy" | "sell";
+const SWAP_SLIPPAGE_BPS = 50;
+
+/**
+ * What a swap of `raw` input atoms returns now, after the pool's fee, from a
+ * fresh read of the pool. `feeInStock` is the fee valued in the stock, and
+ * `impact` the price move alone, in percent (the SDK's figure counts the fee).
+ */
+export async function quotePoolSwap(pool: GraduatedPool, side: SwapSide, raw: bigint) {
+  const L = await libs();
+  const [s, slot] = await Promise.all([
+    L.amm.fetchPoolState(pk(pool.address)),
+    L.runtime.connection.getSlot("confirmed"),
+  ]);
+  const time = (await L.runtime.connection.getBlockTime(slot)) ?? Math.floor(Date.now() / 1000);
+  let q;
+  try {
+    q = L.amm.getQuote({
+      inAmount: new L.BN(raw.toString()),
+      inputTokenMint: side === "buy" ? s.tokenBMint : s.tokenAMint,
+      slippage: SWAP_SLIPPAGE_BPS,
+      poolState: s,
+      currentTime: time,
+      currentSlot: slot,
+      tokenADecimal: pool.market.baseDecimals,
+      tokenBDecimal: pool.market.quoteDecimals,
+    });
+  } catch (e) {
+    if (e instanceof Error && /greater than 0/i.test(e.message))
+      throw Error("Trade is too small to receive anything after the fee.");
+    throw e;
+  }
+  const out = BigInt(q.swapOutAmount.toString()),
+    minimum = BigInt(q.minSwapOutAmount.toString()),
+    fee = BigInt(q.totalFee.toString());
+  if (minimum <= 0n) throw Error("Trade is too small to receive anything after the fee.");
+  // Where the fee is taken: quote-only pools (mode 1) always in the stock; pools
+  // with fees in both tokens (mode 0) from the output, so a buy pays it in the token.
+  const feeInStock =
+    s.collectFeeMode === 0 && side === "buy" ? (out + fee > 0n ? (fee * raw) / (out + fee) : 0n) : fee;
+  const stockTraded = side === "buy" ? raw : out + feeInStock;
+  const feePct = stockTraded > 0n ? (Number(feeInStock) / Number(stockTraded)) * 100 : 0;
+  return { out, minimum, fee, feeInStock, impact: Math.max(0, Number(q.priceImpact.toString()) - feePct) };
+}
+
+/** Buy the token with the stock, or sell it for the stock, in its graduated pool. */
+export async function preparePoolSwap(
+  wallet: string,
+  listed: GraduatedPool,
+  side: SwapSide,
+  amount: string,
+): Promise<PreparedTreasury> {
+  const L = await libs();
+  if (listed.reserve) throw Error("Trade this token on its market page.");
+  const inDecimals = side === "buy" ? listed.market.quoteDecimals : listed.market.baseDecimals;
+  const raw = parseUnits(amount, inDecimals);
+  if (raw <= 0n) throw Error("Enter an amount.");
+  const { pool } = await freshPool(L, listed);
+  const m = pool.market,
+    s = pool.state,
+    owner = pk(wallet);
+  const balance = await L.runtime.readTradingWallet(wallet, m);
+  if (raw > BigInt(side === "buy" ? balance.quote : balance.base))
+    throw Error(`Not enough ${side === "buy" ? pool.quoteSymbol : m.symbol} in your wallet.`);
+  const q = await quotePoolSwap(pool, side, raw);
+  const tx = await L.amm.swap({
+    payer: owner,
+    pool: pk(pool.address),
+    inputTokenMint: side === "buy" ? s.tokenBMint : s.tokenAMint,
+    outputTokenMint: side === "buy" ? s.tokenAMint : s.tokenBMint,
+    amountIn: new L.BN(raw.toString()),
+    minimumAmountOut: new L.BN(q.minimum.toString()),
+    ...tokenAccounts(s),
+    referralTokenAccount: null,
+    poolState: s,
+  });
+  tx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
+  const prepared = await L.runtime.finalizeTransaction(
+    tx,
+    side === "buy" ? "lp-buy" : "lp-sell",
+    wallet,
+    raw.toString(),
+    wallet,
+    {
+      inputSymbol: side === "buy" ? pool.quoteSymbol : m.symbol,
+      inputDecimals: inDecimals,
+      outputSymbol: side === "buy" ? m.symbol : pool.quoteSymbol,
+      outputDecimals: side === "buy" ? m.baseDecimals : m.quoteDecimals,
+      expectedOut: q.out.toString(),
+      minimumOut: q.minimum.toString(),
+      slippageBps: SWAP_SLIPPAGE_BPS,
+      tradingFee: q.feeInStock.toString(),
+      protocolFee: "0",
+      rentLamports: 0,
+    },
+  );
+  return {
+    ...prepared,
+    market: m,
+    title: `${side === "buy" ? "Buy" : "Sell"} ${m.symbol} in its Meteora pool`,
+  };
+}

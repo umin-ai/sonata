@@ -461,7 +461,7 @@ export function LiveLaunch() {
   // One line on what the chosen model does with its share.
   const modelInfo =
     model === "reward"
-      ? `${share} of every trade is paid to holders, pro rata, in ${q}. No transfer tax. You're treated like any other holder.`
+      ? `${share} of every trade is paid to holders, pro rata, in ${q}. No transfer tax. Your own wallet is left out, dev buy included.`
       : model === "backed"
         ? `You earn ${half} of every trade. Another ${half} builds a ${q} reserve behind every token: any holder can cash out their share, and you can never touch it.`
         : feeModule === "buyback"
@@ -469,11 +469,11 @@ export function LiveLaunch() {
           : feeModule === "topBuyers"
             ? `${share} of every trade goes to the 3 biggest net buyers of each 15-minute round: 50% / 30% / 20%. Net = buys − sells, so sellers can't game it. You and Sonata are excluded. A round with no net buyers rolls over.`
             : feeModule === "lpFarm"
-              ? `${share} of every trade goes to holders while on the curve, then to liquidity providers in the Meteora pool after graduation, pro rata. Liquidity counts once it has been in the pool for a full round.`
+              ? `${share} of every trade goes to holders while on the curve, then to liquidity providers in the Meteora pool after graduation, pro rata. Liquidity counts once it has been in the pool for a full round. Your own wallet is left out.`
               : feeModule === "split"
                 ? `${share} of every trade is split between these wallets by share, in ${q}.`
                 : feeModule === "diamond"
-                  ? `${share} of every trade goes to holders, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount, and new tokens start at 1×.`
+                  ? `${share} of every trade goes to holders, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount, and new tokens start at 1×. Your own wallet is left out.`
                   : `You earn ${share} of every trade, paid to your wallet in ${q}. Nothing to claim.`;
   const cadence =
     feeModule === "buyback"
@@ -698,6 +698,9 @@ export function LiveLaunch() {
                 : `≈ ${devBuyTokens.percent.toFixed(2)}% of the supply (${Math.round(devBuyTokens.tokens).toLocaleString()} ${symbol || "tokens"}).`
               : `Optional. Buy up to ${maxPercent}% of the supply as the pool's very first trade, in the same transaction as the launch, so nothing trades before you. Paid in ${q}.`}
         </p>
+        {devBuyOk && devBuyTokens && (
+          <p className="sr-note">Meteora and Jupiter show it as dev holdings on the token&apos;s page.</p>
+        )}
       </div>
     </section>
   );
@@ -778,7 +781,8 @@ export function LiveLaunch() {
         </div>
         <p className="sr-note">
           On every buy and sell: 40% to your fee model, 40% to Sonata, 20% to Meteora. No transfer tax. After
-          graduation: a 1% pool fee, and half the locked pool is yours
+          graduation: a 1% pool fee, a little more on fast moves (Meteora&apos;s own volatility fee, on every graduated
+          pool), and half the locked pool is yours
           {PAYOUT_BOT_V2 ? "; the fees from Sonata's half are split like the fees above" : ""}.
         </p>
       </fieldset>
@@ -790,12 +794,12 @@ export function LiveLaunch() {
               [
                 "volatility",
                 "Volatility fee",
-                "When the price moves fast, the fee rises by up to 20%. The extra is split like the rest of the fee.",
+                "On the curve: when the price moves fast, the fee rises by up to 20%, split like the rest of the fee. After graduation, Meteora's pool adds its own volatility fee either way.",
               ],
               [
                 "airdrop",
                 "Graduation airdrop",
-                `${AIRDROP_PERCENT}% of the supply is kept off the curve and airdropped to holders, pro rata, the moment the token graduates.`,
+                `${AIRDROP_PERCENT}% of the supply is kept off the curve and airdropped to holders, pro rata, the moment the token graduates. Your own wallet is left out.`,
               ],
             ] as const
           )
@@ -1067,7 +1071,7 @@ export function LiveLaunch() {
             ...(settings.airdrop ? [["Graduation airdrop", `${AIRDROP_PERCENT}% of supply to holders`]] : []),
             [
               "After graduation",
-              `1% pool fee · half the locked pool is yours${PAYOUT_BOT_V2 ? " · fee model keeps running" : ""}`,
+              `1% pool fee, more on fast moves · half the locked pool is yours${PAYOUT_BOT_V2 ? " · fee model keeps running" : ""}`,
             ],
             ...(devBuyTokens ? [["Dev buy", `${amount(devBuy)} ${q} · ≈ ${devBuyTokens.percent.toFixed(2)}%`]] : []),
             ["Launch cost", `${LAUNCH_COST_SOL} · rent only`],
@@ -1213,7 +1217,8 @@ export function LiveLaunch() {
                   <span>
                     Opens at a {settings.pricing ? compactUsd(OPEN_USD) : `2 ${q}`} market cap and graduates at{" "}
                     {settings.pricing ? compactUsd(DEFAULT_TARGET_USD) : `${FALLBACK_TARGET[DEFAULT_TARGET_USD]} ${q}`}{" "}
-                    into a Meteora pool, with the liquidity locked forever. {pct(initialSettings.fee)} fee on every
+                    into a Meteora pool, with the liquidity locked forever and a 1% pool fee, a little more on fast
+                    moves. {pct(initialSettings.fee)} fee on every
                     trade: {pct(initialSettings.fee * 0.4)} to you, paid every 15 minutes in {q}. For holder rewards, a
                     buyback or another curve, use Advanced.
                   </span>

@@ -27,11 +27,12 @@ import {
   treasuryReceipts,
   market,
   explorer,
+  meteoraPool,
   type TreasurySnapshot,
   type TreasuryAction,
-  type TradeSide,
   readTradingWallet,
   prepareTrade,
+  quoteTrade,
 } from "@/lib/treasury/runtime";
 import { formatUnits } from "@/lib/treasury/units";
 import { REWARDS_MINT, quoteSymbolOf } from "@/lib/treasury/quote-assets";
@@ -40,6 +41,8 @@ import { AIRDROP_PERCENT } from "@/lib/treasury/dbc-preview";
 import { StockFloor } from "./stock-floor";
 import { CreatorPosition } from "./creator-position";
 import { PriceChart, RecentTrades } from "./market-activity";
+import { GraduatedSwap } from "./graduated-swap";
+import { SwapPanel } from "./swap-panel";
 import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-view";
 import { LiveWallet, useLive } from "./live-session";
 import type { Market } from "@/lib/treasury/runtime";
@@ -142,7 +145,7 @@ function HolderRewardsPanel({
               "03 / LP FARM",
               "LP Farm",
               "Paid out",
-              `${paid?.status === "lps" ? "Paying liquidity providers in the Meteora pool, pro rata, once their liquidity has been in for a full round" : "Paying holders while on the curve; liquidity providers after graduation"}, about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`,
+              `${paid?.status === "lps" ? "Paying liquidity providers in the Meteora pool, pro rata, once their liquidity has been in for a full round" : "Paying holders while on the curve; liquidity providers after graduation"}, about every 15 minutes, in ${quote}. The creator's own wallet is left out. ${last(paid?.lastPaidAt)}`,
             ]
           : model === "split"
             ? [
@@ -158,13 +161,13 @@ function HolderRewardsPanel({
                   "03 / DIAMOND HANDS",
                   "Diamond Hands",
                   "Paid to holders",
-                  `Paid to holders about every 15 minutes, in ${quote}, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount, and new tokens start at 1×. ${last(paid?.lastPaidAt)}`,
+                  `Paid to holders about every 15 minutes, in ${quote}, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount, and new tokens start at 1×. The creator's own wallet is left out. ${last(paid?.lastPaidAt)}`,
                 ]
               : [
                 "03 / PAID TO HOLDERS",
                 "Holder rewards",
                 "Paid to holders",
-                `Paid pro rata to holders of at least 0.01% of the supply, about every 15 minutes, in ${quote}. ${
+                `Paid pro rata to holders of at least 0.01% of the supply, about every 15 minutes, in ${quote}. The creator's own wallet is left out. ${
                   paid?.lastPaidAt
                     ? `Last payout ${sinceText(paid.lastPaidAt, now)} to ${paid.recipientsLast} holders.`
                     : "No payout yet."
@@ -246,8 +249,6 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
     [walletBalances, setWalletBalances] = useState<Awaited<
       ReturnType<typeof readTradingWallet>
     > | null>(null),
-    [side, setSide] = useState<TradeSide>("buy"),
-    [amount, setAmount] = useState("0.001"),
     [withdrawAmount, setWithdrawAmount] = useState(""),
     [refreshTick, setRefreshTick] = useState(0);
   const refresh = useCallback(async () => {
@@ -281,8 +282,6 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
   }, [address, market, revision, refreshTick]);
   const prepare = (action: TreasuryAction) =>
     execute(() => prepareTreasury(action, address, market));
-  const prepareSwap = () =>
-    execute(() => prepareTrade(side, address, amount, market));
   const enabled = !!address && !busy && !pending;
   const balances = walletBalances?.wallet === address ? walletBalances : null;
   const value = (key: keyof TreasurySnapshot) =>
@@ -313,6 +312,80 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           Refresh chain data
         </Button>
       </div>
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
+      <LiveWallet />
+      {view === "trade" && <div className="terminal-trade-layout">
+      {/* As on other launchpads: the chart and trades on the left; the swap, then the market's details, on the right. */}
+      <div className="terminal-trade-main">
+        <Card className="sr-panel terminal-chart-card"><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /></Card>
+        <Card className="sr-panel terminal-trades-card">
+          <span className="sr-eyebrow">RECENT TRADES</span>
+          <RecentTrades pool={market.pool} symbol={market.symbol} quote={q} revision={revision} />
+        </Card>
+      </div>
+      <div className="terminal-trade-side">
+      {data?.migrated ? (
+        // A graduated market trades in its DAMM v2 pool, not on its closed curve.
+        <GraduatedSwap market={market} quote={q} balances={balances} baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>} />
+      ) : (
+        <SwapPanel
+          market={market}
+          quoteSymbol={q}
+          balances={balances}
+          baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>}
+          route="Meteora bonding curve"
+          fee={data ? { bps: data.tradingFeeBps, dynamic: !!data.volatilityFee } : undefined}
+          unavailable={data ? undefined : "Reading the market…"}
+          quote={(side, amount) => quoteTrade(side, amount, market)}
+          prepare={(side, amount) => prepareTrade(side, address, amount, market)}
+        />
+      )}
+      {walletError && <p className="swap-hint" data-tone="error">{walletError}</p>}
+      <Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {data?.migrated && (
+        <Card className="sr-panel">
+          <div className="sr-section-top">
+            <div>
+              <span className="sr-eyebrow">TRADE</span>
+              <h3>Graduated</h3>
+            </div>
+            <Badge variant="outline">
+              <MeteoraLabel>Meteora DAMM v2 · Devnet</MeteoraLabel>
+            </Badge>
+          </div>
+          <p className="sr-note">
+            This market completed its bonding curve and moved to a Meteora
+            DAMM v2 pool, with its liquidity locked forever. The pool charges
+            1%, plus Meteora&apos;s volatility fee on fast moves. Trade it below
+            or on Meteora, or add liquidity to its pool on the Pools page.
+          </p>
+          {data.dammPool && (
+            <div className="flex flex-wrap gap-3 mt-4">
+              <Button asChild>
+                <a href={meteoraPool(data.dammPool)} target="_blank" rel="noreferrer">
+                  Trade on Meteora <ArrowUpRight />
+                </a>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href={`/earn?net=devnet&pool=${data.dammPool}`}>Add liquidity</Link>
+              </Button>
+              <Button asChild variant="ghost">
+                <a href={explorer("address", data.dammPool)} target="_blank" rel="noreferrer">
+                  Explorer <ArrowUpRight />
+                </a>
+              </Button>
+            </div>
+          )}
+        </Card>
+      )}
+      </div></div>}
+      {/* Where this market's fees go, and the treasury's balances: on the Fees tab, so the trade view starts with the chart and the swap. */}
+      {view === "fees" && <>
       <Alert className="mb-6">
         <ShieldCheck />
         <AlertDescription>
@@ -343,11 +416,6 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
                 : "Half of net trading fees goes to the creator's payout wallet. The other half builds a creator reserve, which only the creator can withdraw."}
         </AlertDescription>
       </Alert>
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
       <div className="sr-stats">
         <Card>
           <span>Available in Meteora</span>
@@ -371,133 +439,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           <small>Cumulative contract allocation</small>
         </Card>
       </div>
-      <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
-      <LiveWallet />
-      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
-      {data?.migrated ? (
-        // A graduated pool no longer trades on its DBC curve; the runtime refuses
-        // such a swap. Say so here rather than after the user fills in the form.
-        <Card className="sr-panel mb-6">
-          <div className="sr-section-top">
-            <div>
-              <span className="sr-eyebrow">TRADE</span>
-              <h3>Graduated</h3>
-            </div>
-            <Badge variant="outline">
-              <MeteoraLabel>Meteora DAMM v2 · Devnet</MeteoraLabel>
-            </Badge>
-          </div>
-          <p className="sr-note">
-            This market completed its bonding curve and migrated to a Meteora
-            DAMM v2 pool, so it no longer trades here. Swapping on the new pool
-            from this page is not connected yet.
-          </p>
-          {data.dammPool && (
-            <Button asChild variant="outline" className="mt-4">
-              <a href={explorer("address", data.dammPool)} target="_blank" rel="noreferrer">
-                View the DAMM v2 pool <ArrowUpRight />
-              </a>
-            </Button>
-          )}
-        </Card>
-      ) : (
-      <Card className="sr-panel mb-6">
-        <div className="sr-section-top">
-          <div>
-            <span className="sr-eyebrow">START HERE / TRADE</span>
-            <h3>Swap</h3>
-          </div>
-          <Badge variant="outline">
-            <MeteoraLabel>Meteora DBC · Devnet</MeteoraLabel>
-          </Badge>
-        </div>
-        <p className="sr-note">
-          Swap {q} and {market.symbol} in the existing pool. Trading produces
-          fees in {q} that the treasury can collect below. These are test
-          assets, with no real stock exposure.
-        </p>
-        <Tabs
-          value={side}
-          onValueChange={(v) => {
-            setSide(v as TradeSide);
-            setAmount("");
-          }}
-        >
-          <TabsList aria-label="Trade direction">
-            <TabsTrigger value="buy" disabled={!!busy}>
-              Buy <TokenName symbol={market.symbol} />
-            </TabsTrigger>
-            <TabsTrigger value="sell" disabled={!!busy}>
-              Sell <TokenName symbol={market.symbol} />
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3 [&_span]:block [&_span]:text-xs [&_span]:text-muted-foreground [&_strong]:block [&_strong]:break-all [&_strong]:text-lg">
-          <div>
-            <span>
-              Your <TokenName symbol={q} />
-            </span>
-            <strong>{balances ? formatUnits(balances.quote, 8) : "—"}</strong>
-          </div>
-          <div>
-            <span>
-              Your <TokenName symbol={market.symbol} />
-            </span>
-            <strong>{balances ? formatUnits(balances.base, 6) : "—"}</strong>
-          </div>
-          <div>
-            <span>Devnet SOL</span>
-            <strong>{balances ? formatUnits(balances.sol, 9) : "—"}</strong>
-          </div>
-        </div>
-        {walletError && (
-          <p className="sr-note" role="alert">
-            {walletError}
-          </p>
-        )}
-        <div className="max-w-md space-y-3 mt-5">
-          <Label htmlFor="trade-amount">
-            You pay ({side === "buy" ? q : market.symbol})
-          </Label>
-          <Input
-            id="trade-amount"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder={side === "buy" ? "0.01" : "100"}
-            value={amount}
-            disabled={!!busy}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          <p className="sr-note">
-            0.5% slippage limit · quote expires after 30 seconds. Review shows
-            the minimum you receive and estimated network costs.
-          </p>
-          <Button
-            disabled={
-              !enabled || !data || !balances || data.migrated || !amount
-            }
-            onClick={() => void prepareSwap()}
-          >
-            Review {side === "buy" ? "buy" : "sell"}
-          </Button>
-        </div>
-        {!address && (
-          <p className="sr-note mt-3">Connect a test wallet above to start.</p>
-        )}
-        {balances && BigInt(balances.quote) === 0n && (
-          <p className="sr-note mt-3">
-            This wallet needs the {q} mock mint linked below. The real tokenized
-            stock is not supported by this Devnet pool.
-          </p>
-        )}
-      </Card>
-      )}</div>}
-      {view === "trade" && (
-        <Card className="sr-panel mt-6">
-          <span className="sr-eyebrow">RECENT TRADES</span>
-          <RecentTrades pool={market.pool} symbol={market.symbol} quote={q} revision={revision} />
-        </Card>
-      )}
+      </>}
       {view === "fees" && <><div className="sr-community-layout">
         <Card className="sr-panel">
           <span className="sr-eyebrow">01 / EARNED BY TRADING</span>

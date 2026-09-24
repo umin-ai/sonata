@@ -16,7 +16,7 @@ type LiveValue = {
   error: string;
   revision: number;
   labels: Record<string, string>;
-  execute: (build: () => Promise<PreparedTreasury>) => Promise<void>;
+  execute: (build: () => Promise<PreparedTreasury>, options?: { direct?: boolean }) => Promise<void>;
   useTestWallet: () => void;
   walletOpen: boolean;
   setWalletOpen: (open: boolean) => void;

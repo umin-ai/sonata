@@ -255,6 +255,35 @@
 .sr-app .pool-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted-foreground)}
 .sr-app .pool-tag[data-tone=farm]{color:#3fcf8e;border-color:color-mix(in srgb,#3fcf8e 45%,var(--border));background:color-mix(in srgb,#3fcf8e 10%,transparent)}
 .sr-app .pool-tag[data-tone=mine]{color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,var(--border))}
+/* Market page, as on other launchpads: chart and trades on the left; the swap, then the market's details, on the right. */
+.sr-app .terminal-trade-main,.sr-app .terminal-trade-side{display:grid;gap:16px;min-width:0;align-content:start}
+.sr-app .terminal-trade-main>.sr-panel,.sr-app .terminal-trade-side>.sr-panel{padding:22px;gap:12px;margin-bottom:0}
+/* Phones: one column, in the order chart, swap, details, trades. */
+@media(max-width:800px){.sr-app .terminal-trade-main,.sr-app .terminal-trade-side{display:contents}.sr-app .terminal-chart-card{order:1}.sr-app .terminal-trade-side>*{order:3}.sr-app .terminal-trade-side>.swap-panel{order:2}.sr-app .terminal-trades-card{order:4}.sr-app .terminal-trade-layout{gap:16px}}
+/* The swap box: compact, like other launchpads'. */
+.sr-app .swap-panel{display:grid;gap:10px;padding:14px!important}
+.sr-app .swap-side{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:12px;background:var(--muted)}
+.sr-app .swap-side button{padding:8px 0;border-radius:9px;border:0;background:transparent;color:var(--muted-foreground);font-weight:700;cursor:pointer}
+.sr-app .swap-side button[aria-checked=true][data-side=buy]{background:#3fcf8e;color:#08140e}
+.sr-app .swap-side button[aria-checked=true][data-side=sell]{background:#f0616d;color:#1c0709}
+.sr-app .swap-box{display:grid;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:14px;background:var(--background)}
+.sr-app .swap-box-top{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted-foreground)}
+.sr-app .swap-box-main{display:flex;align-items:center;gap:8px;min-width:0}
+.sr-app .swap-box-main input,.sr-app .swap-box-main output{flex:1;min-width:0;padding:2px 0;border:0;outline:0;background:transparent;color:var(--foreground);font-size:22px;font-weight:650;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-app .swap-token{display:inline-flex;align-items:center;flex-shrink:0;padding:3px 10px 3px 4px;border:1px solid var(--border);border-radius:999px;font-size:14px;font-weight:650;white-space:nowrap}
+.sr-app .swap-token .sr-token-name{gap:6px}
+.sr-app .swap-usd{min-height:16px;font-size:12px;color:var(--muted-foreground)}
+.sr-app .swap-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.sr-app .swap-chips button{padding:6px 0;border:0;border-radius:9px;background:var(--muted);color:var(--foreground);font-size:13px;font-weight:600;cursor:pointer}
+.sr-app .swap-rows{display:grid;gap:4px;padding:0 2px;font-size:13px}
+.sr-app .swap-rows>div{display:flex;justify-content:space-between;gap:12px;color:var(--muted-foreground)}
+.sr-app .swap-rows strong{font-weight:600;color:var(--foreground);text-align:right}
+.sr-app .swap-rows>div[data-tone=warn] strong{color:#f5a524}
+.sr-app .swap-panel .swap-cta{width:100%;height:44px;font-weight:700}
+.sr-app .swap-panel .swap-cta[data-side=buy]{background:#3fcf8e;color:#08140e}
+.sr-app .swap-panel .swap-cta[data-side=sell]{background:#f0616d;color:#1c0709}
+.sr-app .swap-hint{margin:0;font-size:12px;color:var(--muted-foreground)}
+.sr-app .swap-hint[data-tone=error]{color:var(--destructive)}
 .sr-app .pool-network{margin:0 0 16px}
 .sr-app .pool-card-main{display:grid;gap:10px;min-width:0;padding:14px 14px 10px}
 .sr-app .pool-tag[data-tone=warn]{color:#f5a524;border-color:color-mix(in srgb,#f5a524 45%,var(--border));background:color-mix(in srgb,#f5a524 10%,transparent)}
@@ -264,6 +293,7 @@
 .sr-app .pool-chips button[aria-checked=true]{color:var(--foreground);border-color:var(--primary);background:var(--accent)}
 .sr-app .pool-toggle{display:flex;align-items:flex-start;gap:8px;margin:4px 0 12px;font-size:13px;color:var(--muted-foreground);cursor:pointer}
 .sr-app .pool-toggle input{margin-top:2px;accent-color:var(--primary)}
+.sr-app .pool-chips .pool-chips-more{border-style:dashed;color:var(--primary)}
 .sr-app .pool-summary{margin:0 0 12px;font-size:14px;color:var(--muted-foreground)}
 .sr-app .pool-summary strong{color:var(--foreground);font-variant-numeric:tabular-nums}
 .sr-app .pool-card-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:auto;padding:8px 14px 12px;border-top:1px solid var(--border);font-size:13px}

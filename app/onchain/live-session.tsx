@@ -46,8 +46,8 @@ const names = {
   "reserve-deploy": "Deploy creator reserve",
   "reward-fund": "Fund community rewards",
   "reward-claim": "Claim community reward",
-  "lp-buy": "Buy ROOM in liquidity pool",
-  "lp-sell": "Sell ROOM in liquidity pool",
+  "lp-buy": "Buy in Meteora pool",
+  "lp-sell": "Sell in Meteora pool",
   "lp-deposit": "Supply liquidity",
   "lp-withdraw": "Withdraw liquidity",
   "lp-claim": "Claim pool fees",
@@ -205,17 +205,20 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     // check reads only stable setters and the connection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, busy]);
-  async function execute(build: () => Promise<PreparedTreasury>) {
+  async function execute(build: () => Promise<PreparedTreasury>, options: { direct?: boolean } = {}) {
     if (lock.current || pending || !address) return;
     lock.current = true;
     setBusy("Verifying and simulating transaction…");
     setError("");
+    let prepared: PreparedTreasury | null = null;
     try {
-      const prepared = await build();
+      prepared = await build();
       if (prepared.wallet !== currentAddress.current)
         throw Error("Wallet changed during preparation.");
-      setReview(prepared);
+      // A swap goes straight to the wallet, as on other launchpads; everything else is reviewed first.
+      if (!options.direct) setReview(prepared);
     } catch (e) {
+      prepared = null;
       setError(
         e instanceof Error ? e.message : "Unable to prepare transaction.",
       );
@@ -223,8 +226,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setBusy("");
       lock.current = false;
     }
+    if (options.direct && prepared) await confirm(prepared);
   }
-  async function confirm() {
+  // Signs and sends a prepared transaction: the one in the review window, or,
+  // for a swap, straight from its button (the wallet's own approval is the check).
+  async function confirm(target: PreparedTreasury | null = review) {
+    const review = target;
     if (!review || lock.current) return;
     lock.current = true;
     setBusy("Waiting for wallet signature…");
@@ -619,7 +626,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                               ? "All currently claimable partner fees move into treasury custody. The final amount may change if more trades occur."
                               : review.action === "lp-buy" ||
                                   review.action === "lp-sell"
-                                ? "This trade uses the DAMM pool. Net LP fees compound directly into its reserves; no creator treasury fee is charged by Sonata here."
+                                ? "This trade uses the token's Meteora DAMM v2 pool. Its fee, less Meteora's share, goes to the pool's liquidity providers: the creator and Sonata's locked halves (Sonata's half keeps paying the token's fee model) and anyone who adds liquidity. Test assets, with no real stock exposure."
                                 : "This trade changes your token balances and earns fees for the pool. It does not deposit into the creator reserve."}
               </p>
               <p className="sr-note break-all">
