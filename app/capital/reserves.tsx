@@ -92,8 +92,8 @@ export function ReservePicker({
       {!reserves.loading && !reserves.error && !reserves.rows.length && (
         <p className="sr-note">
           No usable reserve for this wallet. Reserves here come from mSPY markets
-          you created without a Stock Floor, after their fees are collected and
-          allocated. A Stock Floor belongs to holders and cannot be withdrawn.
+          you created that are not Backed tokens, after their fees are collected and
+          allocated. A Backed token&apos;s backing belongs to holders and cannot be withdrawn.
         </p>
       )}
     </div>

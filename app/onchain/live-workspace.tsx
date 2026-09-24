@@ -173,7 +173,7 @@ export function LiveDirectory() {
         <div className="nm-market-toolbar">
           <div className="sonata-market-tabs" aria-label="Filter markets">
             <button type="button" aria-pressed={category === "all"} onClick={() => setCategory("all")}>All markets <span>{loading ? "…" : markets.length}</span></button>
-            <button type="button" aria-pressed={category === "floor"} onClick={() => setCategory("floor")}><ShieldCheck size={14} /> Stock Floor</button>
+            <button type="button" aria-pressed={category === "floor"} onClick={() => setCategory("floor")}><ShieldCheck size={14} /> Backed</button>
           </div>
           <div className="nm-market-search">
             <Search size={17} />

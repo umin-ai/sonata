@@ -167,3 +167,68 @@
 .sr-app .launch-receipt{display:grid}
 .sr-app .launch-summary .launch-receipt .sr-detail-row{padding:6px 0;gap:12px;align-items:center;font-size:13px}
 .sr-app .launch-summary .launch-receipt .sr-detail-row strong{font-size:13px;text-align:right}
+/* Five-step launch */
+.sr-app .launch-steps button>div{display:grid;gap:2px;min-width:0}
+.sr-app .launch-steps button small{font-size:11px;color:var(--muted-foreground);font-weight:500}
+@media(max-width:1100px){.sr-app .launch-steps button small{display:none}}
+.sr-app .launch-stepper .launch-section{border-bottom:0;margin-bottom:0;padding-bottom:0}
+.sr-app .launch-stepper .launch-section h3{margin-bottom:0}
+.sr-app .launch-devbuy{display:grid;gap:10px;margin-top:6px}
+.sr-app .devbuy-slider{display:grid;gap:6px}
+.sr-app .devbuy-slider input[type=range]{width:100%;accent-color:var(--primary)}
+.sr-app .devbuy-slider>div{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--muted-foreground)}
+.sr-app .devbuy-slider strong{font-size:15px;color:var(--foreground)}
+.sr-app .module-options{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin:0}
+.sr-app .module-options button{gap:4px;padding:12px}
+.sr-app .module-options button strong{font-size:14px}
+.sr-app .module-options button>span{font-size:12px}
+.sr-app .module-options button[aria-checked=true]{border-color:var(--primary);background:var(--accent);box-shadow:0 0 0 1px var(--primary)}
+.sr-app .split-rows{display:grid;gap:8px}
+.sr-app .split-row{display:grid;grid-template-columns:minmax(0,1fr) 64px 40px 24px;gap:8px;align-items:center}
+.sr-app .split-remove{display:grid;place-items:center;height:24px;width:24px;border-radius:6px;color:var(--muted-foreground)}
+.sr-app .split-remove:hover{background:var(--muted);color:var(--foreground)}
+.sr-app .split-actions{display:flex;gap:8px;flex-wrap:wrap}
+.sr-app .launch-problems{display:grid;gap:6px}
+.sr-app .launch-problems button{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--destructive);border-radius:10px;font-size:13px;text-align:left;color:var(--foreground)}
+.sr-app .launch-problems button span{color:var(--muted-foreground);white-space:nowrap}
+.sr-app .launch-summary-head{display:flex;gap:12px;align-items:center}
+.sr-app .launch-summary-head .token-image{border-radius:10px;object-fit:cover;flex:none}
+.sr-app .launch-summary-head h3{margin:0}
+@media(max-width:700px){.sr-app .split-row{grid-template-columns:minmax(0,1fr) 56px 36px 24px}}
+.sr-app .launch-mode{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:16px}
+.sr-app .launch-mode .sr-note{margin:0}
+@media(max-width:700px){.sr-app .launch-stepper .launch-steps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow:visible}.sr-app .launch-stepper .launch-steps button{min-width:0;padding:6px 2px;text-align:center}.sr-app .launch-stepper .launch-steps button strong{font-size:11px;line-height:1.2}}
+.sr-app .bot-list{display:grid;margin:4px 0}.sr-app .bot-list .sr-detail-row{padding:6px 0;font-size:13px}
+.sr-app .shape-presets{grid-template-columns:repeat(4,minmax(0,1fr))}
+.sr-app .shape-presets button{padding:10px}
+.sr-app .shape-presets button strong{font-size:15px}
+.sr-app .curve-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}
+.sr-app .curve-stats>div{display:grid;gap:2px;padding:10px;border:1px solid var(--border);border-radius:10px}
+.sr-app .curve-stats strong{font-size:16px}
+.sr-app .curve-stats span{font-size:11px;color:var(--muted-foreground);line-height:1.3}
+.sr-app .launch-extras{display:grid;gap:8px}
+.sr-app .launch-extras button{display:flex;gap:12px;align-items:flex-start;text-align:left;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--background)}
+.sr-app .launch-extras button>div{display:grid;gap:2px}
+.sr-app .launch-extras button strong{font-size:14px}
+.sr-app .launch-extras button div span{font-size:12px;color:var(--muted-foreground)}
+.sr-app .launch-extras button[aria-checked=true]{border-color:var(--primary);background:var(--accent)}
+.sr-app .launch-switch{flex:none;position:relative;width:32px;height:18px;margin-top:2px;border-radius:9px;background:var(--muted);border:1px solid var(--border)}
+.sr-app .launch-switch:after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--muted-foreground);transition:transform .15s}
+.sr-app .launch-extras button[aria-checked=true] .launch-switch{background:var(--primary)}
+.sr-app .launch-extras button[aria-checked=true] .launch-switch:after{transform:translateX(14px);background:var(--primary-foreground)}
+@media(max-width:700px){.sr-app .curve-stats,.sr-app .shape-presets{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Compact stock picker: four across, logo and ticker over the name. */
+.sr-app .launch-section .pair-options{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px}
+.sr-app .pair-options button{gap:2px;padding:8px 10px}
+.sr-app .pair-options button .sr-token-name{font-size:14px}
+.sr-app .pair-options button>span:not(.sr-token-name){font-size:12px;line-height:1.3}
+.sr-app .launch-section .pair-options small{font-size:11px}
+@media(max-width:700px){.sr-app .launch-section .pair-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Stock family tabs above the picker, like StonkFun's. */
+.sr-app .pair-tabs{display:flex;flex-wrap:wrap;gap:4px;border-bottom:1px solid var(--border)}
+.sr-app .pair-tabs button{display:flex;align-items:center;gap:6px;padding:7px 12px;margin-bottom:-1px;border-bottom:2px solid transparent;color:var(--muted-foreground);font-size:13px;font-weight:600;cursor:pointer}
+.sr-app .pair-tabs button span{font-size:11px;padding:1px 6px;border-radius:9px;background:var(--muted);color:var(--muted-foreground)}
+.sr-app .pair-tabs button[aria-selected=true]{color:var(--foreground);border-bottom-color:var(--primary)}
+.sr-app .pair-tabs button[aria-selected=true] span{background:var(--accent);color:var(--foreground)}
+.sr-app .pair-options .sr-token-name{max-width:100%;min-width:0}
+.sr-app .pair-options .sr-token-name b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

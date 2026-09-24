@@ -45,7 +45,7 @@ export function StockFloor({
     return (
       <div className="stock-floor stock-floor-compact">
         <span>
-          <ShieldCheck size={14} /> Stock Floor
+          <ShieldCheck size={14} /> Backing
         </span>
         <strong>
           {data ? formatUnits(floor) : "—"} <TokenName symbol={quote} />
@@ -71,7 +71,7 @@ export function StockFloor({
     <div className="stock-floor">
       <div className="stock-floor-head">
         <span>
-          <ShieldCheck size={16} /> Stock Floor
+          <ShieldCheck size={16} /> Backing
         </span>
         <small>Creator can never withdraw it</small>
       </div>
@@ -79,7 +79,7 @@ export function StockFloor({
         {data ? formatUnits(floor) : "—"} <TokenName symbol={quote} />
       </strong>
       <p className="stock-floor-note">
-        {market.mode === "standardFloor" ? "A quarter" : "Half"} of net trading fees builds this floor. Any holder can burn{" "}
+        {market.mode === "standardFloor" ? "A quarter" : "Half"} of net trading fees goes into this backing. Any holder can burn{" "}
         {market.symbol} for their share, paid in {quote}.
       </p>
       <div className="sr-detail-row">
@@ -93,15 +93,15 @@ export function StockFloor({
           <span>Your {market.symbol}</span>
           <strong>
             {formatUnits(heldRaw, BASE_DECIMALS)} · worth{" "}
-            {formatUnits(floorShare(floor, heldRaw, supply))} {quote} at the
-            floor
+            {formatUnits(floorShare(floor, heldRaw, supply))} {quote} from the
+            backing
           </strong>
         </div>
       )}
       {data?.migrated ? (
         <p className="stock-floor-note">
-          This market graduated. Its floor no longer grows, but it can still be
-          redeemed.
+          This market graduated. Sonata&apos;s bot keeps adding the pool&apos;s fees about every 15 minutes, and
+          holders can still burn for their share.
         </p>
       ) : (
         toAdd > 0n && (
@@ -117,7 +117,7 @@ export function StockFloor({
                 void execute(() => prepareTreasury("sync", address, market))
               }
             >
-              Add to floor
+              Add to backing
             </Button>
           </div>
         )
@@ -149,7 +149,7 @@ export function StockFloor({
             : burn > 0n
             ? payout > 0n
               ? `You receive ${formatUnits(payout)} ${quote}.`
-              : "Too few tokens to redeem any stock at the current floor."
+              : "Too few tokens to get any stock back yet."
             : "Your tokens are burned and you receive their exact share. Nobody else's share goes down."}
         </p>
         <Button

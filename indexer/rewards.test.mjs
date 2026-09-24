@@ -298,11 +298,17 @@ test("the ledger counts pending payouts as paid and moves them on confirmation",
   assert.equal(await ledger.paid("p"), 123456789012345678901n);
   assert.match(queries[1].sql, /reward_payouts where pool = \$1.*\+.*reward_pending where pool = \$1/);
   assert.deepEqual(queries[1].args, ["p"]);
-  assert.deepEqual(await ledger.pending(), [{ signature: "sig", pool: "p", amount: 42n, recipients: 3, lastValidBlockHeight: 987 }]);
+  // Rows written before fee modules existed are holders payouts.
+  assert.deepEqual(await ledger.pending(), [{ signature: "sig", pool: "p", amount: 42n, recipients: 3, lastValidBlockHeight: 987, module: "holders" }]);
   await ledger.begin({ signature: "s2", pool: "p", amount: 5n, recipients: 1, lastValidBlockHeight: 9 });
-  assert.deepEqual(queries.at(-1).args, ["s2", "p", "5", 1, 9]);
+  assert.deepEqual(queries.at(-1).args, ["s2", "p", "5", 1, 9, "holders", null]);
+  // A module's detail is stored as JSON, bigints and keys as strings.
+  const winner = key();
+  await ledger.begin({ signature: "s3", pool: "p", amount: 7n, recipients: 1, lastValidBlockHeight: 9, module: "topBuyers", detail: { roundEnd: 60, winners: [{ trader: winner, amount: 7n }] } });
+  assert.match(queries.at(-1).sql, /\$7::jsonb/);
+  assert.deepEqual(JSON.parse(queries.at(-1).args[6]), { roundEnd: 60, winners: [{ trader: winner.toBase58(), amount: "7" }] });
   await ledger.confirm("s2");
-  assert.match(queries.at(-1).sql, /delete from reward_pending where signature = \$1 returning \*.*insert into reward_payouts .*on conflict \(signature\) do nothing/);
+  assert.match(queries.at(-1).sql, /delete from reward_pending where signature = \$1 returning \*.*insert into reward_payouts .*module, detail\) select .*module, detail from moved on conflict \(signature\) do nothing/);
   await ledger.drop("s2");
   assert.equal(queries.at(-1).sql, "delete from reward_pending where signature = $1");
 });

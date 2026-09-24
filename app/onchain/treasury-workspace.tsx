@@ -36,6 +36,7 @@ import {
 import { formatUnits } from "@/lib/treasury/units";
 import { REWARDS_MINT, quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import { GraduationProgress } from "./graduation-progress";
+import { AIRDROP_PERCENT } from "@/lib/treasury/dbc-preview";
 import { StockFloor } from "./stock-floor";
 import { CreatorPosition } from "./creator-position";
 import { PriceChart, RecentTrades } from "./market-activity";
@@ -45,12 +46,38 @@ import type { Market } from "@/lib/treasury/runtime";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 // Reward tokens: the creator's share is sent to Sonata's payout bot, which pays
 // holders pro rata. Payouts come from the trade indexer's ledger.
-function HolderRewardsPanel({ market, sentToBot, quote }: { market: Market; sentToBot: string; quote: string }) {
-  const [paid, setPaid] = useState<{ paid: string; payouts: number; recipientsLast: number; lastPaidAt: number | null } | null>(null);
+// What Sonata's payout bot has done for a market it pays out: holder rewards or a
+// fee module (from the token's metadata), as recorded by the indexer.
+type BotPayouts = {
+  paid: string;
+  payouts: number;
+  recipientsLast: number;
+  lastPaidAt: number | null;
+  feeModel?: string;
+  burned?: string;
+  lastBuyAt?: number | null;
+  winners?: { trader: string; amount: string }[];
+  lastRoundAt?: number | null;
+  status?: string;
+  recipients?: { wallet: string; weight: number; paid?: string }[];
+};
+const shortKey = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
+function HolderRewardsPanel({
+  market,
+  sentToBot,
+  quote,
+  feeModel,
+}: {
+  market: Market;
+  sentToBot: string;
+  quote: string;
+  feeModel?: string;
+}) {
+  const [paid, setPaid] = useState<BotPayouts | null>(null);
   useEffect(() => {
     let active = true;
     fetch(`/api/index/rewards?pool=${market.pool}`)
-      .then((r) => (r.ok ? (r.json() as Promise<{ paid: string; payouts: number; recipientsLast: number; lastPaidAt: number | null }>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<BotPayouts>) : null))
       .then((d) => {
         if (active && d) setPaid(d);
       })
@@ -59,30 +86,96 @@ function HolderRewardsPanel({ market, sentToBot, quote }: { market: Market; sent
       active = false;
     };
   }, [market.pool]);
+  const model = paid?.feeModel ?? feeModel ?? market.feeModel ?? "holders";
+  const now = Date.now();
+  const last = (t?: number | null, what = "Last payout") => (t ? `${what} ${sinceText(t, now)}.` : "Nothing paid yet.");
+  const [eyebrow, title, paidLabel, note] =
+    model === "buyback"
+      ? [
+          "03 / BUYBACK & BURN",
+          "Buyback & burn",
+          "Spent on buybacks",
+          `Buys ${market.symbol} with the fees and burns it about every 15 minutes: on the curve, then in the Meteora pool after graduation. ${last(paid?.lastBuyAt ?? paid?.lastPaidAt, "Last buy")}`,
+        ]
+      : model === "topBuyers"
+        ? [
+            "03 / TOP BUYER BOUNTY",
+            "Top Buyer Bounty",
+            "Paid to buyers",
+            `Each 15-minute round, the 3 biggest net buyers win 50% / 30% / 20%. Net = buys − sells; the creator and Sonata are excluded. A round with no net buyers rolls over. ${last(paid?.lastRoundAt ?? paid?.lastPaidAt, "Last round")}`,
+          ]
+        : model === "lpFarm"
+          ? [
+              "03 / LP FARM",
+              "LP Farm",
+              "Paid out",
+              `${paid?.status === "lps" ? "Paying liquidity providers in the Meteora pool, pro rata" : "Paying holders while on the curve; liquidity providers after graduation"}, about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`,
+            ]
+          : model === "split"
+            ? ["03 / SPLIT", "Split", "Paid to wallets", `Split by share about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`]
+            : [
+                "03 / PAID TO HOLDERS",
+                "Holder rewards",
+                "Paid to holders",
+                `Paid pro rata to holders of at least 0.01% of the supply, about every 15 minutes, in ${quote}. ${
+                  paid?.lastPaidAt
+                    ? `Last payout ${sinceText(paid.lastPaidAt, now)} to ${paid.recipientsLast} holders.`
+                    : "No payout yet."
+                }`,
+              ];
   return (
     <Card className="sr-panel">
-      <span className="sr-eyebrow">03 / PAID TO HOLDERS</span>
-      <h3>Holder rewards</h3>
+      <span className="sr-eyebrow">{eyebrow}</span>
+      <h3>{title}</h3>
       <div className="sr-position-strip">
+        {model === "buyback" && (
+          <div>
+            <span>Burned</span>
+            <strong>
+              {paid?.burned ? formatUnits(paid.burned, 6) : "—"} {market.symbol}
+            </strong>
+          </div>
+        )}
         <div>
-          <span>Paid to holders</span>
+          <span>{paidLabel}</span>
           <strong>
             {paid ? formatUnits(paid.paid) : "—"} <TokenName symbol={quote} />
           </strong>
         </div>
         <div>
-          <span>Collected for holders</span>
+          <span>Collected</span>
           <strong>
             {sentToBot} <TokenName symbol={quote} />
           </strong>
         </div>
       </div>
-      <p className="sr-note">
-        Paid pro rata to holders of at least 0.01% of the supply, about every 15 minutes, in {quote}.{" "}
-        {paid?.lastPaidAt
-          ? `Last payout ${sinceText(paid.lastPaidAt, Date.now())} to ${paid.recipientsLast} holders.`
-          : "No payout yet."}
-      </p>
+      {model === "topBuyers" && !!paid?.winners?.length && (
+        <div className="bot-list">
+          {paid.winners.map((w, i) => (
+            <div className="sr-detail-row" key={w.trader}>
+              <span>
+                {["1st", "2nd", "3rd"][i] ?? `${i + 1}th`} · {shortKey(w.trader)}
+              </span>
+              <strong>
+                {formatUnits(w.amount)} {quote}
+              </strong>
+            </div>
+          ))}
+        </div>
+      )}
+      {model === "split" && !!paid?.recipients?.length && (
+        <div className="bot-list">
+          {paid.recipients.map((r) => (
+            <div className="sr-detail-row" key={r.wallet}>
+              <span>
+                {shortKey(r.wallet)} · {Math.round((r.weight / paid.recipients!.reduce((t, x) => t + x.weight, 0)) * 100)}%
+              </span>
+              <strong>{r.paid ? `${formatUnits(r.paid)} ${quote}` : "—"}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="sr-note">{note}</p>
     </Card>
   );
 }
@@ -178,13 +271,23 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
         <AlertDescription>
           {q} is a valueless mock stock token.{" "}
           {isRewardMarket(market)
-            ? `Reward token: half of net trading fees goes to ${market.symbol} holders, paid in ${q} about every 15 minutes by Sonata's payout bot. The other half goes to Sonata.`
+            ? `${
+                (
+                {
+                  buyback: `Buyback & burn: half of net trading fees buys ${market.symbol} and burns it`,
+                  topBuyers: "Top Buyer Bounty: half of net trading fees goes to each round's top 3 net buyers",
+                  lpFarm: `LP Farm: half of net trading fees goes to ${market.symbol} holders, then to liquidity providers after graduation`,
+                  split: "Split: half of net trading fees is split between the creator's chosen wallets",
+                } as Record<string, string>
+              )[tokenProfile?.feeModel ?? market.feeModel ?? ""] ??
+                `Reward token: half of net trading fees goes to ${market.symbol} holders`
+              }, in ${q}, about every 15 minutes by Sonata's payout bot. The other half goes to Sonata.`
             : market.mode === "standardFloor"
-            ? `A quarter of net trading fees builds this market's Stock Floor, which any ${market.symbol} holder can redeem and the creator cannot withdraw. A quarter goes to the creator and half to Sonata.`
+            ? `Backed token: a quarter of net trading fees goes into this market's backing, which any ${market.symbol} holder can burn for their share and the creator can never withdraw. A quarter goes to the creator and half to Sonata.`
             : market.mode === "standard"
               ? "Net trading fees go half to the creator's payout wallet and half to Sonata, paid in the stock."
               : market.mode === "floor"
-            ? `Half of net trading fees builds this market's Stock Floor, which any ${market.symbol} holder can redeem and the creator cannot withdraw.`
+            ? `Backed token: half of net trading fees goes into this market's backing, which any ${market.symbol} holder can burn for their share and the creator can never withdraw.`
             : market.mode === "refrain"
               ? "All net trading fees go to the creator's payout wallet, paid in the stock."
               : "Collected creator reserves can fund liquidity positions or fixed community rewards."}
@@ -220,7 +323,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       </div>
       <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
       <LiveWallet />
-      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} /><StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <div className="sr-detail-row"><span>Graduation airdrop</span><strong>{AIRDROP_PERCENT}% of supply · {data.migrated ? "airdropped to holders by Sonata's bot" : "to holders at graduation"}</strong></div>}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {data?.migrated ? (
         // A graduated pool no longer trades on its DBC curve; the runtime refuses
         // such a swap. Say so here rather than after the user fills in the form.
@@ -389,13 +492,13 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
             {market.mode === "standard" ? (
               <>Allocation sends 50% to the fixed recipient and 50% to Sonata.</>
             ) : market.mode === "standardFloor" ? (
-              <>Allocation sends 25% to the fixed recipient, 25% into the Stock Floor and 50% to Sonata.</>
+              <>Allocation sends 25% to the fixed recipient, 25% into the backing and 50% to Sonata.</>
             ) : market.mode === "refrain" ? (
               <>Allocation sends 100% to the fixed recipient.</>
             ) : (
               <>
                 Allocation sends 50% to the fixed recipient. The remaining 50%{" "}
-                {market.mode === "floor" ? "goes into the Stock Floor" : "stays in custody"}.
+                {market.mode === "floor" ? "goes into the backing" : "stays in custody"}.
               </>
             )}{" "}
             Calling this does not give the caller ownership of those funds.
@@ -432,7 +535,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
         </Card>
       </div>
       {isRewardMarket(market) ? (
-        <HolderRewardsPanel market={market} sentToBot={value("paid")} quote={q} />
+        <HolderRewardsPanel market={market} sentToBot={value("paid")} quote={q} feeModel={tokenProfile?.feeModel} />
       ) : market.mode === "refrain" || market.mode === "standard" ? (
       <Card className="sr-panel">
         <span className="sr-eyebrow">03 / PAID TO CREATOR</span>
@@ -463,11 +566,11 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       </Card>
       ) : hasFloor(market.mode) ? (
       <Card className="sr-panel">
-        <span className="sr-eyebrow">03 / STOCK FLOOR</span>
+        <span className="sr-eyebrow">03 / BACKING</span>
         <h3>Held for holders</h3>
         <div className="sr-position-strip">
           <div>
-            <span>Floor now</span>
+            <span>Backing now</span>
             <strong>
               {value("floor")} <TokenName symbol={q} />
             </strong>

@@ -11,6 +11,7 @@ import pg from "pg";
 import { Connection, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { decodeTrades, SUPPLY_TOKENS } from "./parse.mjs";
+import { splitRecipients } from "./modules/split.mjs";
 
 const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PORT = Number(process.env.INDEXER_PORT || 8790);
@@ -72,6 +73,68 @@ async function migrate() {
       recipients int not null,
       last_valid_block_height bigint not null,
       sent_at timestamptz not null default now()
+    );
+    -- Fee modules (indexer/modules/): which module wrote a row (null = holders,
+    -- rows from before modules existed) and what it did (burned base atoms,
+    -- bounty round and winners, split recipients), carried from pending to paid.
+    alter table reward_payouts add column if not exists module text;
+    alter table reward_payouts add column if not exists detail jsonb;
+    alter table reward_pending add column if not exists module text;
+    alter table reward_pending add column if not exists detail jsonb;
+    create index if not exists reward_payouts_pool_module on reward_payouts (pool, module, paid_at desc);
+    -- Each Reward token's fee module, read once from its metadata JSON by the
+    -- crank. config holds a split's recipients; status is lpFarm's current
+    -- recipients ('holders' or 'lps').
+    create table if not exists market_fee_models (
+      pool text primary key,
+      fee_model text not null,
+      uri text,
+      read_at timestamptz not null default now(),
+      config jsonb,
+      note text,
+      status text,
+      status_at timestamptz
+    );
+    -- Graduation airdrop (indexer/modules/airdrop.mjs), for markets whose DBC
+    -- config names the crank key as leftover receiver: one state row per pool
+    -- (written the first pass the crank sees such a config) and one payout row
+    -- per holder of the snapshot. A row is pending with its signature before
+    -- it is sent, so a crash resumes without paying twice.
+    create table if not exists airdrop_state (
+      pool text primary key,
+      withdrawn numeric,
+      withdraw_signature text,
+      withdraw_last_valid_block_height bigint,
+      snapshot_at timestamptz,
+      done boolean not null default false,
+      sent_at timestamptz,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    );
+    create table if not exists airdrop_payouts (
+      pool text not null,
+      recipient text not null,
+      owner text not null,
+      amount numeric not null check (amount > 0),
+      status text not null default 'unpaid' check (status in ('unpaid', 'pending', 'sent', 'skipped')),
+      signature text,
+      last_valid_block_height bigint,
+      sent_at timestamptz,
+      note text,
+      primary key (pool, recipient)
+    );
+    create index if not exists airdrop_payouts_signature on airdrop_payouts (signature);
+    -- claim_graduated's accounts per graduated market (indexer/modules/graduated.mjs):
+    -- the Vault's permanently locked position in the graduated DAMM v2 pool.
+    -- Finding it lists every position NFT the Vault holds, so it is cached.
+    create table if not exists graduated_positions (
+      pool text primary key,
+      damm_pool text not null,
+      position text not null,
+      position_nft_account text not null,
+      token_a_vault text not null,
+      token_b_vault text not null,
+      found_at timestamptz not null default now()
     );
   `);
 }
@@ -165,6 +228,52 @@ function allowed(ip) {
   return ++e.n <= 120;
 }
 
+const seconds = (v) => (v === null || v === undefined ? null : Number(v));
+
+// What the market's fee module has done, from confirmed rows only.
+async function moduleDetail(pool, fm) {
+  if (fm?.fee_model === "buyback") {
+    const { rows: [b] } = await db.query(
+      `select coalesce(sum((detail->>'burned')::numeric), 0)::text as burned,
+              floor(extract(epoch from max(paid_at) filter (where amount > 0)))::bigint::text as last_buy_at
+         from reward_payouts where pool = $1 and module = 'buyback'`,
+      [pool],
+    );
+    return { burned: b.burned, lastBuyAt: seconds(b.last_buy_at) };
+  }
+  if (fm?.fee_model === "topBuyers") {
+    const { rows: [t] } = await db.query(
+      `select detail from reward_payouts where pool = $1 and module = 'topBuyers'
+        order by (detail->>'roundEnd')::bigint desc, paid_at desc limit 1`,
+      [pool],
+    );
+    const winners = Array.isArray(t?.detail?.winners) ? t.detail.winners : [];
+    return {
+      winners: winners.map((w) => ({ trader: String(w.trader), amount: String(w.amount) })),
+      lastRoundAt: seconds(t?.detail?.roundEnd),
+    };
+  }
+  if (fm?.fee_model === "lpFarm") return { status: fm.status === "lps" ? "lps" : "holders" };
+  if (fm?.fee_model === "diamond") {
+    const { rows: [d] } = await db.query(
+      `select detail->'multipliers' as multipliers from reward_payouts
+        where pool = $1 and module = 'diamond' and detail ? 'multipliers' order by paid_at desc, signature desc limit 1`,
+      [pool],
+    );
+    return { multipliers: d?.multipliers ?? null };
+  }
+  if (fm?.fee_model === "split") {
+    const { rows } = await db.query(
+      `select r->>'wallet' as wallet, sum((r->>'amount')::numeric)::text as paid
+         from reward_payouts p, jsonb_array_elements(p.detail->'recipients') r
+        where p.pool = $1 and p.module = 'split' group by 1`,
+      [pool],
+    );
+    return splitRecipients(fm.config, new Map(rows.map((x) => [x.wallet, x.paid])));
+  }
+  return {};
+}
+
 async function route(url) {
   const q = url.searchParams;
   if (url.pathname === "/api/index/health") return { ok: true, ...state };
@@ -205,22 +314,40 @@ async function route(url) {
     );
     return { supply: SUPPLY_TOKENS, pools: rows };
   }
-  // Reward token payouts to holders (confirmed transactions only), in quote atoms.
+  // Reward token payouts (confirmed transactions only), in quote atoms, and the
+  // market's fee module with what it has done.
   if (url.pathname === "/api/index/rewards") {
     if (!isPool(q.get("pool"))) return 400;
+    const pool = q.get("pool");
+    // Burn-only buyback rows move no quote and are not counted as payouts.
     const { rows: [r] } = await db.query(
-      `select coalesce(sum(amount), 0)::text as paid, count(*)::int as payouts,
-              (select recipients from reward_payouts where pool = $1 order by paid_at desc, signature desc limit 1) as recipients_last,
-              floor(extract(epoch from max(paid_at)))::bigint::text as last_paid_at
+      `select coalesce(sum(amount), 0)::text as paid, count(*) filter (where amount > 0)::int as payouts,
+              (select recipients from reward_payouts where pool = $1 and amount > 0 order by paid_at desc, signature desc limit 1) as recipients_last,
+              floor(extract(epoch from max(paid_at) filter (where amount > 0)))::bigint::text as last_paid_at
          from reward_payouts where pool = $1`,
-      [q.get("pool")],
+      [pool],
     );
-    return {
-      pool: q.get("pool"),
+    const { rows: [fm] } = await db.query("select fee_model, config, status from market_fee_models where pool = $1", [pool]);
+    const out = {
+      pool,
       paid: r.paid,
       payouts: r.payouts,
       recipientsLast: r.recipients_last ?? 0,
-      lastPaidAt: r.last_paid_at === null ? null : Number(r.last_paid_at),
+      lastPaidAt: seconds(r.last_paid_at),
+      // null until the crank has read the token's metadata.
+      feeModel: fm?.fee_model ?? null,
+    };
+    const { rows: [a] } = await db.query(
+      `select withdrawn::text, done, floor(extract(epoch from sent_at))::bigint::text as sent_at,
+              (select count(*) from airdrop_payouts where pool = $1 and status = 'sent')::int as recipients
+         from airdrop_state where pool = $1`,
+      [pool],
+    );
+    return {
+      ...out,
+      ...(await moduleDetail(pool, fm)),
+      // Only for markets whose DBC config names the crank key as leftover receiver.
+      ...(a ? { airdrop: { status: a.done ? "sent" : "waiting", amount: a.withdrawn, recipients: a.recipients, sentAt: seconds(a.sent_at) } } : {}),
     };
   }
   return 404;

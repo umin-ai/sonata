@@ -112,3 +112,27 @@ export function buyOut(quoteIn: bigint, feeBps: number, sqrtPrice: bigint, curve
   }
   return { out, fee, unspent: left };
 }
+
+/**
+ * The smallest quote input whose buyOut gives at least `tokens`, for a dev buy set as
+ * a share of supply. buyOut rises with its input, so a binary search finds it. Null
+ * when the curve cannot sell that many.
+ */
+export function quoteForOut(tokens: bigint, feeBps: number, sqrtPrice: bigint, curve: CurvePoint[]) {
+  if (tokens <= 0n) return 0n;
+  let lo = 0n,
+    hi = 1n;
+  for (;;) {
+    const q = buyOut(hi, feeBps, sqrtPrice, curve);
+    if (q.out >= tokens) break;
+    if (q.unspent > 0n) return null;
+    lo = hi;
+    hi *= 2n;
+  }
+  while (lo + 1n < hi) {
+    const mid = (lo + hi) / 2n;
+    if (buyOut(mid, feeBps, sqrtPrice, curve).out >= tokens) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}

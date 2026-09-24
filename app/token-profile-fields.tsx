@@ -11,6 +11,8 @@ import {
   MAX_IMAGE_BYTES,
   normalizeDescription,
   normalizeLinks,
+  type FeeModel,
+  type SplitRecipient,
 } from "@/lib/token-profile";
 
 // Optional token profile on the launch form, like pump.fun's: an image, a short
@@ -74,6 +76,8 @@ export async function publishProfile(
   name: string,
   symbol: string,
   p: ProfileDraft,
+  feeModel?: FeeModel,
+  split?: SplitRecipient[],
 ): Promise<string> {
   const description = normalizeDescription(p.description);
   const links = normalizeLinks(p);
@@ -83,6 +87,8 @@ export async function publishProfile(
   if (description) form.set("description", description);
   for (const [k, v] of Object.entries(links)) form.set(k, v);
   if (p.image) form.set("image", p.image, "logo");
+  if (feeModel) form.set("feeModel", feeModel);
+  if (split) form.set("split", JSON.stringify(split));
   const r = await fetch("/api/token-profile", { method: "POST", body: form });
   const body = (await r.json()) as { uri?: string; error?: string };
   if (!r.ok || !body.uri) throw Error(body.error ?? "Profile upload failed.");
