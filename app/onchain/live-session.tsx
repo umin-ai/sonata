@@ -517,6 +517,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
               )}
               {!review.liquidity &&
                 !review.redeem &&
+                !review.graduation &&
                 review.action !== "launch" &&
                 review.action !== "register" && (
                   <p className="text-2xl">
@@ -620,7 +621,17 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   </p>
                 </div>
               )}
-              {!review.liquidity && (
+              {review.graduation && (
+                <div className="review-facts">
+                  {review.graduation.fees !== "0" && (
+                    <Fact label="Collects the curve fees" value={<Amount atoms={review.graduation.fees} decimals={review.market?.quoteDecimals ?? 8} symbol={quoteSymbol} />} />
+                  )}
+                  <Fact label={review.graduation.fees !== "0" ? "Then" : "Creates"} value="Its Meteora DAMM v2 pool" />
+                  <Fact label="Liquidity" value="Locked forever · half creator, half Sonata" />
+                  <Fact label="Trading" value="Moves to the pool; the curve closes" />
+                </div>
+              )}
+              {!review.liquidity && !review.graduation && (
               <p className="sr-note">
                 {review.rewards
                   ? "Only the named recipient can claim each fixed allocation, once. This is funded mock stock, not a promised investment return."

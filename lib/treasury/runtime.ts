@@ -402,6 +402,8 @@ export type PreparedTreasury = {
     | "creator-claim"
     | "graduate";
   redeem?: { burn: string; payout: string; baseSymbol: string };
+  /** A graduation: the curve fees collected first, in the stock's atoms. */
+  graduation?: { fees: string };
   rewards?: {
     description: string;
     allocations: { recipient: string; amount: string }[];
@@ -916,12 +918,14 @@ export async function prepareGraduation(wallet: string, market: Market = exports
   ]);
   const title = `Graduate ${market.symbol} to its Meteora pool`;
   const state = await readTreasury(market);
-  if (BigInt(state.uncollected) <= 0n) return { ...migrate, market, title };
+  if (BigInt(state.uncollected) <= 0n) return { ...migrate, market, title, graduation: { fees: "0" } };
   const collect = await prepareTreasury("collect", wallet, market);
   return {
     ...collect,
+    action: "graduate",
     market,
     title,
+    graduation: { fees: state.uncollected },
     bundle: [{ transaction: migrate.transaction, action: "graduate" }],
     feeLamports: collect.feeLamports + migrate.feeLamports,
     rentLamports: (collect.rentLamports ?? 0) + (migrate.rentLamports ?? 0),
