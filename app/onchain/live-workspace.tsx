@@ -27,6 +27,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import {
+  hasFloor,
   discoverMarkets,
   readTreasury,
   readTradingWallet,
@@ -122,7 +123,7 @@ export function LiveDirectory() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"all" | "floor">("all");
   const filtered = markets.filter((m) =>
-    `${m.symbol} ${m.name} ${quoteSymbolOf(m.quoteMint)}`.toLowerCase().includes(query.toLowerCase()) && (category === "all" || m.mode === "floor"),
+    `${m.symbol} ${m.name} ${quoteSymbolOf(m.quoteMint)}`.toLowerCase().includes(query.toLowerCase()) && (category === "all" || hasFloor(m.mode)),
   );
   return (
     <>
@@ -257,7 +258,15 @@ function MarketCard({ market: m }: { market: Market }) {
     };
   }, [m, revision]);
   return (
-    <Card className="sonata-token-card" data-sonata-tone={m.baseMint.charCodeAt(0) % 3}>
+    <Card className="sonata-token-card" data-sonata-tone={m.baseMint.charCodeAt(0) % 3} data-heat={data?.heat}>
+      {(data?.heat === "heating" || data?.heat === "fire" || data?.heat === "complete") && (
+        <span className="sonata-heat-overlay" aria-hidden="true">
+          <svg viewBox="0 0 24 30" fill="currentColor">
+            <path d="m3 12 9-9 9 9v6l-9-9-9 9Z" />
+            <path d="m3 22 9-9 9 9v6l-9-9-9 9Z" />
+          </svg>
+        </span>
+      )}
       <Link href={href(m)} className="sonata-token-identity" aria-label={`Open ${m.name} market`}>
         <span className="sonata-token-avatar" aria-hidden="true"><span>{m.symbol.slice(0, 2)}</span><TokenImage profile={tokenProfile} symbol={m.symbol} size={42} /></span>
         <div><h3>{m.symbol}</h3><p title={m.name}>{m.name}</p></div>

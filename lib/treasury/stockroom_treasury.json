@@ -275,6 +275,104 @@
       "args": []
     },
     {
+      "name": "distribute_split",
+      "docs": [
+        "Standard and StandardFloor: split what has been claimed but not yet allocated",
+        "three ways. The creator share (rounded down) goes to the payout owner, the floor",
+        "share (rounded down) stays in custody as the Stock Floor, and the platform takes",
+        "the rest, paid to a token account of the Vault admin. Permissionless: every",
+        "destination is pinned. The platform share is booked as retained and withdrawn",
+        "at once, so retained - withdrawn remains the floor and custody still covers",
+        "unallocated + (retained - withdrawn)."
+      ],
+      "discriminator": [
+        98,
+        16,
+        104,
+        210,
+        106,
+        53,
+        245,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  111,
+                  99,
+                  107,
+                  114,
+                  111,
+                  111,
+                  109
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury.pool",
+                "account": "Treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "payout_quote",
+          "writable": true
+        },
+        {
+          "name": "platform_quote",
+          "docs": [
+            "`dup`: when the payout owner is the Vault admin this is the same account as",
+            "`payout_quote`. Token accounts are never serialized by this program, so the",
+            "alias is harmless, and the owner check keeps it distinct from `treasury_quote`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "quote_mint",
+          "relations": [
+            "treasury"
+          ]
+        },
+        {
+          "name": "token_quote_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "init_treasury",
       "docs": [
         "Register a treasury for a DBC pool whose config names the Vault as fee_claimer."
@@ -669,6 +767,19 @@
         184,
         21
       ]
+    },
+    {
+      "name": "SplitDistributed",
+      "discriminator": [
+        46,
+        147,
+        176,
+        254,
+        189,
+        10,
+        47,
+        118
+      ]
     }
   ],
   "errors": [
@@ -716,6 +827,26 @@
       "code": 6008,
       "name": "NothingToRedeem",
       "msg": "Amount too small to redeem any stock"
+    },
+    {
+      "code": 6009,
+      "name": "UseDistributeSplit",
+      "msg": "This mode shares fees with Sonata; use distribute_split"
+    },
+    {
+      "code": 6010,
+      "name": "UseDistribute",
+      "msg": "This mode has no platform share; use distribute"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidPlatformRecipient",
+      "msg": "The platform share goes only to the Vault admin"
+    },
+    {
+      "code": 6012,
+      "name": "NoCreatorReserve",
+      "msg": "This mode keeps no creator-withdrawable reserve"
     }
   ],
   "types": [
@@ -962,7 +1093,7 @@
     {
       "name": "Mode",
       "docs": [
-        "Payout share in basis points, fixed at treasury creation."
+        "How claimed fees are split, fixed at treasury creation."
       ],
       "type": {
         "kind": "enum",
@@ -978,6 +1109,12 @@
           },
           {
             "name": "Floor"
+          },
+          {
+            "name": "Standard"
+          },
+          {
+            "name": "StandardFloor"
           }
         ]
       }
@@ -1687,6 +1824,30 @@
       }
     },
     {
+      "name": "SplitDistributed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "u64"
+          },
+          {
+            "name": "floor",
+            "type": "u64"
+          },
+          {
+            "name": "platform",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Treasury",
       "type": {
         "kind": "struct",
@@ -1752,7 +1913,9 @@
             "name": "total_withdrawn",
             "docs": [
               "Raw quote units that left the retained balance, lifetime: to the creator, or in",
-              "Floor mode to holders who redeemed. Not a credit or yield position."
+              "Floor mode to holders who redeemed. Not a credit or yield position. In Standard",
+              "and StandardFloor modes the platform share is counted as retained and withdrawn",
+              "in the same instruction, so retained - withdrawn stays the floor."
             ],
             "type": "u64"
           },

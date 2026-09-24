@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowUpRight, RefreshCw, ShieldCheck } from "lucide-react";
 import {
+  hasFloor,
   readTreasury,
   prepareTreasury,
   treasuryReceipts,
@@ -35,6 +36,7 @@ import { formatUnits } from "@/lib/treasury/units";
 import { REWARDS_MINT, quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import { GraduationProgress } from "./graduation-progress";
 import { StockFloor } from "./stock-floor";
+import { CreatorPosition } from "./creator-position";
 import { PriceChart, RecentTrades } from "./market-activity";
 import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-view";
 import { LiveWallet, useLive } from "./live-session";
@@ -131,7 +133,11 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
         <ShieldCheck />
         <AlertDescription>
           {q} is a valueless mock stock token.{" "}
-          {market.mode === "floor"
+          {market.mode === "standardFloor"
+            ? `A quarter of net trading fees builds this market's Stock Floor, which any ${market.symbol} holder can redeem and the creator cannot withdraw. A quarter goes to the creator and half to Sonata.`
+            : market.mode === "standard"
+              ? "Net trading fees go half to the creator's payout wallet and half to Sonata, paid in the stock."
+              : market.mode === "floor"
             ? `Half of net trading fees builds this market's Stock Floor, which any ${market.symbol} holder can redeem and the creator cannot withdraw.`
             : market.mode === "refrain"
               ? "All net trading fees go to the creator's payout wallet, paid in the stock."
@@ -168,7 +174,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       </div>
       <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
       <LiveWallet />
-      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} /><StockFloor data={data} market={market} quote={q} held={balances?.base} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} /><StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {data?.migrated ? (
         // A graduated pool no longer trades on its DBC curve; the runtime refuses
         // such a swap. Say so here rather than after the user fills in the form.
@@ -334,7 +340,11 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           <span className="sr-eyebrow">02 / FIXED AT CREATION</span>
           <h3>Fee distribution</h3>
           <p className="sr-note">
-            {market.mode === "refrain" ? (
+            {market.mode === "standard" ? (
+              <>Allocation sends 50% to the fixed recipient and 50% to Sonata.</>
+            ) : market.mode === "standardFloor" ? (
+              <>Allocation sends 25% to the fixed recipient, 25% into the Stock Floor and 50% to Sonata.</>
+            ) : market.mode === "refrain" ? (
               <>Allocation sends 100% to the fixed recipient.</>
             ) : (
               <>
@@ -375,7 +385,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           )}
         </Card>
       </div>
-      {market.mode === "refrain" ? (
+      {market.mode === "refrain" || market.mode === "standard" ? (
       <Card className="sr-panel">
         <span className="sr-eyebrow">03 / PAID TO CREATOR</span>
         <h3>Creator earnings</h3>
@@ -394,15 +404,16 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           </div>
         </div>
         <p className="sr-note">
-          Every net fee the treasury collects goes to the creator&apos;s fixed payout wallet.
-          Nothing is held back, so there is no reserve to withdraw.
+          {market.mode === "standard"
+            ? "Half of every net fee the treasury collects goes to the creator's fixed payout wallet and half to Sonata. Nothing is held back, so there is no reserve to withdraw."
+            : "Every net fee the treasury collects goes to the creator's fixed payout wallet. Nothing is held back, so there is no reserve to withdraw."}
         </p>
         <p className="sr-note">
           Paid automatically: a Sonata bot collects and pays out about every 15 minutes, and anyone can
           press Collect sooner. {data && data.lastClaimTs > 0 ? `Last collected ${sinceText(data.lastClaimTs, data.fetchedAt)}.` : "Nothing collected yet."}
         </p>
       </Card>
-      ) : market.mode === "floor" ? (
+      ) : hasFloor(market.mode) ? (
       <Card className="sr-panel">
         <span className="sr-eyebrow">03 / STOCK FLOOR</span>
         <h3>Held for holders</h3>

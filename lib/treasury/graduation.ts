@@ -88,3 +88,27 @@ export function milestoneCaps(
 /** One decimal place, rounded down: 2307 bps -> "23.0%". */
 export const formatProgress = (bps: number) =>
   `${(Math.floor(bps / 10) / 10).toFixed(1)}%`;
+
+/**
+ * Base tokens (raw) that a buy of `quoteIn` raw quote units gets from a pool at
+ * `sqrtPrice`, with Meteora DBC's own swap math: the trading fee is taken from
+ * the input first (fee bps × 100,000 over 1e9, rounded up), then each segment
+ * gives L × (b − a) ÷ (a × b) base for moving its sqrt price from a to b,
+ * rounded down. Used to quote a dev buy before its pool exists.
+ */
+export function buyOut(quoteIn: bigint, feeBps: number, sqrtPrice: bigint, curve: CurvePoint[]) {
+  const fee = (quoteIn * BigInt(feeBps) * 100_000n + 999_999_999n) / 1_000_000_000n;
+  let left = quoteIn - fee,
+    price = sqrtPrice,
+    out = 0n;
+  for (const { sqrtPrice: upper, liquidity } of curve) {
+    if (upper === 0n || liquidity === 0n || left === 0n) break;
+    if (upper <= price) continue;
+    const holds = (liquidity * (upper - price) + (1n << 128n) - 1n) >> 128n;
+    const next = left < holds ? price + (left << 128n) / liquidity : upper;
+    out += (liquidity * (next - price)) / (price * next);
+    left = left < holds ? 0n : left - holds;
+    price = next;
+  }
+  return { out, fee, unspent: left };
+}

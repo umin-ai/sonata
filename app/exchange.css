@@ -144,7 +144,7 @@
 .sr-app .earnings-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .sr-app .earnings-cards button{display:grid;gap:6px;text-align:left;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--background);color:var(--muted-foreground);font-size:13px;line-height:1.45;cursor:pointer}
 .sr-app .earnings-cards button strong{display:inline-flex;align-items:center;gap:6px;color:var(--foreground);font-size:15px}
-.sr-app .earnings-cards button[aria-pressed=true]{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
+.sr-app .earnings-cards button[aria-checked=true]{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
 .sr-app .per-thousand{margin:0;font-size:13px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
 .sr-app .launch-more{margin-top:0}
 .sr-app .launch-more fieldset{margin:12px 0}
@@ -152,3 +152,8 @@
 .sr-app .launch-finish{max-width:560px;display:grid;gap:12px}
 @media(max-width:1100px){.sr-app .launch-one-page{grid-template-columns:1fr}}
 @media(max-width:600px){.sr-app .earnings-cards{grid-template-columns:1fr}}
+.sr-app .holder-rewards{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.sr-app .holder-rewards>span{font-size:14px;font-weight:600}
+.sr-app .holder-rewards-options{display:flex;gap:8px}
+.sr-app .holder-rewards-options button{min-width:64px;padding:6px 14px;border:1px solid var(--border);border-radius:10px;background:var(--background);font-weight:600;cursor:pointer}
+.sr-app .holder-rewards-options button[aria-checked=true]{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}

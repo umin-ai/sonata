@@ -18,7 +18,7 @@ export const PYTH_FEEDS: Record<string, { id: number; symbol: string }> = {
 
 /** Opening market cap and graduation choices, in US dollars. */
 export const OPEN_USD = 5_000;
-export const GRADUATION_USD = [25_000, 50_000, 100_000] as const;
+export const GRADUATION_USD = [25_000, 50_000, 75_000] as const;
 
 export type MarketSession =
   | "regular"

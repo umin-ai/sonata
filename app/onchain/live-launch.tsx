@@ -15,6 +15,7 @@ import { initialSettings, priceLaunch, type LaunchSettings, type PythState } fro
 import { TokenProfileFields, emptyProfile, hasProfile, publishProfile } from "@/app/token-profile-fields";
 import { assessPrice, formatUsd, GRADUATION_USD, OPEN_USD, usdToQuote, type StockPrice } from "@/lib/pricing/stock-price";
 import { previewDbc } from "@/lib/treasury/dbc-preview";
+import { buyOut } from "@/lib/treasury/graduation";
 import { isDeployableQuote, quoteAssetList, quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import {
   connection,
@@ -29,28 +30,37 @@ import { LiveWallet, useLive } from "./live-session";
 import { WalletConnectButton } from "./wallet-connect";
 
 // One-page launch. Name and ticker are the only required fields; everything else
-// has a default: mSPY, 1% fee, graduation at $100K, all net fees to the creator.
+// has a default: mSPY, 1.25% fee, graduation at $75K, creator and Sonata splitting
+// the net fees, no first buy.
 const NAME_RULE = /^[A-Za-z0-9][A-Za-z0-9 .-]{2,31}$/;
 const TICKER_RULE = /^[A-Z][A-Z0-9]{1,9}$/;
-const DEFAULT_TARGET_USD = 100_000;
+const DEFAULT_TARGET_USD = 75_000;
 // With no usable dollar price the curve is set in the stock token instead:
 // opens at 2 and graduates at the same multiple as the dollar presets.
-const FALLBACK_TARGET: Record<number, number> = { 25_000: 10, 50_000: 20, 100_000: 40 };
-// Measured on Devnet: the launch and treasury transactions together.
+const FALLBACK_TARGET: Record<number, number> = { 25_000: 10, 50_000: 20, 75_000: 30 };
+// Measured on Devnet: the config, pool and treasury transactions together.
 const LAUNCH_COST_SOL = "≈ 0.032 SOL";
+const FEES = [125, 200, 300];
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
-const dollars = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n < 100 ? 2 : 0 }).format(n);
+// Share of each trade, like "0.5%": fee bps × share, trailing zeros dropped.
+const pct = (bps: number) => `${Number((bps / 100).toFixed(3))}%`;
 const compactUsd = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(n);
 
-// Per $1,000 traded: Meteora keeps 20% of the fee; the creator gets the rest, or
-// half of it when the Stock Floor takes the other half. Sonata takes nothing.
+// Per $1,000 traded: Meteora keeps 20% of the fee. Of the rest, half goes to the
+// creator and half to Sonata; with the Stock Floor, the creator's half is split
+// with the floor.
 export function perThousand(feeBps: number, floor: boolean) {
   const traders = feeBps / 10;
   const meteora = traders * 0.2;
   const net = traders - meteora;
-  return { traders, meteora, creator: floor ? net / 2 : net, floor: floor ? net / 2 : 0 };
+  return {
+    traders,
+    meteora,
+    sonata: net / 2,
+    creator: floor ? net / 4 : net / 2,
+    floor: floor ? net / 4 : 0,
+  };
 }
 
 export function LiveLaunch() {
@@ -61,6 +71,7 @@ export function LiveLaunch() {
     requested && isDeployableQuote(requested) ? { ...initialSettings, quote: requested } : initialSettings,
   );
   const [targetUsd, setTargetUsd] = useState(DEFAULT_TARGET_USD);
+  const [devBuyText, setDevBuyText] = useState("");
   const [name, setName] = useState(""),
     [symbol, setSymbol] = useState(""),
     [payout, setPayout] = useState(""),
@@ -118,8 +129,13 @@ export function LiveLaunch() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priceKey, targetUsd, settings.quote]);
 
-  // Quote needed to graduate for each target, from Meteora's SDK.
-  const [raises, setRaises] = useState<Record<number, number>>({});
+  // Quote needed to graduate for each target, from Meteora's SDK, and each target's
+  // curve for quoting a first buy.
+  type Preview = Awaited<ReturnType<typeof previewDbc>>;
+  const [previews, setPreviews] = useState<Record<number, Preview>>({});
+  const raises = Object.fromEntries(
+    Object.entries(previews).map(([usd, p]) => [usd, Number(p.quoteThreshold) / 1e8]),
+  ) as Record<number, number>;
   const [curveError, setCurveError] = useState("");
   const unitPrice = settings.pricing?.price ?? null;
   useEffect(() => {
@@ -131,12 +147,12 @@ export function LiveLaunch() {
       GRADUATION_USD.map(async (usd) => {
         const target = unitPrice ? usdToQuote(usd, unitPrice) : FALLBACK_TARGET[usd];
         const p = await previewDbc(initial, target, settings.fee);
-        return [usd, Number(p.quoteThreshold) / 1e8] as const;
+        return [usd, p] as const;
       }),
     )
       .then((rows) => {
         if (active) {
-          setRaises(Object.fromEntries(rows));
+          setPreviews(Object.fromEntries(rows));
           setCurveError("");
         }
       })
@@ -196,6 +212,12 @@ export function LiveLaunch() {
   // Open the second approval by itself once the pool exists.
   useEffect(() => {
     if (!draft || !exists || !enabled || address !== draft.creator || autoOpened.current === draft.pool) return;
+    // A launch bundle registers the treasury itself; only reopen for a draft still saved.
+    try {
+      if (!localStorage.getItem("stockroom.launch.draft")) return;
+    } catch {
+      return;
+    }
     autoOpened.current = draft.pool;
     void execute(() => prepareRegistration(address, draft));
   }, [draft, exists, enabled, address, execute]);
@@ -216,6 +238,28 @@ export function LiveLaunch() {
       payoutOk = false;
     }
   const ready = pyth.status !== "loading" && raises[targetUsd] !== undefined;
+  // Dev buy preview on the chosen curve, with the same math the launch uses.
+  const devBuy = Number(devBuyText || 0);
+  let devBuyOk = Number.isFinite(devBuy) && devBuy >= 0,
+    devBuyProblem = "Enter an amount, like 2.5.",
+    devBuyTokens: { tokens: number; percent: number } | null = null;
+  const preview = previews[targetUsd];
+  if (devBuyOk && devBuy > 0 && preview) {
+    const quote = buyOut(
+      BigInt(Math.round(devBuy * 1e8)),
+      settings.fee,
+      BigInt(preview.sqrtStartPrice),
+      preview.curve.map((c) => ({ sqrtPrice: BigInt(c.sqrtPrice), liquidity: BigInt(c.liquidity) })),
+    );
+    const percent = Number((quote.out * 10_000n) / 10n ** 15n) / 100;
+    if (quote.unspent > 0n) {
+      devBuyOk = false;
+      devBuyProblem = "That is more than the whole curve. Buy less.";
+    } else if (percent > 75) {
+      devBuyOk = false;
+      devBuyProblem = "A first buy can take at most 75% of the supply. Buy less.";
+    } else devBuyTokens = { tokens: Number(quote.out) / 1e6, percent };
+  }
   const blocked = !nameOk
     ? "Add a token name to launch."
     : !tickerOk
@@ -224,12 +268,13 @@ export function LiveLaunch() {
         ? "Fix the links above to launch."
         : !payoutOk
           ? "Check the payout wallet under More options."
+          : !devBuyOk
+            ? "Check your first buy."
           : !ready
             ? "Loading the stock price…"
             : busy || pending
               ? "Waiting for the previous transaction…"
               : "";
-  const money = perThousand(settings.fee, settings.floor);
   const q = settings.quote;
   const raiseQuote = raises[targetUsd];
   const raiseText =
@@ -242,7 +287,8 @@ export function LiveLaunch() {
 
   const launch = () =>
     void execute(async () => {
-      const go = (uri: string) => prepareLaunch(address, name.trim(), symbol, payout.trim() || address, settings, uri);
+      const go = (uri: string) =>
+        prepareLaunch(address, name.trim(), symbol, payout.trim() || address, { ...settings, devBuy: devBuy || 0 }, uri);
       // Publish the metadata first so its URI is fixed into the token. Every launch
       // gets one, naming Sonata. Without a profile it is optional: a failed upload,
       // or a name too long to fit a URI in the transaction, launches with no URI.
@@ -260,7 +306,7 @@ export function LiveLaunch() {
         <div>
           <span className="sr-eyebrow">SONATA</span>
           <h1>Launch your token</h1>
-          <p>One page. Your token trades against a stock, and you earn from every trade.</p>
+          <p>Launch a token paired with a stock.</p>
         </div>
       </div>
       <LiveWallet />
@@ -331,7 +377,64 @@ export function LiveLaunch() {
         <div className="launch-workspace launch-one-page">
           <Card className="sr-panel launch-form">
             <section className="launch-section">
-              <span className="sr-eyebrow">1 · YOUR TOKEN</span>
+              <span className="sr-eyebrow">1 · FEE MODEL</span>
+              <div className="earnings-cards" role="radiogroup" aria-label="Fee model">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={!settings.floor}
+                  onClick={() => setSettings((s) => ({ ...s, floor: false }))}
+                >
+                  <strong>
+                    <Wallet size={16} /> Standard token
+                  </strong>
+                  <span>You earn {pct(settings.fee * 0.4)} of every trade, in {q}.</span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.floor}
+                  onClick={() => setSettings((s) => ({ ...s, floor: true }))}
+                >
+                  <strong>
+                    <ShieldCheck size={16} /> Stock Floor token
+                  </strong>
+                  <span>
+                    You earn {pct(settings.fee * 0.2)}. Another {pct(settings.fee * 0.2)} builds a {q} floor holders can
+                    cash out.
+                  </span>
+                </button>
+              </div>
+              <div className="holder-rewards">
+                <span>Holder rewards</span>
+                <div className="holder-rewards-options" role="radiogroup" aria-label="Holder rewards">
+                  {[false, true].map((floor) => (
+                    <button
+                      type="button"
+                      role="radio"
+                      key={String(floor)}
+                      aria-checked={settings.floor === floor}
+                      onClick={() => setSettings((s) => ({ ...s, floor }))}
+                    >
+                      {floor ? pct(settings.fee * 0.2) : "None"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="sr-note">
+                {settings.floor
+                  ? `${pct(settings.fee * 0.2)} of every trade builds a ${q} floor holders cash out by burning. No extra tax on trades.`
+                  : "A standard token has no holder rewards. Pick a share to launch a Stock Floor token instead."}
+              </p>
+              <p className="per-thousand">
+                Fee {pct(settings.fee)}: you {pct(settings.fee * (settings.floor ? 0.2 : 0.4))}
+                {settings.floor ? ` · floor ${pct(settings.fee * 0.2)}` : ""} · Sonata {pct(settings.fee * 0.4)} ·
+                Meteora {pct(settings.fee * 0.2)}
+              </p>
+            </section>
+
+            <section className="launch-section">
+              <span className="sr-eyebrow">2 · YOUR TOKEN</span>
               <div>
                 <Label htmlFor="market-name">Token name</Label>
                 <Input
@@ -368,11 +471,8 @@ export function LiveLaunch() {
             </section>
 
             <section className="launch-section">
-              <span className="sr-eyebrow">2 · PAIR IT WITH A STOCK</span>
-              <p className="sr-note">
-                Your token trades against this stock, and your earnings are paid in it. Pair with mTSLA and you earn
-                mTSLA.
-              </p>
+              <span className="sr-eyebrow">3 · PAIR IT WITH A STOCK</span>
+              <p className="sr-note">You earn in the stock you pick.</p>
               <div className="launch-options">
                 {quoteAssetList.map((a) => (
                   <button
@@ -397,45 +497,25 @@ export function LiveLaunch() {
             </section>
 
             <section className="launch-section">
-              <span className="sr-eyebrow">3 · YOUR EARNINGS</span>
-              <div className="earnings-cards" role="radiogroup" aria-label="Where fees go">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={!settings.floor}
-                  aria-pressed={!settings.floor}
-                  onClick={() => setSettings((s) => ({ ...s, floor: false }))}
-                >
-                  <strong>
-                    <Wallet size={16} /> All to you
-                  </strong>
-                  <span>
-                    You get {dollars(perThousand(settings.fee, false).creator)} of every $1,000 traded, sent to your
-                    wallet in {q}.
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settings.floor}
-                  aria-pressed={settings.floor}
-                  onClick={() => setSettings((s) => ({ ...s, floor: true }))}
-                >
-                  <strong>
-                    <ShieldCheck size={16} /> Stock Floor
-                  </strong>
-                  <span>
-                    You get {dollars(perThousand(settings.fee, true).creator)}. Another{" "}
-                    {dollars(perThousand(settings.fee, true).floor)} builds a {q} floor any holder can cash out by
-                    burning tokens. Nobody can withdraw it.
-                  </span>
-                </button>
+              <span className="sr-eyebrow">4 · BUY FIRST (OPTIONAL)</span>
+              <div>
+                <Label htmlFor="dev-buy">Your first buy, in {q}</Label>
+                <Input
+                  id="dev-buy"
+                  inputMode="decimal"
+                  value={devBuyText}
+                  onChange={(e) => setDevBuyText(e.target.value.replace(/[^0-9.]/g, ""))}
+                  placeholder="0"
+                  aria-invalid={!devBuyOk}
+                />
+                <p className={devBuyOk ? "sr-note" : "sr-note text-destructive"} role="status">
+                  {!devBuyOk
+                    ? devBuyProblem
+                    : devBuyTokens
+                      ? `≈ ${devBuyTokens.percent.toFixed(2)}% of the supply (${Math.round(devBuyTokens.tokens).toLocaleString()} ${symbol || "tokens"}), bought before anyone else.`
+                      : "Optional. Up to 75% of supply, bought as the very first trade so nothing trades before you."}
+                </p>
               </div>
-              <p className="per-thousand">
-                Per $1,000 traded: traders pay {dollars(money.traders)} · you {dollars(money.creator)}
-                {settings.floor ? ` · floor ${dollars(money.floor)}` : ""} · Meteora {dollars(money.meteora)} · Sonata
-                $0
-              </p>
             </section>
 
             <details className="launch-disclosure launch-more">
@@ -446,7 +526,7 @@ export function LiveLaunch() {
               <fieldset>
                 <legend>Trading fee</legend>
                 <div className="curve-presets">
-                  {[100, 200, 300].map((fee) => (
+                  {FEES.map((fee) => (
                     <button
                       type="button"
                       key={fee}
@@ -454,7 +534,7 @@ export function LiveLaunch() {
                       onClick={() => setSettings((s) => ({ ...s, fee }))}
                     >
                       <strong>{fee / 100}%</strong>
-                      <span>You get {dollars(perThousand(fee, settings.floor).creator)} per $1,000</span>
+                      <span>you {pct(fee * (settings.floor ? 0.2 : 0.4))}</span>
                     </button>
                   ))}
                 </div>
@@ -475,10 +555,7 @@ export function LiveLaunch() {
                     </button>
                   ))}
                 </div>
-                <p className="sr-note">
-                  Opens at {formatUsd(OPEN_USD)}. At graduation the market moves to a Meteora DAMM v2 pool with its
-                  liquidity locked forever.
-                </p>
+                <p className="sr-note">Opens at {formatUsd(OPEN_USD)}. Liquidity is locked forever at graduation.</p>
               </fieldset>
               <div>
                 <Label htmlFor="payout-wallet">Payout wallet</Label>
@@ -490,7 +567,7 @@ export function LiveLaunch() {
                   aria-invalid={!payoutOk}
                 />
                 <p className={payoutOk ? "sr-note" : "sr-note text-destructive"}>
-                  {payoutOk ? "Fixed at launch. Leave empty to use your connected wallet." : "Not a Solana address."}
+                  {payoutOk ? "Fixed at launch. Leave blank for your wallet." : "Not a Solana address."}
                 </p>
               </div>
             </details>
@@ -511,11 +588,10 @@ export function LiveLaunch() {
             </div>
             <div className="sr-detail-row">
               <span>Graduates at</span>
-              <strong>{settings.pricing ? formatUsd(settings.pricing.targetUsd) : `${settings.target} ${q}`}</strong>
-            </div>
-            <div className="sr-detail-row">
-              <span>Money in to graduate</span>
-              <strong>{raiseText}</strong>
+              <strong>
+                {settings.pricing ? formatUsd(settings.pricing.targetUsd) : `${settings.target} ${q}`}
+                {raiseText !== "—" ? ` · ${raiseText} raised` : ""}
+              </strong>
             </div>
             <div className="sr-detail-row">
               <span>Trading fee</span>
@@ -523,14 +599,28 @@ export function LiveLaunch() {
             </div>
             <div className="sr-detail-row">
               <span>You earn</span>
-              <strong>
-                {dollars(money.creator)} per $1,000 · in <TokenName symbol={q} />
-              </strong>
+              <strong>{pct(settings.fee * (settings.floor ? 0.2 : 0.4))} per trade · in <TokenName symbol={q} /></strong>
             </div>
             {settings.floor && (
               <div className="sr-detail-row">
                 <span>Stock Floor</span>
-                <strong>{dollars(money.floor)} per $1,000 · for holders</strong>
+                <strong>{pct(settings.fee * 0.2)} per trade</strong>
+              </div>
+            )}
+            <div className="sr-detail-row">
+              <span>Sonata</span>
+              <strong>{pct(settings.fee * 0.4)} per trade</strong>
+            </div>
+            <div className="sr-detail-row">
+              <span>After graduation</span>
+              <strong>You own half the locked pool</strong>
+            </div>
+            {devBuyTokens && (
+              <div className="sr-detail-row">
+                <span>Your first buy</span>
+                <strong>
+                  {devBuy} {q} · ≈ {devBuyTokens.percent.toFixed(2)}%
+                </strong>
               </div>
             )}
             <div className="sr-detail-row">
@@ -554,10 +644,8 @@ export function LiveLaunch() {
               </Button>
             )}
             <p className="sr-note">
-              {blocked || "2 quick approvals: create the token, then turn on payouts."}
-            </p>
-            <p className="sr-note">
-              After graduation, pool fees stay locked with the liquidity. Test tokens on Solana Devnet have no value.
+              {blocked ||
+                `One approval${devBuyTokens ? `, plus ${devBuy} ${q} for your first buy` : ""}. Test tokens on Solana Devnet have no value.`}
             </p>
           </Card>
         </div>

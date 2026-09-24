@@ -30,6 +30,7 @@ import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 const storagePrefix = `stockroom.session.${market.programId}`;
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 const names = {
+  "creator-claim": "Claim graduated pool fees",
   "reward-policy": "Configure holder rewards",
   "reward-deliver": "Deliver holder payout",
   "reserve-deploy": "Deploy creator reserve",
@@ -226,71 +227,93 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         throw Error(
           "Wallet changed or review expired. Prepare a fresh review.",
         );
-      const tx = Transaction.from(Buffer.from(review.transaction, "base64")),
-        message = tx.serializeMessage();
-      let signed: Transaction;
+      // One approval covers the reviewed transaction and any bundled after it.
+      const steps = [
+        { transaction: review.transaction, action: review.action },
+        ...(review.bundle ?? []),
+      ];
+      const unsigned = steps.map((step) =>
+          Transaction.from(Buffer.from(step.transaction, "base64")),
+        ),
+        messages = unsigned.map((tx) => tx.serializeMessage());
+      let signed: Transaction[];
       if (!wallet.account && testKey.current) {
-        tx.partialSign(testKey.current);
-        signed = tx;
+        for (const tx of unsigned) tx.partialSign(testKey.current);
+        signed = unsigned;
       } else {
         const feature = wallet.wallet?.features as
           Partial<SolanaSignTransactionFeature> | undefined;
         if (!feature?.["solana:signTransaction"] || !wallet.account)
           throw Error("A wallet that signs Devnet transactions is required.");
-        const [result] = await feature[
-          "solana:signTransaction"
-        ].signTransaction({
-          account: wallet.account,
-          chain: "solana:devnet",
-          transaction: Uint8Array.from(
-            Buffer.from(review.transaction, "base64"),
-          ),
-        });
-        signed = Transaction.from(result.signedTransaction);
+        const account = wallet.account;
+        const results = await feature["solana:signTransaction"].signTransaction(
+          ...steps.map((step) => ({
+            account,
+            chain: "solana:devnet" as const,
+            transaction: Uint8Array.from(Buffer.from(step.transaction, "base64")),
+          })),
+        );
+        signed = results.map((r) => Transaction.from(r.signedTransaction));
       }
       if (
         review.wallet !== currentAddress.current ||
         Date.now() > review.expiresAt ||
-        !signed.serializeMessage().equals(message) ||
-        !signed.verifySignatures()
+        signed.length !== steps.length ||
+        signed.some(
+          (tx, i) => !tx.serializeMessage().equals(messages[i]) || !tx.verifySignatures(),
+        )
       )
         throw Error(
           "Signed transaction does not match the review. Nothing sent.",
         );
-      submitted = {
-        signature: bs58.encode(signed.signature!),
-        lastValidBlockHeight: review.lastValidBlockHeight,
-        wallet: review.wallet,
-        action: review.action,
-      };
       if (review.action === "launch" && review.market)
         localStorage.setItem(
           "stockroom.launch.draft",
           JSON.stringify(review.market),
         );
-      remember(submitted);
       setReview(null);
-      setBusy("Submitting to Solana Devnet…");
-      // Every transaction was simulated when its review opened. Skipping the
-      // send-time preflight avoids public Devnet's "Blockhash not found" when
-      // the request lands on an RPC node a few slots behind; the result is
-      // still checked below and a failure is reported with its receipt.
-      await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: true,
-        maxRetries: 5,
-      });
-      setBusy("Waiting for network confirmation…");
-      const result = await connection.confirmTransaction(
-        {
-          signature: submitted.signature,
-          blockhash: review.blockhash,
+      // Each step depends on the one before it, so each is sent only after the
+      // previous one confirms. A failure stops the rest; a saved launch draft
+      // lets the creator finish it.
+      for (let i = 0; i < signed.length; i++) {
+        submitted = {
+          signature: bs58.encode(signed[i].signature!),
           lastValidBlockHeight: review.lastValidBlockHeight,
-        },
-        "confirmed",
-      );
-      if (result.value.err)
-        throw Error("Transaction failed onchain. Check its receipt.");
-      await check(submitted);
+          wallet: review.wallet,
+          action: steps[i].action,
+        };
+        remember(submitted);
+        setBusy(
+          signed.length > 1
+            ? `Submitting ${i + 1} of ${signed.length} to Solana Devnet…`
+            : "Submitting to Solana Devnet…",
+        );
+        // Every transaction was simulated when its review opened, or depends on
+        // one that was. Skipping the send-time preflight avoids public Devnet's
+        // "Blockhash not found" when the request lands on an RPC node a few slots
+        // behind; the result is still checked below and a failure is reported
+        // with its receipt.
+        await connection.sendRawTransaction(signed[i].serialize(), {
+          skipPreflight: true,
+          maxRetries: 5,
+        });
+        setBusy(
+          signed.length > 1
+            ? `Waiting for confirmation ${i + 1} of ${signed.length}…`
+            : "Waiting for network confirmation…",
+        );
+        const result = await connection.confirmTransaction(
+          {
+            signature: submitted.signature,
+            blockhash: review.blockhash,
+            lastValidBlockHeight: review.lastValidBlockHeight,
+          },
+          "confirmed",
+        );
+        if (result.value.err)
+          throw Error("Transaction failed onchain. Check its receipt.");
+        await check(submitted);
+      }
     } catch (e) {
       setReview(null);
       setError(
@@ -546,21 +569,29 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   : review.liquidity
                     ? "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
                     : review.action === "launch"
-                      ? `Create a permanent token and its own Meteora pool with the trading fee you chose. Net collected fees go ${review.market?.mode === "floor" ? "50% to your fixed recipient and 50% to the Stock Floor, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. A second signature activates the treasury. This does not purchase tokens.`
+                      ? `${review.bundle ? `One approval, ${review.bundle.length + 1} transactions sent in order: this launch's Meteora config, then the token and its pool${review.devBuy ? `, with your first buy of ${review.devBuy.quoteAmount} ${review.devBuy.quote} for about ${review.devBuy.percent.toFixed(2)}% of the supply as its very first trade, in the same transaction, so nothing trades before you` : ""}, then the Sonata treasury. ` : "Create a permanent token and its own Meteora pool with the trading fee you chose. "}Net collected fees go ${review.market?.mode === "standardFloor" ? "25% to your fixed recipient, 25% to the Stock Floor, which only holders can redeem, and 50% to Sonata" : review.market?.mode === "standard" ? "50% to your fixed recipient and 50% to Sonata" : review.market?.mode === "floor" ? "50% to your fixed recipient and 50% to the Stock Floor, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. At graduation you get half of the locked pool, which keeps earning fees.${review.bundle ? "" : " A second signature activates the treasury."}`
                       : review.action === "register"
-                        ? review.market?.mode === "floor"
+                        ? review.market?.mode === "standard" || review.market?.mode === "standardFloor"
+                          ? "Register the creator, immutable recipient and fee split in Sonata, and create its custody accounts."
+                          : review.market?.mode === "floor"
                           ? "Register the creator, immutable recipient and Stock Floor in Sonata, and create its custody accounts. Once active, the creator can never withdraw the floor."
                           : review.market?.mode === "refrain"
                             ? "Register the creator and immutable recipient in Sonata, and create its custody accounts. Every net fee collected goes to the recipient."
                             : "Register the creator, immutable recipient and 50/50 allocation in Sonata, and create its custody accounts."
+                        : review.action === "creator-claim"
+                          ? "Claims the trading fees your locked graduated pool position has earned, into your own token accounts. The position stays locked."
                         : review.action === "redeem"
                           ? "Your tokens are burned and you receive their exact share of the Stock Floor: floor × tokens burned ÷ total supply, rounded down. Nobody else's share goes down."
                         : review.action === "sync"
-                          ? "Collects new trading fees from Meteora and splits them: 50% to the fixed recipient, 50% into the Stock Floor. Anyone can do this; you only pay the network fee."
+                          ? `Collects new trading fees from Meteora and splits them: ${review.market?.mode === "standardFloor" ? "25% to the fixed recipient, 25% into the Stock Floor, 50% to Sonata" : "50% to the fixed recipient, 50% into the Stock Floor"}. Anyone can do this; you only pay the network fee.`
                         : review.action === "withdraw"
                           ? "Move the requested allocated reserve to the creator’s wallet. No holder balances are redeemed."
                           : review.action === "allocate"
-                            ? "50% goes to the fixed recipient and 50% remains retained."
+                            ? review.market?.mode === "standard"
+                              ? "50% goes to the fixed recipient and 50% to Sonata."
+                              : review.market?.mode === "refrain"
+                                ? "100% goes to the fixed recipient."
+                                : "50% goes to the fixed recipient and 50% remains retained."
                             : review.action === "collect"
                               ? "All currently claimable partner fees move into treasury custody. The final amount may change if more trades occur."
                               : review.action === "lp-buy" ||

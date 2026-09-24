@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TokenName } from "@/app/token-identity";
 import {
+  hasFloor,
   prepareTreasury,
   type Market,
   type TreasurySnapshot,
@@ -37,7 +38,7 @@ export function StockFloor({
 }) {
   const { address, busy, pending, execute } = useLive();
   const [amount, setAmount] = useState("");
-  if (market.mode !== "floor" && data?.mode !== "floor") return null;
+  if (!hasFloor(market.mode) && !hasFloor(data?.mode)) return null;
   const floor = data ? BigInt(data.floor) : 0n,
     supply = data ? BigInt(data.baseSupply) : 0n;
   if (compact)
@@ -78,7 +79,7 @@ export function StockFloor({
         {data ? formatUnits(floor) : "—"} <TokenName symbol={quote} />
       </strong>
       <p className="stock-floor-note">
-        Half of net trading fees builds this floor. Any holder can burn{" "}
+        {market.mode === "standardFloor" ? "A quarter" : "Half"} of net trading fees builds this floor. Any holder can burn{" "}
         {market.symbol} for their share, paid in {quote}.
       </p>
       <div className="sr-detail-row">

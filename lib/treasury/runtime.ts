@@ -2,7 +2,7 @@ import "../stockroom/polyfills.mjs";
 import { Buffer } from "buffer";
 import { type BN, type Idl } from "@coral-xyz/anchor";
 import { browserAnchor } from "./anchor.mjs";
-const { Program, BorshAccountsCoder } =
+const { Program, BorshAccountsCoder, BN: BigNumber } =
   browserAnchor as typeof import("@coral-xyz/anchor");
 import {
   Connection,
@@ -26,13 +26,18 @@ import dbcIdl from "./dbc.json";
 import initialMarket from "./market.json";
 import { buildCurveParams } from "./dbc-preview";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
-import { graduationProgress, milestoneCaps } from "./graduation";
+import { buyOut, graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl } from "../token-profile";
 // Of the net fees the treasury claims (80% of the trading fee; Meteora keeps 20%):
-// "refrain": 100% to the payout wallet. The default for new launches.
+// "standard": 50% to the creator's payout wallet, 50% to Sonata. New launches.
+// "standardFloor": 25% creator, 25% Stock Floor, 50% Sonata. New launches with a floor.
+// "refrain": 100% to the payout wallet.
 // "duet": 50% to the payout wallet, 50% creator-withdrawable reserve.
 // "floor": 50% to the payout wallet, 50% Stock Floor that only holders redeem.
-export type TreasuryMode = "refrain" | "duet" | "floor";
+export type TreasuryMode = "standard" | "standardFloor" | "refrain" | "duet" | "floor";
+const MODES: TreasuryMode[] = ["standard", "standardFloor", "refrain", "duet", "floor"];
+/** Modes whose retained balance is a holder-redeemable Stock Floor. */
+export const hasFloor = (mode?: TreasuryMode) => mode === "floor" || mode === "standardFloor";
 export type Market = typeof initialMarket & {
   symbol: string;
   name: string;
@@ -43,7 +48,7 @@ export type Market = typeof initialMarket & {
   uri?: string;
 };
 const modeOf = (m: Record<string, unknown>): TreasuryMode | null =>
-  "floor" in m ? "floor" : "duet" in m ? "duet" : "refrain" in m ? "refrain" : null;
+  MODES.find((mode) => mode in m) ?? null;
 export const market: Market = {
   ...initialMarket,
   symbol: "ROOM",
@@ -207,8 +212,9 @@ export async function readTreasury(market: Market = exportsMarket) {
     uncollected: pool.partnerQuoteFee.toString(),
     migrated: pool.isMigrated !== 0,
     mode,
-    // In floor mode the whole retained balance is the floor.
-    floor: mode === "floor" ? available.toString() : "0",
+    // In floor modes the available retained balance is the floor (Sonata's share
+    // in standardFloor is counted as retained and withdrawn at once).
+    floor: hasFloor(mode) ? available.toString() : "0",
     baseSupply: baseSupply.toString(),
     ...(await readGraduation(pool, config, market, baseSupply)),
   };
@@ -281,7 +287,8 @@ export type PreparedTreasury = {
     | "reward-fund"
     | "reward-claim"
     | "reward-policy"
-    | "reward-deliver";
+    | "reward-deliver"
+    | "creator-claim";
   redeem?: { burn: string; payout: string; baseSymbol: string };
   rewards?: {
     description: string;
@@ -300,6 +307,12 @@ export type PreparedTreasury = {
   market?: Market;
   title?: string;
   rentLamports?: number;
+  // Further transactions signed in the same wallet approval and sent after
+  // `transaction`, in order, each once the previous one confirms. They depend on
+  // it (a launch's pool needs its config), so only `transaction` is simulated.
+  bundle?: { transaction: string; action: PreparedTreasury["action"] }[];
+  // A dev buy made in the same transaction that creates the pool.
+  devBuy?: { quoteAmount: string; quote: string; tokens: string; percent: number };
   wallet: string;
   transaction: string;
   blockhash: string;
@@ -321,6 +334,20 @@ export type PreparedTreasury = {
     rentLamports: number;
   };
 };
+// Sonata's platform wallet is the Vault's admin, read from chain once per session.
+let adminCache: Promise<PublicKey> | null = null;
+function vaultAdmin() {
+  adminCache ??= (
+    program.account as unknown as { vault: { fetch(a: PublicKey): Promise<{ admin: PublicKey }> } }
+  ).vault
+    .fetch(pk(exportsMarket.vault))
+    .then((v) => v.admin)
+    .catch((e) => {
+      adminCache = null;
+      throw e;
+    });
+  return adminCache;
+}
 export async function prepareTreasury(
   action: TreasuryAction,
   wallet: string,
@@ -357,17 +384,45 @@ export async function prepareTreasury(
         dbcProgram: pk(dbc.program),
       })
       .instruction();
-  const distributeIx = () =>
-    program.methods
-      .distribute()
-      .accounts({
+  // Standard modes split each allocation with Sonata: the platform share goes to
+  // the Vault admin's quote account, created here if it does not exist yet.
+  const split = state.mode === "standard" || state.mode === "standardFloor";
+  const distributeIx = async () => {
+    if (!split)
+      return program.methods
+        .distribute()
+        .accounts({
+          treasury: pk(market.treasury),
+          treasuryQuote: pk(market.treasuryQuote),
+          payoutQuote: pk(market.payoutQuote),
+          quoteMint: pk(market.quoteMint),
+          tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .instruction();
+    const admin = await vaultAdmin();
+    const platformQuote = getAssociatedTokenAddressSync(pk(market.quoteMint), admin, false, TOKEN_2022_PROGRAM_ID);
+    tx.add(
+      createAssociatedTokenAccountIdempotentInstruction(
+        owner,
+        platformQuote,
+        admin,
+        pk(market.quoteMint),
+        TOKEN_2022_PROGRAM_ID,
+      ),
+    );
+    return program.methods
+      .distributeSplit()
+      .accountsPartial({
+        vault: pk(market.vault),
         treasury: pk(market.treasury),
         treasuryQuote: pk(market.treasuryQuote),
         payoutQuote: pk(market.payoutQuote),
+        platformQuote,
         quoteMint: pk(market.quoteMint),
         tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
       })
       .instruction();
+  };
   if (action === "collect") {
     if (state.migrated)
       throw Error("This pool migrated; the DAMM fee adapter is not connected.");
@@ -393,7 +448,7 @@ export async function prepareTreasury(
     tx.add(await distributeIx());
   }
   if (action === "redeem") {
-    if (state.mode !== "floor")
+    if (!hasFloor(state.mode))
       throw Error("This market has no Stock Floor.");
     const burn = parseUnits(amount ?? "", 6);
     if (burn <= 0n) throw Error("Enter how many tokens to burn.");
@@ -446,8 +501,10 @@ export async function prepareTreasury(
     };
   }
   if (action === "withdraw") {
-    if (state.mode === "floor")
+    if (hasFloor(state.mode))
       throw Error("The Stock Floor belongs to holders; the creator cannot withdraw it.");
+    if (state.mode === "standard" || state.mode === "refrain")
+      throw Error("This market pays the creator directly; it has no reserve to withdraw.");
     if (wallet !== market.creator)
       throw Error("Only this market’s creator can withdraw its reserve.");
     const quantity = parseUnits(amount ?? "", 8);
@@ -701,7 +758,7 @@ export function validateMarketIdentity(value: Market) {
       throw Error("Unsupported Sonata market configuration.");
   if (!quoteAssetList.some((a) => a.mint === value.quoteMint))
     throw Error("Unsupported quote asset for a Sonata market.");
-  if (value.mode !== undefined && !["refrain", "duet", "floor"].includes(value.mode))
+  if (value.mode !== undefined && !MODES.includes(value.mode))
     throw Error("Unsupported treasury mode.");
   if (value.uri !== undefined && !isProfileUrl(value.uri))
     throw Error("Unsupported token profile location.");
@@ -816,7 +873,22 @@ export type LaunchCurve = {
   target: number;
   fee: number;
   floor?: boolean;
+  // Optional first buy, in quote tokens.
+  devBuy?: number;
 };
+const MAX_TX_BYTES = 1232;
+function txBytes(tx: Transaction, feePayer: PublicKey) {
+  tx.feePayer = feePayer;
+  tx.recentBlockhash = PublicKey.default.toBase58();
+  const message = tx.compileMessage();
+  return 1 + message.header.numRequiredSignatures * 64 + message.serialize().length;
+}
+// Rent for the accounts the pool and treasury transactions create, measured on
+// Devnet (pool, mint, metadata, two vaults; treasury and its three token accounts),
+// plus the buyer's token account for a dev buy. The config transaction's own rent
+// comes from its simulation.
+const POOL_AND_TREASURY_RENT = 25_480_000,
+  DEV_BUY_ACCOUNT_RENT = 2_039_280;
 export async function prepareLaunch(
   wallet: string,
   name: string,
@@ -881,7 +953,8 @@ export async function prepareLaunch(
     treasury: treasury.toBase58(),
     creator: wallet,
     payoutOwner: payout,
-    mode: curve.floor ? "floor" : "refrain",
+    // Creator 50% / Sonata 50% of claimed fees, or creator 25% / floor 25% / Sonata 50%.
+    mode: curve.floor ? "standardFloor" : "standard",
     fee: curve.fee,
     ...(uri ? { uri } : {}),
     baseVault: deriveDbcTokenVaultAddress(pool, mint.publicKey).toBase58(),
@@ -905,10 +978,43 @@ export async function prepareLaunch(
     ).toBase58(),
     traces: [],
   };
-  // One transaction: create this launch's config, then open its pool against it.
-  // leftoverReceiver matches feeClaimer so unsold curve inventory also returns
-  // to the Sonata vault rather than to an arbitrary key.
-  const tx = await client.partner.createConfigAndPool({
+  // Dev buy: the pool's very first trade, in the same transaction that creates the
+  // pool, so nothing can trade before the creator.
+  const devBuyAtoms =
+    curve.devBuy && curve.devBuy > 0 ? BigInt(Math.round(curve.devBuy * 10 ** asset.decimals)) : 0n;
+  let firstBuyParam:
+    | { buyer: PublicKey; buyAmount: BN; minimumAmountOut: BN; referralTokenAccount: null }
+    | undefined;
+  let devBuy: PreparedTreasury["devBuy"];
+  if (devBuyAtoms > 0n) {
+    const balance = await connection
+      .getTokenAccountBalance(getAssociatedTokenAddressSync(quoteMint, owner, false, TOKEN_2022_PROGRAM_ID))
+      .catch(() => null);
+    if (!balance || BigInt(balance.value.amount) < devBuyAtoms)
+      throw Error(`Your wallet holds less than ${curve.devBuy} ${asset.symbol} for the first buy.`);
+    const big = (v: { toString(): string }) => BigInt(v.toString());
+    const quote = buyOut(
+      devBuyAtoms,
+      curve.fee,
+      big(curveParams.sqrtStartPrice),
+      curveParams.curve.map((c) => ({ sqrtPrice: big(c.sqrtPrice), liquidity: big(c.liquidity) })),
+    );
+    if (quote.unspent > 0n) throw Error("That first buy is larger than the whole curve. Buy less.");
+    const percent = Number((quote.out * 10_000n) / 10n ** 15n) / 100;
+    if (percent > 75) throw Error("A first buy can take at most 75% of the supply. Buy less.");
+    firstBuyParam = {
+      buyer: owner,
+      buyAmount: new BigNumber(devBuyAtoms.toString()),
+      // Nothing trades before this buy, so the quote is exact; 0.5% covers rounding.
+      minimumAmountOut: new BigNumber(((quote.out * 995n) / 1000n).toString()),
+      referralTokenAccount: null,
+    };
+    devBuy = { quoteAmount: String(curve.devBuy), quote: asset.symbol, tokens: quote.out.toString(), percent };
+  }
+  // Three transactions in one approval: this launch's config; its pool with the
+  // dev buy (atomic); then the treasury. leftoverReceiver matches feeClaimer so
+  // unsold curve inventory also returns to the Sonata vault.
+  const { createConfigTx, createPoolWithFirstBuyTx } = await client.partner.createConfigAndPoolWithFirstBuy({
     config: config.publicKey,
     feeClaimer: pk(exportsMarket.vault),
     leftoverReceiver: pk(exportsMarket.vault),
@@ -922,43 +1028,44 @@ export async function prepareLaunch(
       poolCreator: owner,
       baseMint: mint.publicKey,
     },
+    firstBuyParam,
   });
-  // No compute-unit instruction: a launch uses about 140,000 units, under the
-  // default budget of 200,000 per instruction, and the extra instruction's 40
-  // bytes matter because a Solana transaction is capped at 1,232 bytes.
-  tx.feePayer = owner;
-  tx.recentBlockhash = PublicKey.default.toBase58();
-  const message = tx.compileMessage();
-  const size = 1 + message.header.numRequiredSignatures * 64 + message.serialize().length;
-  if (size > 1232)
-    throw Error("This launch is too large for one Solana transaction. Shorten the token name.");
+  const registrationTx = await registrationTransaction(owner, m);
+  for (const tx of [createConfigTx, createPoolWithFirstBuyTx, registrationTx])
+    if (txBytes(tx, owner) > MAX_TX_BYTES)
+      throw Error("This launch is too large for one Solana transaction. Shorten the token name.");
   const prepared = await finalizeTransaction(
-    tx,
+    createConfigTx,
     "launch",
     wallet,
     "0",
     m.pool,
     undefined,
-    [mint, config],
+    [config],
   );
+  const later = (tx: Transaction, signers: Keypair[]) => {
+    tx.feePayer = owner;
+    tx.recentBlockhash = prepared.blockhash;
+    if (signers.length) tx.partialSign(...signers);
+    return tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+  };
   return {
     ...prepared,
+    bundle: [
+      { transaction: later(createPoolWithFirstBuyTx, [mint]), action: "launch" },
+      { transaction: later(registrationTx, []), action: "register" },
+    ],
+    feeLamports: prepared.feeLamports + 15_000,
+    rentLamports:
+      (prepared.rentLamports ?? 0) + POOL_AND_TREASURY_RENT + (devBuy ? DEV_BUY_ACCOUNT_RENT : 0),
+    devBuy,
     market: m,
-    title: `Create ${symbol} / ${asset.symbol} pool`,
+    title: `Launch ${symbol} / ${asset.symbol}`,
   };
 }
-export async function prepareRegistration(
-  wallet: string,
-  m: Market,
-): Promise<PreparedTreasury> {
-  await checkNetwork();
-  validateMarketIdentity(m);
-  if (wallet !== m.creator)
-    throw Error("Reconnect the wallet that created this pool.");
-  const owner = pk(wallet),
-    tx = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }),
-    );
+// Registers the treasury for a launch's pool and creates its token accounts.
+async function registrationTransaction(owner: PublicKey, m: Market) {
+  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }));
   tx.add(
     await program.methods
       .initTreasury({ [m.mode ?? "duet"]: {} }, pk(m.payoutOwner))
@@ -980,15 +1087,18 @@ export async function prepareRegistration(
     [m.treasuryQuote, m.treasury, m.quoteMint, TOKEN_2022_PROGRAM_ID],
     [m.payoutQuote, m.payoutOwner, m.quoteMint, TOKEN_2022_PROGRAM_ID],
   ] as const)
-    tx.add(
-      createAssociatedTokenAccountIdempotentInstruction(
-        owner,
-        pk(ata),
-        pk(authority),
-        pk(mint),
-        token,
-      ),
-    );
+    tx.add(createAssociatedTokenAccountIdempotentInstruction(owner, pk(ata), pk(authority), pk(mint), token));
+  return tx;
+}
+export async function prepareRegistration(
+  wallet: string,
+  m: Market,
+): Promise<PreparedTreasury> {
+  await checkNetwork();
+  validateMarketIdentity(m);
+  if (wallet !== m.creator)
+    throw Error("Reconnect the wallet that created this pool.");
+  const tx = await registrationTransaction(pk(wallet), m);
   return {
     ...(await finalizeTransaction(tx, "register", wallet, "0", m.treasury)),
     market: m,
@@ -1002,8 +1112,8 @@ export async function reserveWithdrawal(
   raw: bigint,
 ) {
   const state = await readTreasury(m);
-  if (state.mode === "floor")
-    throw Error("The Stock Floor belongs to holders; the creator cannot withdraw it.");
+  if (state.mode !== "duet")
+    throw Error("Only markets with a creator reserve can deploy it.");
   if (wallet !== m.creator)
     throw Error("Only this market’s creator can deploy its reserve.");
   if (raw <= 0n || raw > BigInt(state.available))

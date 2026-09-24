@@ -1,6 +1,8 @@
 // One source of curve parameters for both the launch preview and the deployed
 // config, so what a creator reviews is what createConfigAndPool receives.
-export const FEE_BPS_CHOICES = [25, 50, 100, 200, 300] as const;
+// 1.25% is the default for new launches; the lower tiers stay valid for existing
+// scripts and configs.
+export const FEE_BPS_CHOICES = [25, 50, 100, 125, 200, 300] as const;
 
 export function assertCurveInputs(initial: number, target: number, fee: number) {
   if (
@@ -62,10 +64,13 @@ export async function buildCurveParams(
       migrationFeeOption: MigrationFeeOption.FixedBps100,
       migrationFee: { feePercentage: 0, creatorFeePercentage: 0 },
     },
+    // At graduation the locked DAMM v2 liquidity is split 50/50: one position for
+    // the Sonata vault (partner) and one owned by the creator, who keeps
+    // claiming its trading fees after graduation. Both stay permanently locked.
     liquidityDistribution: {
-      partnerPermanentLockedLiquidityPercentage: 100,
+      partnerPermanentLockedLiquidityPercentage: 50,
       partnerLiquidityPercentage: 0,
-      creatorPermanentLockedLiquidityPercentage: 0,
+      creatorPermanentLockedLiquidityPercentage: 50,
       creatorLiquidityPercentage: 0,
     },
     lockedVesting: {
@@ -90,6 +95,9 @@ export async function previewDbc(
   return {
     quoteThreshold: params.migrationQuoteThreshold.toString(),
     segments: params.curve.length,
+    // For quoting a dev buy on the fresh pool (see buyOut in graduation.ts).
+    sqrtStartPrice: params.sqrtStartPrice.toString(),
+    curve: params.curve.map((c) => ({ sqrtPrice: c.sqrtPrice.toString(), liquidity: c.liquidity.toString() })),
     initial,
     target,
     fee,

@@ -193,7 +193,7 @@ export function TokenProfileFields({
         {linkError && <p className="sr-note text-destructive mt-2" role="alert">{linkError}</p>}
       </details>
       <p className="sr-note">
-        Saved in the token’s public metadata with its name and ticker. It can’t be changed after launch.
+        Saved permanently with the token.
       </p>
     </div>
   );

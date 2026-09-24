@@ -5,11 +5,15 @@
 //   1. `claim` pulls the pool's partner fees from Meteora DBC into the treasury,
 //      when the pool's partnerQuoteFee is at least CRANK_MIN_ATOMS;
 //   2. `distribute` splits what is claimed but unallocated by the treasury's
-//      mode (refrain 100% payout; duet 50/50; floor 50% payout, 50% Stock Floor).
-// Both instructions are permissionless and every destination is pinned onchain,
-// so this key can only pay network fees (and rent for a missing payout token
-// account), never redirect funds. Instructions are built exactly as
-// lib/treasury/runtime.ts prepareTreasury builds them for "collect",
+//      mode (refrain 100% payout; duet 50/50; floor 50% payout, 50% Stock Floor),
+//      or, for the modes with a Sonata platform share, `distribute_split` does
+//      (standard 50% creator, 50% Sonata; standardFloor 25% creator, 25% Stock
+//      Floor, 50% Sonata). Sonata's share goes to the Token-2022 quote account of
+//      the Vault admin, read from the Vault account each pass.
+// All three instructions are permissionless and every destination is pinned
+// onchain, so this key can only pay network fees (and rent for a missing payout
+// or platform token account), never redirect funds. Claim and distribute are
+// built as lib/treasury/runtime.ts prepareTreasury builds them for "collect",
 // "allocate" and "sync", and markets are verified as readTreasury verifies them.
 //
 // Env: CRANK_KEYPAIR (default /opt/sonata/crank-keypair.json),
@@ -56,7 +60,12 @@ const TREASURY_DISCRIMINATOR = Buffer.from(
 const [VAULT] = PublicKey.findProgramAddressSync([Buffer.from("stockroom")], program.programId);
 if (VAULT.toBase58() !== json("../lib/treasury/market.json").vault)
   throw Error("Sonata fee vault does not match lib/treasury/market.json.");
-const modeOf = (m) => ("floor" in m ? "floor" : "duet" in m ? "duet" : "refrain" in m ? "refrain" : null);
+// Onchain Mode variants the crank handles, by the anchor coder's key. Sustain is
+// never launched by the app and is skipped.
+const MODES = ["refrain", "duet", "floor", "standard", "standardFloor"];
+// Modes with a Sonata platform share, split by `distribute_split`.
+export const SPLIT_MODES = new Set(["standard", "standardFloor"]);
+export const modeOf = (m) => MODES.find((k) => m && k in m) ?? null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // spl-token errors carry only a name, so fall back to it.
 const errText = (e) => String(e?.message || e?.name || e).slice(0, 200);
@@ -74,23 +83,27 @@ const check = (label, fn) => {
  *   unallocated        treasury totalClaimed - totalDistributed - totalRetained
  *   treasuryBaseReady  the treasury's base token account exists, unfrozen (`claim` needs it)
  *   payoutAccount      "ok" | "missing" (created in the same transaction) | "frozen"
+ *   platformAccount    as payoutAccount, for the Vault admin's quote account; only
+ *                      in the modes with a platform share (undefined otherwise)
  *   migrated           the pool graduated; claim is still attempted and logged
  */
 export function planMarket(s, minAtoms = DEFAULT_MIN_ATOMS) {
   const feeReady = s.partnerQuoteFee > 0n && s.partnerQuoteFee >= minAtoms;
   const claim = feeReady && s.treasuryBaseReady;
+  const frozen = s.payoutAccount === "frozen" ? "payout" : s.platformAccount === "frozen" ? "platform" : null;
   // A claim leaves something unallocated, so it is always followed by a split.
-  const distribute = s.payoutAccount !== "frozen" && (claim || s.unallocated > 0n);
+  const distribute = !frozen && (claim || s.unallocated > 0n);
   const createPayout = distribute && s.payoutAccount === "missing";
+  const createPlatform = distribute && s.platformAccount === "missing";
   let reason = null;
   if (feeReady && !s.treasuryBaseReady) reason = "treasury base token account missing or frozen; cannot claim";
-  else if (s.payoutAccount === "frozen" && (claim || s.unallocated > 0n))
-    reason = "payout token account frozen; cannot distribute";
+  else if (frozen && (claim || s.unallocated > 0n))
+    reason = `${frozen} token account frozen; cannot distribute`;
   else if (!claim && !distribute)
     reason = s.partnerQuoteFee > 0n
       ? `partner fee ${s.partnerQuoteFee} below ${minAtoms}; nothing unallocated`
       : "nothing to claim or distribute";
-  return { claim, distribute, createPayout, reason };
+  return { claim, distribute, createPayout, createPlatform, reason };
 }
 
 // Account lists as in lib/treasury/runtime.ts prepareTreasury.
@@ -126,6 +139,20 @@ const distributeIx = (m) =>
       tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
     })
     .instruction();
+// The program checks the Vault's seeds and that platformQuote belongs to its admin.
+const distributeSplitIx = (m) =>
+  program.methods
+    .distributeSplit()
+    .accountsStrict({
+      vault: VAULT,
+      treasury: m.treasury,
+      treasuryQuote: m.treasuryQuote,
+      payoutQuote: m.payoutQuote,
+      platformQuote: m.platformQuote,
+      quoteMint: m.quoteMint,
+      tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+    })
+    .instruction();
 
 export function txBytes(instructions, feePayer) {
   const tx = new Transaction().add(...instructions);
@@ -143,19 +170,21 @@ export function txBytes(instructions, feePayer) {
 export async function buildSteps(m, plan, feePayer) {
   const budget = () => ({ label: "compute budget", ix: ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }) });
   const claim = plan.claim ? [{ label: "claim", ix: await claimIx(m) }] : [];
+  const split = SPLIT_MODES.has(m.mode);
+  if (split && plan.distribute && !m.platformQuote) throw Error("platform account unknown; cannot distribute_split");
+  const create = (label, account, owner) => ({
+    label,
+    ix: createAssociatedTokenAccountIdempotentInstruction(feePayer, account, owner, m.quoteMint, TOKEN_2022_PROGRAM_ID),
+  });
   const pay = [];
-  if (plan.createPayout)
-    pay.push({
-      label: "create payout account",
-      ix: createAssociatedTokenAccountIdempotentInstruction(
-        feePayer,
-        m.payoutQuote,
-        m.payoutOwner,
-        m.quoteMint,
-        TOKEN_2022_PROGRAM_ID,
-      ),
-    });
-  if (plan.distribute) pay.push({ label: "distribute", ix: await distributeIx(m) });
+  if (plan.createPayout) pay.push(create("create payout account", m.payoutQuote, m.payoutOwner));
+  // When the payout owner is the Vault admin both are one account, created once.
+  if (split && plan.createPlatform && !(plan.createPayout && m.platformQuote.equals(m.payoutQuote)))
+    pay.push(create("create platform account", m.platformQuote, m.platformOwner));
+  if (plan.distribute)
+    pay.push(split
+      ? { label: "distribute_split", ix: await distributeSplitIx(m) }
+      : { label: "distribute", ix: await distributeIx(m) });
   const single = [budget(), ...claim, ...pay];
   if (!claim.length || !pay.length || txBytes(single.map((s) => s.ix), feePayer) <= MAX_TX_BYTES)
     return [single];
@@ -188,9 +217,31 @@ function marketOf(address, t) {
   };
 }
 
+/**
+ * The Vault admin, who receives the platform share. Throws unless the account
+ * is the treasury program's Vault.
+ */
+export function vaultAdmin(info) {
+  if (!info?.owner.equals(program.programId)) throw Error("Sonata Vault account missing or not owned by the treasury program");
+  const { admin } = check("vault", () => program.coder.accounts.decode("vault", Buffer.from(info.data)));
+  if (admin.equals(PublicKey.default)) throw Error("Sonata Vault has no admin");
+  return admin;
+}
+
+/**
+ * State of a destination quote token account: "missing", "ok" or "frozen".
+ * Throws if it exists but is not the owner's account for this mint.
+ */
+export function destinationState(label, address, info, owner, mint) {
+  if (!info) return "missing";
+  const a = check(label, () => unpackAccount(address, info, TOKEN_2022_PROGRAM_ID));
+  if (!a.owner.equals(owner) || !a.mint.equals(mint)) throw Error(`${label} verification failed`);
+  return a.isFrozen ? "frozen" : "ok";
+}
+
 // The same ownership, configuration, custody and accounting checks as readTreasury.
 function inspect(m, info) {
-  const [pool, config, treasuryBase, treasuryQuote, payoutQuote, quoteMint] = info;
+  const [pool, config, treasuryBase, treasuryQuote, payoutQuote, quoteMint, platformQuote] = info;
   if (!pool?.owner.equals(pk(dbc.program)) || !config?.owner.equals(pk(dbc.program)))
     throw Error("pool or config is not owned by Meteora DBC");
   const decoded = dbcCoder.decode("virtualPool", pool.data);
@@ -218,13 +269,12 @@ function inspect(m, info) {
       throw Error("treasury base custody verification failed");
     treasuryBaseReady = !base.isFrozen;
   }
-  let payoutAccount = "missing";
-  if (payoutQuote) {
-    const payout = check("payout account", () => unpackAccount(m.payoutQuote, payoutQuote, TOKEN_2022_PROGRAM_ID));
-    if (!payout.owner.equals(m.payoutOwner) || !payout.mint.equals(m.quoteMint))
-      throw Error("payout token account verification failed");
-    payoutAccount = payout.isFrozen ? "frozen" : "ok";
-  }
+  const payoutAccount = destinationState("payout token account", m.payoutQuote, payoutQuote, m.payoutOwner, m.quoteMint);
+  const platformAccount = SPLIT_MODES.has(m.mode)
+    ? destinationState("platform token account", m.platformQuote, platformQuote, m.platformOwner, m.quoteMint)
+    : undefined;
+  // In the platform modes the platform share is booked as retained and withdrawn
+  // together, so retained - withdrawn is still the floor held in custody.
   const [claimed, paid, retained, withdrawn] = m.totals;
   const unallocated = claimed - paid - retained;
   const available = retained - withdrawn;
@@ -235,6 +285,7 @@ function inspect(m, info) {
     unallocated,
     treasuryBaseReady,
     payoutAccount,
+    platformAccount,
     migrated: p.isMigrated !== 0,
   };
 }
@@ -300,14 +351,32 @@ export async function runPass({ connection, payer, minAtoms = DEFAULT_MIN_ATOMS,
     }
   }
 
+  // The platform share goes to the Vault admin's quote account; the admin is read
+  // from the Vault, one extra call, only when some market has a platform share.
+  let vaultError = null;
+  if (markets.some((m) => SPLIT_MODES.has(m.mode))) {
+    try {
+      const admin = vaultAdmin(await rpc(() => connection.getAccountInfo(VAULT, "confirmed")));
+      for (const m of markets)
+        if (SPLIT_MODES.has(m.mode)) {
+          m.platformOwner = admin;
+          m.platformQuote = getAssociatedTokenAddressSync(m.quoteMint, admin, true, TOKEN_2022_PROGRAM_ID);
+        }
+    } catch (e) {
+      vaultError = `vault: ${errText(e)}`;
+    }
+  }
+
   // Everything the checks need, in as few calls as possible (100 accounts per call).
   const mints = [...new Set(markets.map((m) => m.quoteMint.toBase58()))].map(pk);
-  const keys = [payer.publicKey, ...mints, ...markets.flatMap((m) => [m.pool, m.config, m.treasuryBase, m.treasuryQuote, m.payoutQuote])];
+  const accountsOf = (m) => [m.pool, m.config, m.treasuryBase, m.treasuryQuote, m.payoutQuote, ...(m.platformQuote ? [m.platformQuote] : [])];
+  const keys = [...new Map([payer.publicKey, ...mints, ...markets.flatMap(accountsOf)].map((k) => [k.toBase58(), k])).values()];
   const infos = [];
   for (let i = 0; i < keys.length; i += 100)
     infos.push(...(await rpc(() => connection.getMultipleAccountsInfo(keys.slice(i, i + 100), "confirmed"))));
-  const balance = infos[0]?.lamports ?? 0;
-  const mintInfo = new Map(mints.map((m, i) => [m.toBase58(), infos[1 + i]]));
+  const infoOf = new Map(keys.map((k, i) => [k.toBase58(), infos[i]]));
+  const lookup = (k) => (k ? infoOf.get(k.toBase58()) : undefined);
+  const balance = lookup(payer.publicKey)?.lamports ?? 0;
   // A dry run with an unfunded key simulates as each market's creator, a funded
   // wallet, so the programs still run. Simulation checks no signatures.
   const simulateAsCreator = dryRun && balance < 10_000;
@@ -359,8 +428,9 @@ export async function runPass({ connection, payer, minAtoms = DEFAULT_MIN_ATOMS,
     const m = markets[i];
     const base = { pool: m.pool.toBase58(), mode: m.mode };
     try {
-      const at = 1 + mints.length + i * 5;
-      const state = inspect(m, [...infos.slice(at, at + 5), mintInfo.get(m.quoteMint.toBase58())]);
+      if (SPLIT_MODES.has(m.mode) && !m.platformQuote) throw Error(vaultError ?? "platform account unknown");
+      const [pool, config, treasuryBase, treasuryQuote, payoutQuote] = accountsOf(m).map(lookup);
+      const state = inspect(m, [pool, config, treasuryBase, treasuryQuote, payoutQuote, lookup(m.quoteMint), lookup(m.platformQuote)]);
       Object.assign(base, { fee: state.partnerQuoteFee, unallocated: state.unallocated, migrated: state.migrated ? 1 : undefined });
       let plan = planMarket(state, minAtoms);
       if (!plan.claim && !plan.distribute) {
@@ -386,10 +456,12 @@ export async function runPass({ connection, payer, minAtoms = DEFAULT_MIN_ATOMS,
         steps = await buildSteps(m, plan, feePayer);
         sim = await simulate(steps[0], feePayer);
       }
-      const action = [plan.claim && "claim", plan.distribute && "distribute"].filter(Boolean).join("+");
+      const split = SPLIT_MODES.has(m.mode);
+      const action = [plan.claim && "claim", plan.distribute && (split ? "distribute_split" : "distribute")].filter(Boolean).join("+");
       const extra = {
         action,
         payoutAta: plan.createPayout ? "create" : undefined,
+        platformAta: plan.createPlatform ? "create" : undefined,
         bytes: steps.map((s) => txBytes(s.map((x) => x.ix), feePayer)).join(","),
         simPayer: simulateAsCreator ? "creator" : undefined,
       };
