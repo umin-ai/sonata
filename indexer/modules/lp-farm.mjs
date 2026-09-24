@@ -224,14 +224,16 @@ export async function graduated(ctx) {
  * it; each release is logged. Returns resolve(row) for payAllocated.
  */
 async function positionRows(ctx, { pool, rows, positions }) {
-  const { ledger, dryRun, log, fields, authority, excludedOwners = [] } = ctx;
+  const { m, ledger, dryRun, log, fields, authority, excludedOwners = [] } = ctx;
   const wanted = [...new Set(rows.filter((r) => r.kind === "position").map((r) => r.recipient))];
   const current = new Map(positions.filter((p) => p.owner).map((p) => [p.address.toBase58(), p.owner]));
   if (!wanted.length) return (row) => current.get(row.recipient) ?? null;
   need(ledger, ["positionHolders", "savePositionHolders", "releaseAllocations"], "lp_position_holders");
   const listed = new Map(positions.map((p) => [p.address.toBase58(), p]));
   const last = await ledger.positionHolders(wanted);
-  const banned = keySet([CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, authority.publicKey, ...excludedOwners]);
+  // The creator is never paid through a position either: a row whose position
+  // turns out to be the creator's is released, like one held by Sonata's keys.
+  const banned = keySet([CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, authority.publicKey, m?.creator, ...excludedOwners]);
   const payable = (k) => !banned.has(k.toBase58()) && onCurve(k);
   const holders = new Map(), seen = [], release = [];
   for (const position of wanted) {
@@ -260,7 +262,10 @@ async function positionRows(ctx, { pool, rows, positions }) {
     }
     if (released.length) fields.released = released.reduce((s, r) => s + r.amount, 0n);
   }
-  return (row) => holders.get(row.recipient) ?? current.get(row.recipient) ?? null;
+  return (row) => {
+    const holder = holders.get(row.recipient) ?? current.get(row.recipient) ?? null;
+    return holder && payable(holder) ? holder : null;
+  };
 }
 
 export async function runLpFarm(ctx) {
@@ -288,7 +293,7 @@ export async function runLpFarm(ctx) {
   if (!dryRun) await recordPositions(ledger, pool, at, positions);
   const liquidity = BigInt(g.pool.liquidity.toString());
   const minTotal = liquidity / LP_MIN_TOTAL_DIVISOR;
-  const weights = lpWeights(heldLiquidity(positions, history.lows), { excluded: [authority.publicKey, ...excludedOwners], minLiquidity: liquidity / LP_MIN_POSITION_DIVISOR });
+  const weights = lpWeights(heldLiquidity(positions, history.lows), { excluded: [authority.publicKey, m.creator, ...excludedOwners], minLiquidity: liquidity / LP_MIN_POSITION_DIVISOR });
   const detailOf = () => ({ paidTo: "lps", dammPool: dammPool.toBase58() });
   Object.assign(fields, { positions: positions.length, lps: weights.lps.length });
   if (!history.snapshots && positions.some((p) => p.unlocked > 0n)) {

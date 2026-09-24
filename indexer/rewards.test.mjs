@@ -9,9 +9,12 @@ import {
   ExtensionType,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
+  MINT_SIZE,
+  MintLayout,
   getAccountLen,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
+import { listHolders } from "./modules/holders.mjs";
 import {
   MAX_RECIPIENTS,
   MAX_TX_BYTES,
@@ -97,6 +100,24 @@ test("holders exclude the pool vault, the treasury, the crank key, PDAs and dust
   assert.deepEqual(owners(holders), [a, b, c, edge].map(String));
   assert.deepEqual(holders.map((h) => h.balance), [350_000_000n, 200_000_000n, 100_000_000n, 100_000n]);
   assert.deepEqual(selectHolders(accounts, { mint, supply: 0n }), []);
+});
+
+test("holders read from the chain never include the market's creator, dev buy or not", async () => {
+  const baseMint = key(), crank = key(), creator = key(), holder = key();
+  const mint = Buffer.alloc(MINT_SIZE);
+  MintLayout.encode(
+    { mintAuthorityOption: 0, mintAuthority: PublicKey.default, supply: 1_000_000_000n, decimals: 6, isInitialized: true, freezeAuthorityOption: 0, freezeAuthority: PublicKey.default },
+    mint,
+  );
+  const ctx = {
+    m: { baseMint, baseVault: key(), treasuryBase: key(), creator },
+    get: () => ({ data: mint, owner: TOKEN_PROGRAM_ID, lamports: 1, executable: false }),
+    rpc: (fn) => fn(),
+    // The creator's dev buy is the largest bag.
+    connection: { getProgramAccounts: async () => [held(baseMint, creator, 600_000_000n), held(baseMint, holder, 50_000_000n)] },
+    authority: { publicKey: crank },
+  };
+  assert.deepEqual(owners(await listHolders(ctx)), [holder.toBase58()]);
 });
 
 test("at most the top 200 holders by balance, ties by address", () => {

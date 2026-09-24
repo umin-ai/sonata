@@ -382,6 +382,27 @@ test("an off-curve NFT holder's position rows are released after 24 hours; a wal
   assert.equal(quoteOf(run.chain, run.m, wallet), 400_000n);
   assert.equal(quoteOf(run.chain, run.m, steady), 300_000n);
 });
+test("the creator is never paid as an LP: a row for the creator's position is released after 24 hours", async () => {
+  const [lp, creator] = [key(), key()];
+  const run = await farm({
+    migrated: true, ataFor: [lp, creator], owed: 700_000n,
+    positions: [{ owner: lp, unlocked: 10n ** 18n }, { owner: creator, unlocked: 10n ** 18n }, { owner: pda("locker"), permanent: 10n ** 18n }],
+  });
+  run.m.creator = creator;
+  const pool = run.m.pool.toBase58();
+  const pass = farmPass(run);
+  const [, creatorsPosition] = run.accounts.map((a) => a.address);
+  run.ledger.clock = () => NOW;
+  // A row allocated to the creator's position while its holder was not yet known.
+  await run.ledger.allocate(pool, { module: "lpFarm", shares: [allocationOf({ position: creatorsPosition, amount: 300_000n, balance: 1n })] });
+  const { ctx } = await pass(NOW + POSITION_RELEASE_SECONDS, 700_000n);
+  assert.equal(ctx.fields.released, 300_000n);
+  assert.equal(quoteOf(run.chain, run.m, creator), 0n);
+  // The next round's LP share goes to the other LP only.
+  await pass(NOW + POSITION_RELEASE_SECONDS + PASS, 700_000n);
+  assert.equal(quoteOf(run.chain, run.m, creator), 0n);
+  assert.ok(quoteOf(run.chain, run.m, lp) > 0n);
+});
 const quoteAccountOf = ({ chain, m }, w) => chain.put(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID), tokenAccount({ owner: w, mint: m.quoteMint }));
 
 // ---- LPs who cannot receive (round 3 review) ------------------------------------

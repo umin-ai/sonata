@@ -60,7 +60,9 @@ export function selectHolders(accounts, { mint, supply, excludedAccounts = [], e
 /**
  * A reward market's holders now (see selectHolders), read from the chain:
  * the crank key, ctx.excludedOwners (the Vault admin, the Vault) and Sonata's
- * own keys are never among them. `max` and `minHoldingDivisor` as selectHolders.
+ * own keys are never among them, and neither is the market's creator: fees
+ * meant for holders never pay back the creator's own bag (a dev buy included).
+ * `max` and `minHoldingDivisor` as selectHolders.
  */
 export async function listHolders(ctx, { max = MAX_RECIPIENTS, minHoldingDivisor = MIN_HOLDING_DIVISOR } = {}) {
   const { m, get, rpc, connection, authority, excludedOwners = [] } = ctx;
@@ -76,7 +78,7 @@ export async function listHolders(ctx, { max = MAX_RECIPIENTS, minHoldingDivisor
     mint: m.baseMint,
     supply,
     excludedAccounts: [m.baseVault, m.treasuryBase],
-    excludedOwners: [authority.publicKey, ...excludedOwners],
+    excludedOwners: [authority.publicKey, m.creator, ...excludedOwners],
     max,
     minHoldingDivisor,
   });

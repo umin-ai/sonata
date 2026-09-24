@@ -267,7 +267,8 @@ async function airdropMarket({ m, dbc, line, out, authority, connection, rpc, si
       mint: m.baseMint,
       supply,
       excludedAccounts: [dbc.state.baseVault, m.treasuryBase, crankBase],
-      excludedOwners: [crank, SONATA_VAULT, VAULT_ADMIN, m.platformOwner, ...excluded].filter(Boolean),
+      // The creator's own bag gets no share of the airdrop meant for holders.
+      excludedOwners: [crank, SONATA_VAULT, VAULT_ADMIN, m.platformOwner, m.creator, ...excluded].filter(Boolean),
     });
     const snapshot = airdropShares(holders, withdrawn).map((r) => ({ ...r, status: "unpaid" }));
     airdropTotals(snapshot, withdrawn);
