@@ -2,7 +2,7 @@
 // server, Caddy sends /api/index/* straight to the indexer, and INDEXER_URL
 // points here at the local indexer, so this never loops.
 export const dynamic = "force-dynamic";
-const ALLOWED = new Set(["health", "trades", "candles", "stats"]);
+const ALLOWED = new Set(["health", "trades", "candles", "stats", "rewards", "payouts"]);
 
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;

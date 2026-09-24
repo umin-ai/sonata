@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
 import { airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, migratedState, syncer } from "./index.mjs";
 import { HEAD_LAG_SECONDS, indexProgress } from "./modules/indexer-schema.mjs";
 import { dammPoolAccount, dammSwapTx, dbcAccounts, key } from "./modules/testkit.mjs";
@@ -282,4 +283,138 @@ test("GET /api/index/rewards: bounty winners with rank, the airdrop's status, an
   assert.deepEqual(good.recipients, [{ wallet: a, weight: 2, paid: "0" }]);
   assert.equal("splitError" in good, false);
   assert.equal(await rewards(apiDb({}), "not a pool"), 400);
+});
+
+// The payout ledgers in memory (reward_allocations, reward_payouts,
+// airdrop_payouts), answering GET /api/index/payouts's queries as PostgreSQL
+// would: timestamps are unix seconds, amounts strings.
+function ledgerDb({ allocations = [], payouts = [], airdrops = [] } = {}) {
+  const queries = [];
+  // group by pool and module: sum(amount), count(distinct signature) (or count(*)), max(time).
+  const grouped = (rows, { distinct = true } = {}) => {
+    const out = new Map();
+    for (const r of rows) {
+      const k = `${r.pool}/${r.module}`;
+      const g = out.get(k) ?? { pool: r.pool, module: r.module, paid: 0n, sigs: new Set(), n: 0, last: null };
+      g.paid += BigInt(r.amount);
+      if (r.signature != null) g.sigs.add(r.signature);
+      g.n++;
+      if (r.at != null) g.last = Math.max(g.last ?? r.at, r.at);
+      out.set(k, g);
+    }
+    return [...out.values()].map((g) => ({
+      pool: g.pool, module: g.module, paid: g.paid.toString(), payouts: distinct ? g.sigs.size : g.n,
+      last_paid_at: g.last === null ? null : String(g.last),
+    }));
+  };
+  async function query(sql, args = []) {
+    queries.push({ sql, args });
+    const s = sql.replace(/\s+/g, " ").trim();
+    const [wallet] = args;
+    if (s.startsWith("select pool, module, sum(amount)::text as paid") && /from reward_allocations where status = 'paid'/.test(s))
+      return {
+        rows: grouped(
+          allocations
+            .filter((a) => a.status === "paid" && (a.paid_to === wallet || (a.paid_to == null && a.kind === "wallet" && a.recipient === wallet)))
+            .map((a) => ({ ...a, at: a.paid_at })),
+        ),
+      };
+    if (s.startsWith("with paid as (")) {
+      const allocated = new Set(allocations.map((a) => a.signature).filter(Boolean));
+      const rows = payouts
+        .filter((p) => ["topBuyers", "split"].includes(p.module) && !allocated.has(p.signature))
+        .flatMap((p) => {
+          const list = p.module === "topBuyers" ? p.detail?.winners : p.detail?.recipients;
+          return (Array.isArray(list) ? list : [])
+            .filter((r) => (r.trader ?? r.wallet) === wallet && /^[0-9]+$/.test(String(r.amount)))
+            .map((r) => ({ pool: p.pool, module: p.module, signature: p.signature, amount: r.amount, at: p.paid_at }));
+        });
+      return { rows: grouped(rows) };
+    }
+    if (s.startsWith("select pool, 'airdrop' as module"))
+      return {
+        rows: grouped(
+          airdrops.filter((a) => a.owner === wallet && a.status === "sent").map((a) => ({ ...a, module: "airdrop", at: a.sent_at })),
+          { distinct: false },
+        ),
+      };
+    throw Error(`unexpected query: ${s}`);
+  }
+  return { query, queries };
+}
+const payoutsOf = (db, wallet) => api({ db, state: {} }).route(new URL(`http://x/api/index/payouts?wallet=${encodeURIComponent(wallet)}`));
+
+test("GET /api/index/payouts: a wallet's payouts per market and module, from every ledger that records recipients", async () => {
+  const me = key().toBase58(), other = key().toBase58();
+  const [p1, p2, p3] = [key(), key(), key()].map(String);
+  const position = key().toBase58();
+  const db = ledgerDb({
+    allocations: [
+      // Holders: two rounds paid in one transfer (one payout), then a third round.
+      { pool: p1, round: 1, recipient: me, kind: "wallet", module: "holders", amount: "100", status: "paid", signature: "h1", paid_to: me, paid_at: T },
+      { pool: p1, round: 2, recipient: me, kind: "wallet", module: "holders", amount: "50", status: "paid", signature: "h1", paid_to: me, paid_at: T },
+      { pool: p1, round: 3, recipient: me, kind: "wallet", module: "holders", amount: "25", status: "paid", signature: "h2", paid_to: me, paid_at: T + 900 },
+      // Not paid yet, or someone else's: not counted.
+      { pool: p1, round: 4, recipient: me, kind: "wallet", module: "holders", amount: "999", status: "pending", signature: "h3", paid_to: me, paid_at: null },
+      { pool: p1, round: 4, recipient: other, kind: "wallet", module: "holders", amount: "70", status: "paid", signature: "h4", paid_to: other, paid_at: T + 950 },
+      // An LP position row paid to its NFT holder, and a wallet row written before paid_to was recorded.
+      { pool: p2, round: 1, recipient: position, kind: "position", module: "lpFarm", amount: "40", status: "paid", signature: "l1", paid_to: me, paid_at: T + 100 },
+      { pool: p2, round: 2, recipient: me, kind: "wallet", module: "lpFarm", amount: "2", status: "paid", signature: "l2", paid_to: null, paid_at: T + 200 },
+      // An unresolved position row never counts as the wallet's, whatever its address.
+      { pool: p2, round: 3, recipient: me, kind: "position", module: "lpFarm", amount: "5", status: "paid", signature: "l3", paid_to: null, paid_at: T + 300 },
+      // Split paid by allocation rounds: its reward_payouts row (s2 below) lists the same payout.
+      { pool: p3, round: 1, recipient: me, kind: "wallet", module: "split", amount: "300", status: "paid", signature: "s2", paid_to: me, paid_at: T + 400 },
+    ],
+    payouts: [
+      // Top Buyer rounds: the wallet won twice; winners are only in the payout's detail.
+      { pool: p1, module: "topBuyers", signature: "t1", paid_at: T + 500, detail: { roundEnd: 1, winners: [{ trader: me, rank: 1, amount: "500" }, { trader: other, rank: 2, amount: "300" }] } },
+      { pool: p1, module: "topBuyers", signature: "t2", paid_at: T + 1400, detail: { roundEnd: 2, winners: [{ trader: me, rank: 3, amount: "20" }] } },
+      { pool: p1, module: "topBuyers", signature: "t3", paid_at: T + 1500, detail: { roundEnd: 3, winners: [{ trader: other, rank: 1, amount: "9" }] } },
+      // A split paid before allocation rounds existed, and one with allocation rows (counted from those).
+      { pool: p3, module: "split", signature: "s1", paid_at: T + 350, detail: { recipients: [{ wallet: me, weight: 1, amount: "10" }, { wallet: other, weight: 1, amount: "10" }] } },
+      { pool: p3, module: "split", signature: "s2", paid_at: T + 400, detail: { recipients: [{ wallet: me, weight: 1, amount: "300" }] } },
+      // Older holders rows record only how many were paid, not who.
+      { pool: p1, module: null, signature: "o1", paid_at: T - 100, recipients: 3, detail: null },
+      { pool: p1, module: "holders", signature: "o2", paid_at: T - 50, recipients: 2, detail: null },
+      // A detail that is not a list, or an amount that is not atoms, is skipped.
+      { pool: p1, module: "topBuyers", signature: "t4", paid_at: T + 1600, detail: { winners: { trader: me, amount: "7" } } },
+      { pool: p1, module: "topBuyers", signature: "t5", paid_at: T + 1700, detail: { winners: [{ trader: me, amount: "-7" }] } },
+    ],
+    airdrops: [
+      { pool: p2, recipient: key().toBase58(), owner: me, amount: "5000000", status: "sent", signature: "a1", sent_at: T + 50 },
+      { pool: p3, recipient: key().toBase58(), owner: me, amount: "8000000", status: "pending", signature: "a2", sent_at: null },
+      { pool: p2, recipient: key().toBase58(), owner: other, amount: "1", status: "sent", signature: "a3", sent_at: T + 60 },
+    ],
+  });
+  const out = await payoutsOf(db, me);
+  assert.equal(out.wallet, me);
+  assert.deepEqual(out.payouts, [
+    { pool: p1, module: "topBuyers", asset: "quote", paid: "520", payouts: 2, lastPaidAt: T + 1400 },
+    { pool: p1, module: "holders", asset: "quote", paid: "175", payouts: 2, lastPaidAt: T + 900 },
+    { pool: p3, module: "split", asset: "quote", paid: "310", payouts: 2, lastPaidAt: T + 400 },
+    { pool: p2, module: "lpFarm", asset: "quote", paid: "42", payouts: 2, lastPaidAt: T + 200 },
+    { pool: p2, module: "airdrop", asset: "base", paid: "5000000", payouts: 1, lastPaidAt: T + 50 },
+  ]);
+  // The wallet is only ever a query parameter.
+  assert.ok(db.queries.every((q) => q.args[0] === me && !q.sql.includes(me)));
+  const nobody = await payoutsOf(ledgerDb(), key().toBase58());
+  assert.deepEqual(nobody.payouts, []);
+});
+
+test("GET /api/index/payouts takes only a canonical base58 32-byte key", async () => {
+  const db = ledgerDb();
+  const valid = key().toBase58();
+  for (const bad of [
+    "",
+    "not a key",
+    `${valid} `,
+    `${valid}1`,
+    valid.replace(/.$/, "0"),
+    bs58.encode(Buffer.alloc(31, 7)),
+    bs58.encode(Buffer.alloc(33, 7)),
+  ])
+    assert.equal(await payoutsOf(db, bad), 400, JSON.stringify(bad));
+  assert.equal(await api({ db, state: {} }).route(new URL("http://x/api/index/payouts")), 400);
+  assert.equal(db.queries.length, 0, "nothing is read for a bad wallet");
+  assert.deepEqual(await payoutsOf(db, "11111111111111111111111111111111"), { wallet: "11111111111111111111111111111111", payouts: [] });
 });

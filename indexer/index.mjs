@@ -442,6 +442,83 @@ export function api({ db, state }) {
     return {};
   }
 
+  /**
+   * A wallet's payout rows ({ pool, module, paid, payouts, last_paid_at }, from
+   * several ledgers) as the API reports them: one per pool and module, amounts
+   * in atoms as strings (the airdrop in base-token atoms, `asset: "base"`;
+   * everything else in the quote stock), most recently paid first.
+   */
+  function mergePayouts(rows) {
+    const out = new Map();
+    for (const r of rows) {
+      const k = `${r.pool}/${r.module}`;
+      const at = seconds(r.last_paid_at);
+      const seen = out.get(k);
+      if (!seen) {
+        out.set(k, {
+          pool: r.pool,
+          module: r.module,
+          asset: r.module === "airdrop" ? "base" : "quote",
+          paid: BigInt(r.paid ?? 0),
+          payouts: Number(r.payouts ?? 0),
+          lastPaidAt: at,
+        });
+        continue;
+      }
+      seen.paid += BigInt(r.paid ?? 0);
+      seen.payouts += Number(r.payouts ?? 0);
+      if (at !== null && (seen.lastPaidAt === null || at > seen.lastPaidAt)) seen.lastPaidAt = at;
+    }
+    return [...out.values()]
+      .map((p) => ({ ...p, paid: p.paid.toString() }))
+      .sort((a, b) => (b.lastPaidAt ?? -1) - (a.lastPaidAt ?? -1) || (a.pool < b.pool ? -1 : a.pool > b.pool ? 1 : a.module < b.module ? -1 : 1));
+  }
+
+  // What the payout bot has paid one wallet, per market and module, from every
+  // ledger that records recipients. Confirmed payouts only:
+  //   reward_allocations  paid rows (holders, diamond, lpFarm, split). The
+  //                       wallet paid is paid_to (for an LP position row, the
+  //                       NFT holder at the time), else the row's own wallet.
+  //   reward_payouts      rows whose detail lists who was paid (topBuyers
+  //                       winners, split recipients) and whose transaction
+  //                       has no allocation rows, so nothing counts twice.
+  //   airdrop_payouts     sent rows; owner is the wallet. Paid in base atoms.
+  // Not counted: older holders rows in reward_payouts record only how many
+  // were paid, not who, and reward_pending rows are not settled yet.
+  async function walletPayouts(wallet) {
+    const { rows: allocated } = await db.query(
+      `select pool, module, sum(amount)::text as paid, count(distinct signature)::int as payouts,
+              floor(extract(epoch from max(paid_at)))::bigint::text as last_paid_at
+         from reward_allocations
+        where status = 'paid' and (paid_to = $1 or (paid_to is null and kind = 'wallet' and recipient = $1))
+        group by pool, module`,
+      [wallet],
+    );
+    const { rows: listed } = await db.query(
+      `with paid as (
+         select pool, module, signature, paid_at,
+                case module when 'topBuyers' then detail->'winners' else detail->'recipients' end as list
+           from reward_payouts
+          where module in ('topBuyers', 'split')
+            and not exists (select 1 from reward_allocations a where a.signature = reward_payouts.signature))
+       select p.pool, p.module, sum((r->>'amount')::numeric)::text as paid, count(distinct p.signature)::int as payouts,
+              floor(extract(epoch from max(p.paid_at)))::bigint::text as last_paid_at
+         from paid p
+        cross join lateral jsonb_array_elements(case when jsonb_typeof(p.list) = 'array' then p.list else '[]'::jsonb end) r
+        where coalesce(r->>'trader', r->>'wallet') = $1 and r->>'amount' ~ '^[0-9]+$'
+        group by p.pool, p.module`,
+      [wallet],
+    );
+    const { rows: airdropped } = await db.query(
+      `select pool, 'airdrop' as module, sum(amount)::text as paid, count(*)::int as payouts,
+              floor(extract(epoch from max(sent_at)))::bigint::text as last_paid_at
+         from airdrop_payouts where owner = $1 and status = 'sent'
+        group by pool`,
+      [wallet],
+    );
+    return mergePayouts([...allocated, ...listed, ...airdropped]);
+  }
+
   async function route(url) {
     const q = url.searchParams;
     if (url.pathname === "/api/index/health") return { ok: true, ...state };
@@ -518,11 +595,20 @@ export function api({ db, state }) {
         ...(a ? { airdrop: airdropSummary(a) } : {}),
       };
     }
+    // One wallet's payouts from the bot, per market and module (walletPayouts).
+    // Rate limited per IP with the other routes, before route() is called.
+    if (url.pathname === "/api/index/payouts") {
+      const key = parseKey(q.get("wallet"));
+      if (!key) return 400;
+      const wallet = key.toBase58();
+      return { wallet, payouts: await walletPayouts(wallet) };
+    }
     return 404;
   }
 
-  return { moduleDetail, route };
+  return { moduleDetail, walletPayouts, route };
 }
+
 
 // ---- Main -------------------------------------------------------------------
 
