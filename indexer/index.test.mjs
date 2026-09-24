@@ -752,3 +752,33 @@ test("GET /api/index/payouts takes only a canonical base58 32-byte key", async (
   assert.equal(db.queries.length, 0, "nothing is read for a bad wallet");
   assert.deepEqual(await payoutsOf(db, "11111111111111111111111111111111"), { wallet: "11111111111111111111111111111111", payouts: [] });
 });
+
+test("a stretch listed again with a different count (an RPC node that does not know `before` yet answers []) restarts the backfill; no trade is skipped", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const [g] = markets(chain, 1);
+  g.graduate();
+  const swap = swaps(g.damm);
+  for (let i = 0; i < 3000; i++) chain.land(`d${i}`, [g.damm], swap(T - 9000 + i, i));
+  // The first time a stretch is listed with `before`, a lagging node answers [].
+  const list = chain.conn.getSignaturesForAddress;
+  let lagged = false;
+  chain.conn.getSignaturesForAddress = async (address, opts = {}) => {
+    if (opts.before && !lagged && address.equals(g.damm)) {
+      const full = await list(address, opts);
+      if (full.length < 1000) {
+        lagged = true;
+        return [];
+      }
+    }
+    return list(address, opts);
+  };
+  const run = loop(chain, db, clock);
+  let loops = 0;
+  do {
+    clock.now += 60;
+    await run.syncAll();
+    loops++;
+  } while (db.pools.get(g.pool.toBase58()).damm_synced_at == null && loops < 200);
+  assert.ok(lagged, "the lagging answer was served");
+  assert.equal(db.trades.size, 3000, "every trade is read");
+});

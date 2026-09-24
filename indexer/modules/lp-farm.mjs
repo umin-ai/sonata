@@ -24,11 +24,13 @@
 // graduation nearly all liquidity is DBC's locked positions, so a tiny
 // position would otherwise take the whole pot.
 //
-// Eligible means payable now, as for holders: an LP wallet whose quote account
-// is missing or cannot receive, or that still has an unpaid row when the pass
-// starts, is left out before the 0.1% check, so it gets no new row and never
-// makes the round pay nobody (its earlier rows stay its own). A position whose
-// NFT holder is not found yet still counts (its share is held by position).
+// Eligible means able to receive, as for holders: an LP wallet whose quote
+// account is missing or cannot receive is left out before the 0.1% check, so it
+// gets no new row and never makes the round pay nobody (its earlier rows stay
+// its own). An LP with an earlier row still unpaid counts toward the floor (that
+// row is paid first), but sits the new round out if it is still unpaid then. A
+// position whose NFT holder is not found yet still counts (its share is held
+// by position).
 //
 // Payouts go by allocation rounds (payout.mjs payAllocated): a position whose
 // NFT holder is not found yet is allocated its share by position address and
@@ -303,9 +305,12 @@ export async function runLpFarm(ctx) {
   // `eligible`, so it always holds at least the floor.
   const known = weights.lps.filter((l) => l.owner);
   const canReceive = known.length ? await receivers(ctx, known.map((l) => l.owner)) : new Set();
-  const waiting = new Set(rows.map((r) => r.recipient));
   const payable = (l, unpaid) => !l.owner || (canReceive.has(l.owner.toBase58()) && !unpaid.has(l.owner.toBase58()));
-  const eligible = weights.lps.filter((l) => payable(l, waiting));
+  // The floor counts every LP that can receive: an LP whose earlier row is still
+  // unpaid as the pass starts is paid that row first (payAllocated step 1), so it
+  // must not push the round to holders. If some rows are still unpaid after that
+  // step, allocate() below leaves this round's funds owed instead.
+  const eligible = weights.lps.filter((l) => payable(l, new Set()));
   const eligibleTotal = eligible.reduce((s, l) => s + l.balance, 0n);
   fields.lps = eligible.length;
   if (!eligible.length) return { ...(await holders({ resolve })), note: "no eligible LP can be paid now (no usable quote account, or an earlier row unpaid); paid holders" };
@@ -318,7 +323,8 @@ export async function runLpFarm(ctx) {
     module: "lpFarm", emptyNote: "no LP has a quote account", resolve, detailOf,
     allocate: async (amount, { unpaid = new Set() } = {}) => {
       const lps = weights.lps.filter((l) => payable(l, unpaid));
-      // Cannot happen (unpaid is within waiting); if it did, funds stay owed.
+      // LPs still unpaid after step 1 sit this round out; if those left hold
+      // below the floor, this round's funds stay owed rather than go to holders.
       if (lps.reduce((s, l) => s + l.balance, 0n) < minTotal) {
         result.note = "the LPs who can be paid hold below 0.1% of the pool; funds stay owed";
         return [];

@@ -368,7 +368,9 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
     let before, newest = null;
     for (;;) {
       const page = await listPage(address, { until: last, before });
-      if (page.length) bounds.push(page[0]);
+      // Each bound remembers how many signatures follow it on its page: listing
+      // that stretch again must return exactly that many.
+      if (page.length) bounds.push({ ...page[0], between: page.length - 1 });
       for (const { blockTime } of page) if (Number.isFinite(blockTime)) newest = newest === null ? blockTime : Math.max(newest, blockTime);
       if (page.length < PAGE) break;
       before = page.at(-1).signature;
@@ -389,8 +391,12 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
         if (!b.bounds.length) break;
         const bound = b.bounds.at(-1);
         const page = await listPage(cursor.address, { until: b.last, before: bound.signature });
-        // Fewer than a page by construction; a full one might not reach back to the cursor, so list again from it.
-        if (page.length >= PAGE) {
+        // A stretch lists again as exactly the signatures that followed its bound
+        // on the first listing. Any other count, a full page or the empty answer
+        // an RPC node gives when it does not know `before` yet, means this listing
+        // cannot be trusted: start the backfill again from the saved cursor rather
+        // than skip a stretch.
+        if (page.length !== bound.between) {
           backfills.delete(cursor.address);
           return { inserted, complete: false };
         }
