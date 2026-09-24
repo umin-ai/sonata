@@ -232,3 +232,10 @@
 .sr-app .pair-tabs button[aria-selected=true] span{background:var(--accent);color:var(--foreground)}
 .sr-app .pair-options .sr-token-name{max-width:100%;min-width:0}
 .sr-app .pair-options .sr-token-name b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Market card feature icons: one row, so every card keeps the same height. */
+.sr-app .sonata-token-pair:has(.market-badges){flex-wrap:nowrap}
+.sr-app .market-badges{display:inline-flex;gap:4px;margin-left:auto;flex:none}
+.sr-app .market-badge{display:grid;place-items:center;width:22px;height:22px;border-radius:6px;border:1px solid var(--border);background:var(--muted);color:var(--muted-foreground);cursor:default}
+.sr-app .market-badge:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+.sr-app .market-badge[data-tone=backed]{color:#3fcf8e;border-color:color-mix(in srgb,#3fcf8e 45%,var(--border));background:color-mix(in srgb,#3fcf8e 10%,transparent)}
+.sr-app .market-badge[data-tone=model]{color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,var(--border));background:color-mix(in srgb,var(--primary) 10%,transparent)}

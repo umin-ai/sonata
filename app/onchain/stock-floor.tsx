@@ -20,38 +20,26 @@ import {
 } from "@/lib/treasury/floor";
 import { useLive } from "./live-context";
 
-// The Stock Floor of a Floor-mode market: half of net trading fees, held by the
-// treasury program, redeemable by any holder who burns tokens. The creator
-// cannot withdraw it. Renders nothing for markets without a floor.
+// A Backed token's backing (the program's Stock Floor): its share of net trading
+// fees, held by the treasury program, redeemable by any holder who burns tokens.
+// The creator cannot withdraw it. Renders nothing for markets without one. Market
+// cards show it as an icon instead (market-badges.tsx).
 export function StockFloor({
   data,
   market,
   quote,
   held,
-  compact = false,
 }: {
   data: TreasurySnapshot | null;
   market: Market;
   quote: string;
   held?: string;
-  compact?: boolean;
 }) {
   const { address, busy, pending, execute } = useLive();
   const [amount, setAmount] = useState("");
   if (!hasFloor(market.mode) && !hasFloor(data?.mode)) return null;
   const floor = data ? BigInt(data.floor) : 0n,
     supply = data ? BigInt(data.baseSupply) : 0n;
-  if (compact)
-    return (
-      <div className="stock-floor stock-floor-compact">
-        <span>
-          <ShieldCheck size={14} /> Backing
-        </span>
-        <strong>
-          {data ? formatUnits(floor) : "—"} <TokenName symbol={quote} />
-        </strong>
-      </div>
-    );
   const heldRaw = held ? BigInt(held) : 0n;
   let burn = 0n;
   try {
