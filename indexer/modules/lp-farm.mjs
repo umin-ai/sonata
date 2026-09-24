@@ -13,15 +13,22 @@
 // the market's last allocation round and now; a position missing from any of
 // those readings counts 0. So liquidity added just before a payout, or taken
 // out after one and put back before the next, earns nothing for that time.
-// (Every reading is taken during a crank pass. An LP whose liquidity is in
-// place for every pass, and only then, still counts; readings between passes
-// would need a process that runs between them, such as the indexer.)
+// The indexer takes more readings between passes, 5 to 10 minutes apart at
+// random (indexer/index.mjs lpReadings, into the same snapshots), so
+// liquidity that is in place only around the crank's passes is caught out:
+// it earns the least it held at those readings too.
 //
 // Dust: a position holding less than 0.01% of the pool's liquidity earns
 // nothing, and if the eligible positions together hold less than 0.1% of it,
 // the round goes to holders instead, as when there are no LPs. Right after
 // graduation nearly all liquidity is DBC's locked positions, so a tiny
 // position would otherwise take the whole pot.
+//
+// Eligible means payable now, as for holders: an LP wallet whose quote account
+// is missing or cannot receive, or that still has an unpaid row when the pass
+// starts, is left out before the 0.1% check, so it gets no new row and never
+// makes the round pay nobody (its earlier rows stay its own). A position whose
+// NFT holder is not found yet still counts (its share is held by position).
 //
 // Payouts go by allocation rounds (payout.mjs payAllocated): a position whose
 // NFT holder is not found yet is allocated its share by position address and
@@ -37,7 +44,7 @@ import { TOKEN_2022_PROGRAM_ID, unpackAccount } from "@solana/spl-token";
 import { CP_AMM_PROGRAM_ID, derivePositionNftAccount, positionByPoolFilter } from "@meteora-ag/cp-amm-sdk";
 import { CRANK_KEY, SONATA_VAULT, VAULT_ADMIN, errText, keySet, onCurve, parseKey } from "./common.mjs";
 import { amm, graduatedPool, readDammPool, readDbc } from "./meteora.mjs";
-import { payAllocated, rewardShares } from "./payout.mjs";
+import { payAllocated, receivers, rewardShares } from "./payout.mjs";
 
 export const MAX_LPS = 200;
 // Position NFTs moved out of their original account are found with
@@ -288,16 +295,30 @@ export async function runLpFarm(ctx) {
     return {};
   }
   if (!weights.lps.length) return { ...(await holders({ resolve })), note: "no eligible LP positions; paid holders" };
-  if (weights.total < minTotal)
-    return { ...(await holders({ resolve })), note: `eligible LP liquidity ${weights.total} is below 0.1% of the pool's ${liquidity}; paid holders` };
+  // Only LPs who can be paid weigh in, before the floor (as holders are
+  // filtered): a wallet that cannot receive (counted in result.skipped) is
+  // left out, and so is one with a row still unpaid as the pass starts.
+  // `canReceive` is read once; the round below is split among those who can
+  // receive and have no unpaid row once earlier rows are paid, a superset of
+  // `eligible`, so it always holds at least the floor.
+  const known = weights.lps.filter((l) => l.owner);
+  const canReceive = known.length ? await receivers(ctx, known.map((l) => l.owner)) : new Set();
+  const waiting = new Set(rows.map((r) => r.recipient));
+  const payable = (l, unpaid) => !l.owner || (canReceive.has(l.owner.toBase58()) && !unpaid.has(l.owner.toBase58()));
+  const eligible = weights.lps.filter((l) => payable(l, waiting));
+  const eligibleTotal = eligible.reduce((s, l) => s + l.balance, 0n);
+  fields.lps = eligible.length;
+  if (!eligible.length) return { ...(await holders({ resolve })), note: "no eligible LP can be paid now (no usable quote account, or an earlier row unpaid); paid holders" };
+  if (eligibleTotal < minTotal)
+    return { ...(await holders({ resolve })), note: `eligible LP liquidity ${eligibleTotal} is below 0.1% of the pool's ${liquidity}; paid holders` };
   await setStatus("lps");
-  const unknown = weights.lps.filter((l) => !l.owner).length;
+  const unknown = eligible.filter((l) => !l.owner).length;
   if (unknown) fields.unknownNft = unknown;
   await payAllocated(ctx, {
     module: "lpFarm", emptyNote: "no LP has a quote account", resolve, detailOf,
     allocate: async (amount, { unpaid = new Set() } = {}) => {
-      // An LP wallet whose earlier row is still unpaid (it cannot receive) sits this round out.
-      const lps = weights.lps.filter((l) => !l.owner || !unpaid.has(l.owner.toBase58()));
+      const lps = weights.lps.filter((l) => payable(l, unpaid));
+      // Cannot happen (unpaid is within waiting); if it did, funds stay owed.
       if (lps.reduce((s, l) => s + l.balance, 0n) < minTotal) {
         result.note = "the LPs who can be paid hold below 0.1% of the pool; funds stay owed";
         return [];

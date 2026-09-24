@@ -19,10 +19,11 @@ upload-only key. Nothing secret is stored in this repository.
    `sudo bash setup.sh sonata.umin.ai 34-255-123-10.sslip.io`.
    The first name is the public address (the app's same-origin checks use it);
    any others redirect to it. It is safe to re-run: it pulls the latest
-   `main`, rebuilds and restarts. It first stops the payout crank's timer (and
-   waits for a running pass to end), and starts it again only once the
-   restarted indexer has migrated the database; if any step fails the timer
-   stays stopped until `setup.sh` completes. For an update, see
+   `main`, rebuilds and restarts. It first stops and disables the payout
+   crank's timer (and waits for a running pass to end), and enables it again
+   only once the restarted indexer has migrated the database; if any step
+   fails the timer stays stopped and disabled, even across a reboot, until
+   `setup.sh` completes. For an update, see
    [Upgrading](#upgrading) (a dry run first).
 
 DNS: `sonata.umin.ai` is an A record at Cloudflare pointing at the instance,
@@ -186,8 +187,15 @@ say what each transaction did.
   After graduation it pays the DAMM v2 pool's liquidity providers pro rata to
   each position's unlocked liquidity, to the holder of the position NFT (DBC's
   two locked graduation positions have none); the crank key, the Vault, its
-  admin and non-wallets are excluded, existing quote accounts only. With no
-  eligible position it pays holders instead.
+  admin and non-wallets are excluded, existing quote accounts only. A
+  position counts only the least liquidity it held at every reading since
+  the last payout: the crank reads each pass, and `sonata-indexer` reads the
+  known positions again at random times between passes (5 to 10 minutes
+  apart), so liquidity added only around the crank's passes earns only what
+  stayed. An LP who cannot be paid now (no usable quote account, or an
+  earlier share still unpaid) is left out of the new round. With no eligible
+  position, or eligible positions holding under 0.1% of the pool's
+  liquidity, it pays holders instead.
 - **split**: up to five wallets from the metadata
   (`"split": [{ "wallet", "weight" }]`, weights 1-100), paid owed × weight ÷
   total, creating a missing quote account (the crank pays about 0.002 SOL of
@@ -276,13 +284,16 @@ Burn-only buyback transactions move no quote and are not counted in `payouts`.
 ### Upgrading
 
 Every update goes through `setup.sh`, which keeps payout passes off
-half-updated code: it stops `sonata-crank.timer` and waits for a pass already
-running (up to 11 minutes), then pulls, installs and builds, restarts the app
-and `sonata-indexer`, waits (up to 5 minutes) until that indexer process logs
-`indexer migrated` (its startup `migrate()` has created every table and
-column the crank reads), and only then starts the timer again. If any step
-fails, `setup.sh` says so and the timer stays stopped: no passes run and every
-market's funds stay owed until `setup.sh` is re-run and completes. Once the
+half-updated code: it stops and disables `sonata-crank.timer`
+(`systemctl disable --now`, so a reboot does not start it either) and waits
+for a pass already running (up to 11 minutes), then pulls, installs and
+builds, restarts the app and `sonata-indexer`, waits (up to 5 minutes) until
+that indexer process logs `indexer migrated` (its startup `migrate()` has
+created every table and column the crank reads), and only then enables and
+starts the timer again (`systemctl enable --now`). If any step fails,
+`setup.sh` says so and the timer stays stopped and disabled: no passes run,
+even after a reboot, and every market's funds stay owed until `setup.sh` is
+re-run and completes. Once the
 timer is started, a pass can begin right away or within 15 minutes, so make
 the first pass after an upgrade a dry run:
 
@@ -318,9 +329,17 @@ each Reward token's metadata once (one batched RPC call plus one HTTPS request
 per token). After the restart the indexer records each graduated market's
 DAMM v2 pool and reads that pool's history once: at most 100 transactions per
 address per indexer loop, oldest first, so the other pools keep being read.
-A market's indexed progress, which Top Buyer rounds wait for, moves only once
-that backfill has caught up; after that each address's progress is the time
-its own last complete read started.
+The same goes for a new market's DBC pool, and on this upgrade for every
+existing pool's first read. A backfill covers the history listed when it
+started (listed once; each loop goes on from where the last one stopped).
+Once it has read that listing's newest transaction, the address's progress
+is stamped with the time the backfill started, and what arrived since is read
+at once, uncapped, as for any caught-up address, so even a busy pool catches
+up. A market's indexed progress, which Top Buyer rounds wait for, moves only
+once that backfill has caught up; after that each address's progress is the
+time its own last complete read started. If the check of whether a DBC pool
+has migrated fails, that pool's trades are still read and only its progress
+waits for a later loop.
 
 **Run once now:** `sudo systemctl start sonata-crank`.
 **Stop it:** `sudo systemctl disable --now sonata-crank.timer` (re-running

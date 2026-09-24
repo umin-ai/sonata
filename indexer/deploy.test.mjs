@@ -1,6 +1,7 @@
-// deploy/lightsail/setup.sh's update order: the crank's timer is stopped (and a
-// running pass waited for) before any code changes, and started again only
-// once the restarted indexer has migrated the database. Its wait functions are
+// deploy/lightsail/setup.sh's update order: the crank's timer is stopped and
+// disabled (and a running pass waited for) before any code changes, so not
+// even a reboot starts a pass, and enabled again only once the restarted
+// indexer has migrated the database. Its wait functions are
 // run in bash with systemctl, journalctl and sleep stubbed; nothing else of
 // the script runs.
 import test from "node:test";
@@ -24,7 +25,7 @@ systemctl() {
   echo "systemctl $*" >> "$T/calls"
   case "$1 \${2:-}" in
     "cat sonata-crank.timer") [ "\${TIMER_MISSING:-0}" != 1 ] ;;
-    "stop sonata-crank.timer") return 0 ;;
+    "disable --now" | "enable --now") return 0 ;;
     "show -p")
       if [ "\${3:-}" = ActiveState ]; then
         if [ "$(count active)" -le "\${RUNNING_FOR:-0}" ]; then echo activating; else echo inactive; fi
@@ -60,12 +61,13 @@ function run(body, env = {}) {
   }
 }
 
-test("setup.sh stops the crank's timer and waits for a running pass before changing anything", () => {
+test("setup.sh stops and disables the crank's timer and waits for a running pass before changing anything", () => {
   const r = run("stop_crank", { RUNNING_FOR: "2" });
   assert.equal(r.status, 0, r.stderr);
+  // Disabled, not only stopped: a reboot before setup.sh completes starts no pass.
   assert.deepEqual(r.calls, [
     "systemctl cat sonata-crank.timer",
-    "systemctl stop sonata-crank.timer",
+    "systemctl disable --now sonata-crank.timer",
     "systemctl show -p ActiveState --value sonata-crank.service",
     "sleep 5",
     "systemctl show -p ActiveState --value sonata-crank.service",
@@ -97,7 +99,7 @@ test("setup.sh waits for the restarted indexer's own migrated line, and gives up
   assert.match(late.stderr, /has not finished its database migration after 4s/);
 });
 
-test("setup.sh's order: timer stopped, code pulled and built, indexer restarted and migrated, then the timer started", () => {
+test("setup.sh's order: timer stopped and disabled, code pulled and built, indexer restarted and migrated, then the timer enabled", () => {
   assert.match(script, new RegExp(`^MIGRATED_LINE="${MIGRATED_LINE}"$`, "m"));
   const lines = script.split("\n");
   const at = (re) => {
@@ -113,13 +115,16 @@ test("setup.sh's order: timer stopped, code pulled and built, indexer restarted 
     at(/^install -m 644 "\$HERE\/sonata-crank.timer"/),
     at(/^systemctl restart sonata sonata-indexer$/),
     at(/^wait_for_migration$/),
-    at(/^systemctl start sonata-crank.timer$/),
+    at(/^systemctl enable --now sonata-crank.timer$/),
     at(/^CRANK_HELD=0$/),
   ];
   assert.deepEqual([...steps].sort((a, b) => a - b), steps);
   // Nothing before the stop touches the code, and nothing restarts the timer on its own.
   assert.ok(!lines.slice(0, steps[1]).some((l) => /git |npm /.test(l) && !/^\s*#/.test(l)));
   assert.ok(!/restart[^\n]*sonata-crank/.test(script));
+  // The timer is enabled (so it would start at boot) only by that last step.
+  const enables = lines.filter((l) => /^\s*systemctl\b.*\b(enable|start)\b.*sonata-crank/.test(l));
+  assert.deepEqual(enables, ["systemctl enable --now sonata-crank.timer"]);
   // Left stopped when any step fails.
   assert.match(script, /trap 'if \[ "\$CRANK_HELD" = 1 \]; then echo "setup.sh did not finish: sonata-crank.timer is left stopped/);
 

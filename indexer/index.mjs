@@ -18,6 +18,7 @@ import { splitRecipients } from "./modules/split.mjs";
 import { parseKey } from "./modules/common.mjs";
 import { amm, dbcClient, graduatedPool } from "./modules/meteora.mjs";
 import { migrateIndexerSchema } from "./modules/indexer-schema.mjs";
+import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
 
 const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PORT = Number(process.env.INDEXER_PORT || 8790);
@@ -151,17 +152,24 @@ async function migrate() {
   await (await import("./modules/crank-schema.mjs")).migrateCrank(db);
 }
 
-// Retries the public RPC's rate limits with backoff.
-async function rpc(fn) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (attempt >= 8 || !/429|Too Many|fetch failed|timeout/i.test(String(e))) throw e;
-      await sleep(Math.min(30_000, 1500 * 2 ** attempt));
+// RPC errors that pass: rate limits, timeouts, dropped connections, and the
+// gateway errors (502, 503, 504) a busy or lagging node answers with.
+export const TRANSIENT_RPC_ERROR = /429|Too Many|fetch failed|timeout|timed out|ECONNRESET|socket hang up|\b50[234]\b|Bad Gateway|Service Unavailable|Gateway Time-?out/i;
+
+/** An rpc(fn) that retries transient errors with backoff (`sleep` waits ms), at most `attempts` times. */
+export function retrying(sleep, { attempts = 8 } = {}) {
+  return async function rpc(fn) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        if (attempt >= attempts || !TRANSIENT_RPC_ERROR.test(String(e))) throw e;
+        await sleep(Math.min(30_000, 1500 * 2 ** attempt));
+      }
     }
-  }
+  };
 }
+const rpc = retrying(sleep);
 
 // ---- Graduation --------------------------------------------------------------
 
@@ -216,9 +224,13 @@ export function cursorsOf(row) {
 }
 
 // Transactions an address that has never caught up (a first-run backfill, such
-// as a DAMM v2 pool just recorded) reads per loop, so a long backfill does not
-// hold up every pool after it; it carries on from its cursor next loop.
+// as a DAMM v2 pool just recorded, or a new market) reads per loop, so a long
+// backfill does not hold up every pool after it. The backfill covers the
+// history listed when it started, up to that listing's newest signature (its
+// head); once the head is read the cap stops (see syncer).
 export const BACKFILL_TRANSACTIONS = 100;
+// getSignaturesForAddress's largest page.
+const PAGE = 1000;
 
 // Column names per venue (fixed strings, never input).
 const COLUMNS = {
@@ -230,9 +242,10 @@ const COLUMNS = {
  * The sync loop over `db` (pg) and `conn` (a web3.js Connection). `now` is the
  * clock progress is stamped with; `txRetries` and `txRetryMs` bound the wait
  * for a listed transaction that the RPC does not serve yet; `backfillCap` is
- * BACKFILL_TRANSACTIONS.
+ * BACKFILL_TRANSACTIONS. `between`, if given, runs after each address (the LP
+ * readings' tick, so a long loop does not hold them up).
  */
-export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS }) {
+export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS, between = null }) {
   // Markets are the pools that have a Sonata treasury.
   async function discoverPools() {
     const accounts = await conn.getProgramAccounts(TREASURY_PROGRAM, {
@@ -290,50 +303,122 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
     }
   }
 
-  // Reads one address's new signatures and files its swaps under the market's
-  // DBC pool. Returns the rows inserted, the newest signature's block_time, and
-  // whether it read everything listed (`complete`). An address that has not
-  // caught up yet reads at most `backfillCap` transactions, oldest first, and
-  // is incomplete until the rest are read in later loops.
-  async function syncCursor({ pool, venue, address, last, caughtUp = true }) {
-    const col = COLUMNS[venue];
+  const saveCursor = ({ pool, venue }, signature) =>
+    db.query(`update pools set ${COLUMNS[venue].last} = $2, updated_at = now() where pool = $1`, [pool, signature]);
+
+  // Files one transaction's swaps on the cursor's address under the market's
+  // DBC pool, then moves the cursor to it. Returns the rows inserted.
+  async function readTransaction(cursor, signature) {
+    const { pool, venue, address } = cursor;
     const decode = venue === "damm" ? decodeDammTrades : decodeTrades;
+    const tx = await transaction(signature);
+    let inserted = 0;
+    for (const t of decode(tx, signature)) {
+      if (t.pool !== address || !t.blockTime) continue;
+      const r = await db.query(
+        `insert into trades (signature, ix_index, pool, venue, slot, block_time, side, trader, base_amount, quote_amount, fee, price)
+         values ($1, $2, $3, $4, $5, to_timestamp($6), $7, $8, $9, $10, $11, $12) on conflict do nothing`,
+        [t.signature, t.ixIndex, pool, venue, t.slot, t.blockTime, t.side, t.trader, t.baseAmount, t.quoteAmount, t.fee, t.price],
+      );
+      inserted += r.rowCount;
+    }
+    await saveCursor(cursor, signature);
+    // One transaction at a time: the public RPC limits getTransaction per caller.
+    await sleep(spacingMs);
+    return inserted;
+  }
+
+  const listPage = (address, { until, before }) =>
+    rpc(() => conn.getSignaturesForAddress(new PublicKey(address), { until: until ?? undefined, before, limit: PAGE }));
+
+  // A caught-up address: reads every signature newer than its cursor, oldest
+  // first, so the cursor only advances past processed transactions. Returns
+  // the rows inserted, the newest signature's block_time, and complete: true.
+  async function readAll(cursor) {
     const signatures = [];
     let before;
     for (;;) {
-      const page = await rpc(() =>
-        conn.getSignaturesForAddress(new PublicKey(address), { until: last ?? undefined, before, limit: 1000 }),
-      );
+      const page = await listPage(cursor.address, { until: cursor.last, before });
       signatures.push(...page);
-      if (page.length < 1000) break;
+      if (page.length < PAGE) break;
       before = page.at(-1).signature;
     }
     if (!signatures.length) return { inserted: 0, newest: null, complete: true };
     let inserted = 0;
-    // Oldest first, so the cursor only advances past processed transactions.
-    const ordered = [...signatures].reverse().filter((s) => !s.err);
-    const todo = caughtUp ? ordered : ordered.slice(0, backfillCap);
-    // One transaction at a time: the public RPC limits getTransaction per caller.
-    for (const { signature } of todo) {
-      const tx = await transaction(signature);
-      for (const t of decode(tx, signature)) {
-        if (t.pool !== address || !t.blockTime) continue;
-        const r = await db.query(
-          `insert into trades (signature, ix_index, pool, venue, slot, block_time, side, trader, base_amount, quote_amount, fee, price)
-           values ($1, $2, $3, $4, $5, to_timestamp($6), $7, $8, $9, $10, $11, $12) on conflict do nothing`,
-          [t.signature, t.ixIndex, pool, venue, t.slot, t.blockTime, t.side, t.trader, t.baseAmount, t.quoteAmount, t.fee, t.price],
-        );
-        inserted += r.rowCount;
-      }
-      await db.query(`update pools set ${col.last} = $2, updated_at = now() where pool = $1`, [pool, signature]);
-      await sleep(spacingMs);
-    }
-    // The rest next loop, from the cursor just saved.
-    if (todo.length < ordered.length) return { inserted, newest: null, complete: false };
+    for (const { signature } of [...signatures].reverse().filter((s) => !s.err)) inserted += await readTransaction(cursor, signature);
     // Failed transactions at the head still move the cursor forward.
-    await db.query(`update pools set ${col.last} = $2, updated_at = now() where pool = $1`, [pool, signatures[0].signature]);
+    await saveCursor(cursor, signatures[0].signature);
     const times = signatures.map((s) => s.blockTime).filter((t) => Number.isFinite(t));
     return { inserted, newest: times.length ? Math.max(...times) : null, complete: true };
+  }
+
+  // Backfills of addresses that have not caught up, in memory (after a
+  // restart one is listed again from the saved cursor). A backfill covers the
+  // signatures newer than the cursor when it started, listed once then:
+  // `bounds` holds the first (newest) signature of each page of that listing,
+  // newest first (bounds[0] is the head), and the signatures strictly between
+  // two bounds, fewer than a page, are listed again with one call when their
+  // turn comes. `pending` is the stretch being read, oldest first, ending with
+  // its bound; `last` is the cursor as last saved (a backfill whose cursor was
+  // moved otherwise is started again).
+  const backfills = new Map();
+
+  async function startBackfill({ address, last }, startedAt) {
+    const bounds = [];
+    let before, newest = null;
+    for (;;) {
+      const page = await listPage(address, { until: last, before });
+      if (page.length) bounds.push(page[0]);
+      for (const { blockTime } of page) if (Number.isFinite(blockTime)) newest = newest === null ? blockTime : Math.max(newest, blockTime);
+      if (page.length < PAGE) break;
+      before = page.at(-1).signature;
+    }
+    return { last: last ?? null, bounds, pending: [], newest, startedAt };
+  }
+
+  // Reads at most `backfillCap` of an address's backfill, oldest first, from
+  // where the last loop stopped. Returns { inserted, complete: false } until
+  // its head has been read, then { inserted, complete: true, newest, last
+  // (the cursor), startedAt (when the backfill's listing started) }.
+  async function backfill(cursor, startedAt) {
+    let b = backfills.get(cursor.address);
+    if (!b || b.last !== (cursor.last ?? null)) backfills.set(cursor.address, (b = await startBackfill(cursor, startedAt)));
+    let inserted = 0, read = 0;
+    for (;;) {
+      if (!b.pending.length) {
+        if (!b.bounds.length) break;
+        const bound = b.bounds.at(-1);
+        const page = await listPage(cursor.address, { until: b.last, before: bound.signature });
+        // Fewer than a page by construction; a full one might not reach back to the cursor, so list again from it.
+        if (page.length >= PAGE) {
+          backfills.delete(cursor.address);
+          return { inserted, complete: false };
+        }
+        b.bounds.pop();
+        b.pending = [...page.reverse(), bound];
+      }
+      const s = b.pending[0];
+      if (!s.err) {
+        if (read >= backfillCap) return { inserted, complete: false };
+        inserted += await readTransaction(cursor, s.signature);
+        read++;
+        b.last = s.signature;
+      }
+      b.pending.shift();
+      // A stretch read to its end leaves the cursor at its bound, failed or not.
+      if (!b.pending.length && b.last !== s.signature) {
+        await saveCursor(cursor, s.signature);
+        b.last = s.signature;
+      }
+    }
+    backfills.delete(cursor.address);
+    return { inserted, complete: true, newest: b.newest, last: b.last, startedAt: b.startedAt };
+  }
+
+  // Reads one address's new signatures and files its swaps under the
+  // market's DBC pool: readAll, or backfill while it has not caught up.
+  function syncCursor(cursor, startedAt = now()) {
+    return cursor.caughtUp === false ? backfill(cursor, startedAt) : readAll(cursor);
   }
 
   // Stamps an address's progress (modules/indexer-schema.mjs) once its sync completed.
@@ -359,6 +444,7 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
     const waiting = await findGraduated();
     const { rows } = await db.query("select pool, last_signature, damm_pool, damm_last_signature, synced_at, damm_synced_at from pools order by pool");
     const errors = [];
+    const fail = (cursor, e) => errors.push(`${cursor.venue} ${cursor.address}: ${String(e?.message ?? e)}`);
     for (const row of rows) {
       for (const cursor of cursorsOf(row)) {
         try {
@@ -369,15 +455,33 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
           // Until its DAMM v2 pool is recorded, a market's DBC progress also
           // stands for its DAMM v2 trades (none can predate the migration), so
           // it is stamped only if the pool is still on the curve, read after
-          // startedAt; a pool that migrated keeps its earlier progress.
-          const stamp = cursor.venue === "damm" || row.damm_pool != null || (!waiting.has(row.pool) && !(await migratedNow(row.pool)));
-          const { inserted, newest, complete } = await syncCursor(cursor);
-          state.trades += inserted;
-          if (complete && stamp) await synced(cursor, newest, startedAt);
+          // startedAt; a pool that migrated keeps its earlier progress. If that
+          // read fails (after rpc's retries), the pool's trades are still read
+          // and only its stamp waits for a later loop.
+          let stamp = cursor.venue === "damm" || row.damm_pool != null;
+          if (!stamp && !waiting.has(row.pool)) {
+            try {
+              stamp = !(await migratedNow(row.pool));
+            } catch (e) {
+              fail(cursor, `graduation check failed, trades read but progress not stamped: ${String(e?.message ?? e)}`);
+            }
+          }
+          let r = await syncCursor(cursor, startedAt);
+          state.trades += r.inserted;
+          if (r.startedAt !== undefined) {
+            // A backfill that has read its head covers everything confirmed
+            // before its listing started. What is newer than the head is read
+            // now, uncapped, as for a caught-up address.
+            if (stamp) await synced(cursor, r.newest, r.startedAt);
+            r = await readAll({ ...cursor, last: r.last });
+            state.trades += r.inserted;
+          }
+          if (r.complete && stamp) await synced(cursor, r.newest, startedAt);
         } catch (e) {
-          errors.push(`${cursor.venue} ${cursor.address}: ${String(e?.message ?? e)}`);
+          fail(cursor, e);
         }
         await sleep(200);
+        if (between) await between();
       }
     }
     state.lastSync = new Date().toISOString();
@@ -386,6 +490,118 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   }
 
   return { discoverPools, findGraduated, syncCursor, syncAll };
+}
+
+// ---- LP Farm readings between crank passes -----------------------------------
+
+// The gap between two LP readings, drawn uniformly in [min, max] seconds: 1.5
+// to 3 readings per 15 minutes, and at least one in any 10, so one lands
+// between every two crank passes, at a time the crank's timer does not tell.
+export const LP_READING_GAP_SECONDS = [300, 600];
+
+/** A DAMM v2 position account's unlocked liquidity if it is a position in `dammPool`, else 0. */
+export function unlockedIn(info, dammPool) {
+  if (!info || String(info.owner) !== DAMM_PROGRAM) return 0n;
+  try {
+    const s = amm._program.coder.accounts.decode("position", Buffer.from(info.data));
+    return s.pool.equals(dammPool) ? BigInt(s.unlockedLiquidity.toString()) : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+/**
+ * Readings of the graduated LP Farm markets' positions at random times
+ * between crank passes, written as the crank writes its own (ledger kind
+ * 'lp' in balance_snapshots and balance_snapshot_rows), so
+ * modules/lp-farm.mjs counts them: a position earns the least it held at
+ * every reading since the last round, and liquidity that is only in place
+ * around the crank's passes is caught out at one of these. Markets are those
+ * whose fee model (market_fee_models) is lpFarm and whose DAMM v2 pool the
+ * indexer has recorded. Only the positions of the market's newest reading are
+ * read, 100 per getMultipleAccountsInfo: any other position is missing from
+ * that reading, so it earns nothing at the next round anyway, and a closed
+ * one (no account) or one no longer in the pool is left out, as none held. A
+ * reading is taken at a time with a fraction of a second, so it never takes a
+ * crank reading's place (those are whole seconds, one per pool and second).
+ * tick() takes the readings once due and draws the next time; failures are
+ * logged, never thrown, and a market whose read fails gets no reading.
+ */
+export function lpReadings({ db, conn, rpc, now = Date.now, random = Math.random, gap = LP_READING_GAP_SECONDS, log = (...a) => console.error(...a) }) {
+  let due = null;
+  const draw = () => (due = now() + (gap[0] + random() * (gap[1] - gap[0])) * 1000);
+
+  // One market's reading: { positions (read), held (with liquidity), at }, or null if it has no reading to follow.
+  async function readMarket({ pool, damm_pool }) {
+    const dammPool = parseKey(damm_pool);
+    if (!dammPool) return null;
+    const { rows } = await db.query(
+      `select holder from balance_snapshot_rows
+        where pool = $1 and kind = 'lp'
+          and taken_at = (select max(taken_at) from balance_snapshots where pool = $1 and kind = 'lp')
+        order by holder`,
+      [pool],
+    );
+    const positions = rows.map((r) => parseKey(r.holder)).filter(Boolean);
+    if (!positions.length) return null;
+    const entries = [];
+    for (let i = 0; i < positions.length; i += 100) {
+      const batch = positions.slice(i, i + 100);
+      const infos = await rpc(() => conn.getMultipleAccountsInfo(batch, "confirmed"));
+      batch.forEach((p, j) => {
+        const unlocked = unlockedIn(infos[j], dammPool);
+        if (unlocked > 0n) entries.push([p.toBase58(), unlocked]);
+      });
+    }
+    const ms = Math.floor(now());
+    const at = (ms % 1000 === 0 ? ms + 1 : ms) / 1000;
+    await db.query(
+      `with taken as (
+         insert into balance_snapshots (pool, kind, taken_at) values ($1, 'lp', to_timestamp($2::double precision)) on conflict do nothing returning taken_at)
+       insert into balance_snapshot_rows (pool, kind, taken_at, holder, amount)
+       select $1, 'lp', taken.taken_at, t.holder, t.amount from taken, unnest($3::text[], $4::numeric[]) as t(holder, amount)`,
+      [pool, at, entries.map(([h]) => h), entries.map(([, a]) => a.toString())],
+    );
+    // As the crank prunes after its own readings (modules/lp-farm.mjs recordPositions).
+    await db.query(
+      `delete from balance_snapshots
+        where pool = $1 and kind = 'lp'
+          and taken_at < (select max(taken_at) from balance_snapshots where pool = $1 and kind = 'lp' and taken_at <= to_timestamp($2::double precision) - $3::int * interval '1 second')`,
+      [pool, at, LP_SNAPSHOT_KEEP_SECONDS],
+    );
+    return { positions: positions.length, held: entries.length, at };
+  }
+
+  // Every graduated LP Farm market's reading, now.
+  async function readAll() {
+    const { rows } = await db.query(
+      `select p.pool, p.damm_pool from pools p join market_fee_models f on f.pool = p.pool
+        where f.fee_model = 'lpFarm' and p.damm_pool is not null
+        order by p.pool`,
+    );
+    for (const row of rows) {
+      try {
+        await readMarket(row);
+      } catch (e) {
+        log("lp reading failed:", row.pool, String(e?.message ?? e).slice(0, 200));
+      }
+    }
+  }
+
+  // Takes the readings if they are due; returns whether it did.
+  async function tick() {
+    if (due === null) draw();
+    if (now() < due) return false;
+    draw();
+    try {
+      await readAll();
+    } catch (e) {
+      log("lp readings failed:", String(e?.message ?? e).slice(0, 200));
+    }
+    return true;
+  }
+
+  return { tick, readAll, readMarket };
 }
 
 // ---- Read-only API ----------------------------------------------------------
@@ -686,7 +902,9 @@ if (isMain) {
   await migrateIndexerSchema(db);
   // deploy/lightsail/setup.sh waits for this line before it starts the crank's timer.
   console.log(MIGRATED_LINE);
-  const { syncAll } = syncer({ db, conn, rpc, sleep, state });
+  // LP Farm readings at random times between crank passes (lpReadings).
+  const lp = lpReadings({ db, conn, rpc });
+  const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: lp.tick });
   for (;;) {
     try {
       await syncAll();
@@ -694,6 +912,7 @@ if (isMain) {
       state.lastError = String(e?.message ?? e).slice(0, 300);
       console.error("sync failed:", state.lastError);
     }
+    await lp.tick();
     await sleep(POLL_MS);
   }
 }

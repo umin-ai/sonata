@@ -6,8 +6,9 @@ import { SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
 import { MAX_NFT_LOOKUPS, POSITION_RELEASE_SECONDS, heldLiquidity, lpShares, lpWeights, nftHolder, observeLpFarm, runLpFarm } from "./lp-farm.mjs";
 import { MAX_TX_BYTES, allocationOf } from "./payout.mjs";
 import {
-  BN, dammPoolAccount, dbcAccounts, editPosition, fakeChain, key, lpFarmLedger, moduleContext, passContext, pda, positionAccounts, rewardMarket, rewardsPass, tokenAccount,
+  BN, dammPoolAccount, dbcAccounts, editPosition, fakeChain, holdBase, key, lpFarmLedger, lpReadingDb, moduleContext, passContext, pda, positionAccounts, rewardMarket, rewardsPass, tokenAccount,
 } from "./testkit.mjs";
+import { lpReadings } from "../index.mjs";
 
 const position = (owner, unlocked, extra = {}) => ({ address: key(), nftMint: key(), owner, unlocked, ...extra });
 const NOW = 1_900_000_000; // moduleContext's clock, in seconds
@@ -120,14 +121,14 @@ test("after graduation LPs are paid pro rata to unlocked liquidity; the locked g
   assert.deepEqual(await runLpFarm(ctx), {});
   assert.equal(ctx.heldBy, undefined);
   assert.equal(ledger.statuses.get(m.pool.toBase58()), "lps");
-  // 3:1:1 of 1000000; the LP without a quote account keeps its share, allocated to it.
-  assert.deepEqual([a, b, noAta, creator].map((w) => quoteOf(chain, m, w)), [600_000n, 200_000n, null, 0n]);
+  // 3:1 of 1000000; the LP without a quote account is left out of the round, as a holder without one is.
+  assert.deepEqual([a, b, noAta, creator].map((w) => quoteOf(chain, m, w)), [750_000n, 250_000n, null, 0n]);
   assert.equal(ctx.result.skipped.missing, 1);
-  assert.deepEqual(ledger.allocationRows.filter((r) => r.status === "unpaid").map((r) => [r.recipient, r.amount]), [[noAta.toBase58(), 200_000n]]);
+  assert.deepEqual(ledger.allocationRows.filter((r) => r.status === "unpaid"), []);
   assert.equal(ctx.fields.positions, 5);
-  assert.equal(ctx.fields.lps, 3);
+  assert.equal(ctx.fields.lps, 2);
   assert.ok(chain.sent[0].bytes <= MAX_TX_BYTES);
-  assert.deepEqual(ledger.payouts.map((r) => [r.module, r.amount, r.detail.paidTo]), [["lpFarm", 800_000n, "lps"]]);
+  assert.deepEqual(ledger.payouts.map((r) => [r.module, r.amount, r.detail.paidTo]), [["lpFarm", 1_000_000n, "lps"]]);
   // This pass's positions are recorded for the next one.
   const recorded = ledger.snapshots.get(`${m.pool.toBase58()}|lp`).get(NOW);
   assert.deepEqual([...recorded.values()].sort(), [10n ** 18n, 10n ** 18n, 3n * 10n ** 18n].sort());
@@ -382,3 +383,107 @@ test("an off-curve NFT holder's position rows are released after 24 hours; a wal
   assert.equal(quoteOf(run.chain, run.m, steady), 300_000n);
 });
 const quoteAccountOf = ({ chain, m }, w) => chain.put(getAssociatedTokenAddressSync(m.quoteMint, w, false, TOKEN_2022_PROGRAM_ID), tokenAccount({ owner: w, mint: m.quoteMint }));
+
+// ---- LPs who cannot receive (round 3 review) ------------------------------------
+
+const LOCKED = () => [{ owner: key(), permanent: 10n ** 20n }, { owner: SONATA_VAULT, permanent: 10n ** 20n }];
+
+test("an LP without a quote account is left out before the 0.1% floor: when the rest hold less, every round goes to holders, never to nobody", async () => {
+  const [big, small, holder] = [key(), key(), key()];
+  // big holds 99% of the unlocked liquidity and has no quote account; small alone
+  // (1e17) is under 0.1% of the pool's 2.101e20.
+  const run = await farm({ migrated: true, ataFor: [small, holder], owed: 1_000_000n, held: 10_000_000n, positions: [...LOCKED(), { owner: big, unlocked: 10n ** 19n }, { owner: small, unlocked: 10n ** 17n }] });
+  holdBase(run.chain, run.m, holder, 10n ** 12n);
+  const pass = farmPass(run);
+  for (let k = 0; k < 6; k++) {
+    const { ctx, outcome } = await pass(NOW + k * PASS, 1_000_000n * BigInt(k + 1));
+    assert.match(outcome.note, /eligible LP liquidity 100000000000000000 is below 0.1% of the pool's 210100000000000000000; paid holders/);
+    assert.equal(ctx.result.skipped.missing, 1, "big is counted as unable to receive");
+  }
+  assert.equal(quoteOf(run.chain, run.m, holder), 6_000_000n);
+  assert.equal(quoteOf(run.chain, run.m, small), 0n);
+  assert.ok(!run.ledger.allocationRows.some((r) => r.recipient === big.toBase58()), "big never gets a row");
+  assert.ok(run.ledger.allocationRows.every((r) => r.status === "paid"), "nothing is left owed");
+});
+
+test("an LP without a quote account gets no row; the LPs who can be paid share the round, and it joins once it can receive", async () => {
+  const [big, small] = [key(), key()];
+  const run = await farm({ migrated: true, ataFor: [small], owed: 1_000_000n, held: 10_000_000n, positions: [...LOCKED(), { owner: big, unlocked: 10n ** 19n }, { owner: small, unlocked: 3n * 10n ** 17n }] });
+  const pass = farmPass(run);
+  const first = await pass(NOW, 1_000_000n);
+  // small (3e17) is above 0.1% of the pool (2.103e20) on its own: it takes the whole round.
+  assert.equal(quoteOf(run.chain, run.m, small), 1_000_000n);
+  assert.deepEqual(run.ledger.allocationRows.map((r) => [r.recipient, r.status]), [[small.toBase58(), "paid"]]);
+  assert.equal(first.ctx.fields.lps, 1);
+  quoteAccountOf(run, big);
+  await pass(NOW + PASS, 2_000_000n);
+  // 1e19 : 3e17 of the second round.
+  assert.equal(quoteOf(run.chain, run.m, big), 970_873n);
+  assert.equal(quoteOf(run.chain, run.m, small), 1_029_126n);
+});
+
+test("an earlier row of an LP who cannot receive stays its own; the LP sits out new rounds until it is paid", async () => {
+  const [big, small] = [key(), key()];
+  const run = await farm({ migrated: true, ataFor: [small], owed: 1_500_000n, held: 10_000_000n, positions: [...LOCKED(), { owner: big, unlocked: 10n ** 19n }, { owner: small, unlocked: 3n * 10n ** 17n }] });
+  const pool = run.m.pool.toBase58();
+  run.ledger.clock = () => NOW - PASS;
+  await run.ledger.allocate(pool, { module: "lpFarm", shares: [allocationOf({ owner: big, amount: 500_000n, balance: 10n ** 19n })] });
+  const pass = farmPass(run);
+  await pass(NOW, 1_500_000n);
+  assert.equal(quoteOf(run.chain, run.m, small), 1_000_000n);
+  assert.deepEqual(run.ledger.allocationRows.filter((r) => r.status === "unpaid").map((r) => [r.recipient, r.amount]), [[big.toBase58(), 500_000n]]);
+  quoteAccountOf(run, big);
+  // Its row is paid first, then it shares the new round.
+  await pass(NOW + PASS, 2_500_000n);
+  assert.equal(quoteOf(run.chain, run.m, big), 500_000n + 970_873n);
+  assert.equal(quoteOf(run.chain, run.m, small), 1_029_126n);
+  assert.ok(run.ledger.allocationRows.every((r) => r.status === "paid"));
+});
+
+// ---- The indexer's readings between passes (round 3 review) -------------------
+
+test("liquidity taken out between passes is caught by the indexer's reading at a random time: the position earns only the least it held", async () => {
+  const [steady, jit] = [key(), key()];
+  const run = await farm({ migrated: true, ataFor: [steady, jit], owed: 1_100_000n, held: 10_000_000n, positions: [{ owner: steady, unlocked: 10n ** 18n }, { owner: jit, unlocked: 10n ** 19n }] });
+  const pool = run.m.pool.toBase58();
+  const jitPosition = run.accounts[1].address;
+  // A crank pass as payRewards runs it: the module's reading one second in, the one after the payouts a second later.
+  const pass = async (at, distributed) => {
+    let clock = at * 1000;
+    run.ledger.clock = () => Math.floor(clock / 1000);
+    return rewardsPass({ chain: run.chain, markets: [run.m], authority: run.authority, ledger: run.ledger, distributed, now: () => (clock += 1000) });
+  };
+  // The indexer between passes, its next reading drawn 450 s ahead (random 0.5 of 300-600 s).
+  let t = 0;
+  const db = lpReadingDb(run.ledger, [{ pool, damm_pool: run.damm.address.toBase58(), fee_model: "lpFarm" }]);
+  const reads = [];
+  const conn = { getMultipleAccountsInfo: (keys, c) => (reads.push(keys.length), run.chain.connection.getMultipleAccountsInfo(keys, c)) };
+  const indexer = lpReadings({ db, conn, rpc: (fn) => fn(), now: () => t, random: () => 0.5 });
+  const tickAt = (seconds) => ((t = seconds * 1000), indexer.tick());
+  const paid = () => [steady, jit].map((w) => quoteOf(run.chain, run.m, w));
+
+  await pass(NOW, 1_100_000n);
+  assert.deepEqual(paid(), [100_000n, 1_000_000n]);
+  assert.equal(await tickAt(NOW + 10), false, "not due yet");
+  // jit takes 80% out right after the pass and puts it back before the next one.
+  setUnlocked(run.chain, jitPosition, 2n * 10n ** 18n);
+  assert.equal(await tickAt(NOW + 460), true);
+  setUnlocked(run.chain, jitPosition, 10n ** 19n);
+  await pass(NOW + PASS, 2_200_000n);
+  // It earns what it held at that reading, 2e18 against steady's 1e18, not its 1e19.
+  assert.deepEqual(paid(), [100_000n + 366_666n, 1_000_000n + 733_333n]);
+  const series = run.ledger.snapshots.get(`${pool}|lp`);
+  assert.ok(series.has(NOW + 460.001), "a reading at a fraction of a second, never a crank reading's whole second");
+  assert.deepEqual([...series.get(NOW + 460.001).values()].sort(), [10n ** 18n, 2n * 10n ** 18n]);
+
+  // Taken out altogether at the next random reading (due at NOW + 910): nothing at the next payout.
+  setUnlocked(run.chain, jitPosition, 0n);
+  assert.equal(await tickAt(NOW + 910), true);
+  assert.deepEqual([...series.get(NOW + 910.001).keys()], [run.accounts[0].address.toBase58()]);
+  setUnlocked(run.chain, jitPosition, 10n ** 19n);
+  await pass(NOW + 2 * PASS, 3_300_000n);
+  // steady takes the round (and the atom rounding left over from the last one).
+  assert.deepEqual(paid(), [466_666n + 1_100_001n, 1_733_333n]);
+  // Each reading read just the two positions the newest reading listed, in one call.
+  assert.deepEqual(reads, [2, 2]);
+});
