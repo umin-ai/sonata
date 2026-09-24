@@ -135,3 +135,20 @@
 .sr-app .how-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
 .sr-app .how-head h3{margin:0}
 .sr-app .how-list{margin:8px 0 0;padding-left:18px;display:grid;gap:6px;color:var(--muted-foreground);font-size:14px}
+
+/* One-page launch */
+.sr-app .launch-one-page{grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr)}
+.sr-app .launch-section{display:grid;gap:12px;padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid var(--border)}
+.sr-app .launch-section .launch-options{margin:4px 0 0}
+.sr-app .launch-section .launch-options small{color:var(--primary);font-size:11px;font-weight:600}
+.sr-app .earnings-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sr-app .earnings-cards button{display:grid;gap:6px;text-align:left;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--background);color:var(--muted-foreground);font-size:13px;line-height:1.45;cursor:pointer}
+.sr-app .earnings-cards button strong{display:inline-flex;align-items:center;gap:6px;color:var(--foreground);font-size:15px}
+.sr-app .earnings-cards button[aria-pressed=true]{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
+.sr-app .per-thousand{margin:0;font-size:13px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+.sr-app .launch-more{margin-top:0}
+.sr-app .launch-more fieldset{margin:12px 0}
+.sr-app .launch-more .curve-presets button span{font-size:12px}
+.sr-app .launch-finish{max-width:560px;display:grid;gap:12px}
+@media(max-width:1100px){.sr-app .launch-one-page{grid-template-columns:1fr}}
+@media(max-width:600px){.sr-app .earnings-cards{grid-template-columns:1fr}}

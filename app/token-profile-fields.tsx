@@ -108,17 +108,6 @@ export function TokenProfileFields({
   return (
     <div className="token-profile-fields">
       <div>
-        <Label htmlFor="token-description">Description (optional)</Label>
-        <Textarea
-          id="token-description"
-          value={value.description}
-          maxLength={MAX_DESCRIPTION}
-          rows={3}
-          placeholder="What is this community about?"
-          onChange={(e) => update({ description: e.target.value })}
-        />
-      </div>
-      <div>
         <Label htmlFor="token-image">Image (optional)</Label>
         <div className="token-image-picker">
           {value.preview ? (
@@ -172,8 +161,19 @@ export function TokenProfileFields({
           </div>
         </div>
       </div>
-      <details className="launch-disclosure" open={!!(value.website || value.x || value.telegram)}>
-        <summary>Add social links (optional)</summary>
+      <details className="launch-disclosure" open={!!(value.description || value.website || value.x || value.telegram)}>
+        <summary>Add a description and links (optional)</summary>
+        <div className="mt-3">
+          <Label htmlFor="token-description">Description (optional)</Label>
+          <Textarea
+            id="token-description"
+            value={value.description}
+            maxLength={MAX_DESCRIPTION}
+            rows={3}
+            placeholder="What is this community about?"
+            onChange={(e) => update({ description: e.target.value })}
+          />
+        </div>
         {(["website", "x", "telegram"] as const).map((kind) => (
           <div key={kind} className="mt-3">
             <Label htmlFor={`token-${kind}`}>
