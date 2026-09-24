@@ -942,9 +942,18 @@ export async function prepareLaunch(
     if (!uri) throw Error("A fee module is saved in the token's metadata, which did not upload. Try again.");
     const meta = (await fetch(`/api/token-meta?uri=${encodeURIComponent(uri)}`)
       .then((r) => r.json())
-      .catch(() => null)) as { sonata?: { feeModel?: string } } | null;
+      .catch(() => null)) as { sonata?: { feeModel?: string; split?: { wallet: string }[] } } | null;
     if (meta?.sonata?.feeModel !== curve.module)
       throw Error("The token's metadata does not name this fee module. Try again.");
+    // The metadata is permanent and the payout bot never pays a program, so a split
+    // naming one would hold its share forever: refuse it before launch.
+    if (curve.module === "split") {
+      const wallets = (meta.sonata.split ?? []).map((r) => pk(r.wallet));
+      if (!wallets.length) throw Error("The token's metadata has no split wallets. Try again.");
+      const infos = await connection.getMultipleAccountsInfo(wallets);
+      const bad = wallets.find((w, i) => !PublicKey.isOnCurve(w.toBytes()) || infos[i]?.executable);
+      if (bad) throw Error(`Split: ${bad.toBase58()} is a program, not a wallet. Use normal wallets only.`);
+    }
   }
   if (botRun) payout = REWARDS_WALLET;
   const owner = pk(wallet),

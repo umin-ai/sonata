@@ -776,7 +776,7 @@ export function LiveLaunch() {
         </div>
         <p className="sr-note">
           On every buy and sell: 40% to your fee model, 40% to Sonata, 20% to Meteora. No transfer tax. After
-          graduation: a 1% pool fee. Half the locked pool is yours, and Sonata&apos;s half keeps paying your fee model.
+          graduation: a 1% pool fee. Half the locked pool is yours, and the fees from Sonata&apos;s half are split like the fees above.
         </p>
       </fieldset>
       <fieldset>
@@ -787,7 +787,7 @@ export function LiveLaunch() {
               [
                 "volatility",
                 "Volatility fee",
-                "When the price moves fast, the fee rises by up to 20%. The extra goes to your fee model.",
+                "When the price moves fast, the fee rises by up to 20%. The extra is split like the rest of the fee.",
               ],
               [
                 "airdrop",

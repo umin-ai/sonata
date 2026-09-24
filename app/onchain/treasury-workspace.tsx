@@ -56,11 +56,44 @@ type BotPayouts = {
   feeModel?: string;
   burned?: string;
   lastBuyAt?: number | null;
-  winners?: { trader: string; amount: string }[];
+  winners?: { trader: string; amount: string; rank?: number }[];
   lastRoundAt?: number | null;
   status?: string;
   recipients?: { wallet: string; weight: number; paid?: string }[];
+  splitError?: string;
+  airdrop?: { status: string; amount?: string; recipients?: number; sentAt?: number | null };
 };
+// Graduation airdrop: the bot's record of sending the held-back supply.
+function AirdropRow({ pool, migrated }: { pool: string; migrated: boolean }) {
+  // Read time kept with the answer, so "sent 3 min ago" is measured from when it was read.
+  const [airdrop, setAirdrop] = useState<(NonNullable<BotPayouts["airdrop"]> & { readAt: number }) | null>(null);
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/index/rewards?pool=${pool}`)
+      .then((r) => (r.ok ? (r.json() as Promise<BotPayouts>) : null))
+      .then((d) => {
+        if (active) setAirdrop(d?.airdrop ? { ...d.airdrop, readAt: Date.now() } : null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [pool]);
+  const state =
+    airdrop?.status === "sent"
+      ? `sent to ${airdrop.recipients ?? "—"} holders${airdrop.sentAt ? ` ${sinceText(airdrop.sentAt, airdrop.readAt)}` : ""}`
+      : migrated
+        ? "being airdropped by Sonata's bot"
+        : "to holders at graduation";
+  return (
+    <div className="sr-detail-row">
+      <span>Graduation airdrop</span>
+      <strong>
+        {AIRDROP_PERCENT}% of supply · {state}
+      </strong>
+    </div>
+  );
+}
 const shortKey = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
 function HolderRewardsPanel({
   market,
@@ -112,8 +145,22 @@ function HolderRewardsPanel({
               `${paid?.status === "lps" ? "Paying liquidity providers in the Meteora pool, pro rata" : "Paying holders while on the curve; liquidity providers after graduation"}, about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`,
             ]
           : model === "split"
-            ? ["03 / SPLIT", "Split", "Paid to wallets", `Split by share about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`]
-            : [
+            ? [
+                "03 / SPLIT",
+                "Split",
+                "Paid to wallets",
+                paid?.splitError
+                  ? `This token's split can't be paid (${paid.splitError}). Its share is held, not paid to anyone else.`
+                  : `Split by share about every 15 minutes, in ${quote}. ${last(paid?.lastPaidAt)}`,
+              ]
+            : model === "diamond"
+              ? [
+                  "03 / DIAMOND HANDS",
+                  "Diamond Hands",
+                  "Paid to holders",
+                  `Paid to holders about every 15 minutes, in ${quote}, weighted by how long they've held: 1× on day one, 1.5× after 24 hours, 2× after 3 days, 3× after 7 days. Selling or moving tokens restarts the clock for that amount. ${last(paid?.lastPaidAt)}`,
+                ]
+              : [
                 "03 / PAID TO HOLDERS",
                 "Holder rewards",
                 "Paid to holders",
@@ -154,7 +201,7 @@ function HolderRewardsPanel({
           {paid.winners.map((w, i) => (
             <div className="sr-detail-row" key={w.trader}>
               <span>
-                {["1st", "2nd", "3rd"][i] ?? `${i + 1}th`} · {shortKey(w.trader)}
+                {["1st", "2nd", "3rd"][(w.rank ?? i + 1) - 1] ?? `${w.rank ?? i + 1}th`} · {shortKey(w.trader)}
               </span>
               <strong>
                 {formatUnits(w.amount)} {quote}
@@ -278,6 +325,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
                   topBuyers: "Top Buyer Bounty: half of net trading fees goes to each round's top 3 net buyers",
                   lpFarm: `LP Farm: half of net trading fees goes to ${market.symbol} holders, then to liquidity providers after graduation`,
                   split: "Split: half of net trading fees is split between the creator's chosen wallets",
+                  diamond: `Diamond Hands: half of net trading fees goes to ${market.symbol} holders, weighted by how long they've held`,
                 } as Record<string, string>
               )[tokenProfile?.feeModel ?? market.feeModel ?? ""] ??
                 `Reward token: half of net trading fees goes to ${market.symbol} holders`
@@ -323,7 +371,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       </div>
       <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
       <LiveWallet />
-      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <div className="sr-detail-row"><span>Graduation airdrop</span><strong>{AIRDROP_PERCENT}% of supply · {data.migrated ? "airdropped to holders by Sonata's bot" : "to holders at graduation"}</strong></div>}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {view === "trade" && <div className="terminal-trade-layout"><Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {data?.migrated ? (
         // A graduated pool no longer trades on its DBC curve; the runtime refuses
         // such a swap. Say so here rather than after the user fills in the form.
