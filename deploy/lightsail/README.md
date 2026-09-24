@@ -19,10 +19,11 @@ upload-only key. Nothing secret is stored in this repository.
    `sudo bash setup.sh sonata.umin.ai 34-255-123-10.sslip.io`.
    The first name is the public address (the app's same-origin checks use it);
    any others redirect to it. It is safe to re-run: it pulls the latest
-   `main`, rebuilds and restarts. It first stops the payout crank's timer (and
-   waits for a running pass to end), and starts it again only once the
-   restarted indexer has migrated the database; if any step fails the timer
-   stays stopped until `setup.sh` completes. For an update, see
+   `main`, rebuilds and restarts. It first stops and disables the payout
+   crank's timer (and waits for a running pass to end), and enables it again
+   only once the restarted indexer has migrated the database; if any step
+   fails the timer stays stopped and disabled, even across a reboot, until
+   `setup.sh` completes. For an update, see
    [Upgrading](#upgrading) (a dry run first).
 
 DNS: `sonata.umin.ai` is an A record at Cloudflare pointing at the instance,
@@ -276,13 +277,16 @@ Burn-only buyback transactions move no quote and are not counted in `payouts`.
 ### Upgrading
 
 Every update goes through `setup.sh`, which keeps payout passes off
-half-updated code: it stops `sonata-crank.timer` and waits for a pass already
-running (up to 11 minutes), then pulls, installs and builds, restarts the app
-and `sonata-indexer`, waits (up to 5 minutes) until that indexer process logs
-`indexer migrated` (its startup `migrate()` has created every table and
-column the crank reads), and only then starts the timer again. If any step
-fails, `setup.sh` says so and the timer stays stopped: no passes run and every
-market's funds stay owed until `setup.sh` is re-run and completes. Once the
+half-updated code: it stops and disables `sonata-crank.timer`
+(`systemctl disable --now`, so a reboot does not start it either) and waits
+for a pass already running (up to 11 minutes), then pulls, installs and
+builds, restarts the app and `sonata-indexer`, waits (up to 5 minutes) until
+that indexer process logs `indexer migrated` (its startup `migrate()` has
+created every table and column the crank reads), and only then enables and
+starts the timer again (`systemctl enable --now`). If any step fails,
+`setup.sh` says so and the timer stays stopped and disabled: no passes run,
+even after a reboot, and every market's funds stay owed until `setup.sh` is
+re-run and completes. Once the
 timer is started, a pass can begin right away or within 15 minutes, so make
 the first pass after an upgrade a dry run:
 

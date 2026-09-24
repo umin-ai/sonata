@@ -7,10 +7,11 @@
 # (mode 600, owner sonata) before running. See deploy/lightsail/README.md.
 #
 # An update never lets a payout pass run on half-updated code or on an old
-# database schema: the crank's timer is stopped (and a running pass waited
-# for) before anything changes, and started again only after the restarted
-# indexer has migrated the database. If any step fails, the timer stays
-# stopped (no passes, funds stay owed) until setup.sh completes.
+# database schema: the crank's timer is stopped and disabled (and a running
+# pass waited for) before anything changes, and enabled again only after the
+# restarted indexer has migrated the database. If any step fails, the timer
+# stays stopped and disabled (no passes, funds stay owed) until setup.sh
+# completes, a reboot included: a disabled timer does not start at boot.
 set -euo pipefail
 
 # How long to wait for a running crank pass (systemd stops one after 10
@@ -20,11 +21,12 @@ MIGRATION_WAIT_SECONDS="${MIGRATION_WAIT_SECONDS:-300}"
 # What indexer/index.mjs prints once every table and column is in place.
 MIGRATED_LINE="indexer migrated"
 
-# Stops sonata-crank.timer, then waits for a pass already running to finish.
-# On a first install there is nothing to stop.
+# Stops and disables sonata-crank.timer (a stop alone lasts only until the
+# next boot), then waits for a pass already running to finish. On a first
+# install there is nothing to stop.
 stop_crank() {
   if systemctl cat sonata-crank.timer >/dev/null 2>&1; then
-    systemctl stop sonata-crank.timer
+    systemctl disable --now sonata-crank.timer
   fi
   local waited=0 state
   while :; do
@@ -76,7 +78,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # No payout pass from here until the new code has migrated the database.
 CRANK_HELD=1
-trap 'if [ "$CRANK_HELD" = 1 ]; then echo "setup.sh did not finish: sonata-crank.timer is left stopped, so no payout pass runs (funds stay owed). Fix the error above and re-run setup.sh." >&2; fi' EXIT
+trap 'if [ "$CRANK_HELD" = 1 ]; then echo "setup.sh did not finish: sonata-crank.timer is left stopped and disabled, so no payout pass runs, not even after a reboot (funds stay owed). Fix the error above and re-run setup.sh." >&2; fi' EXIT
 stop_crank
 
 # Building on a 2 GB instance needs swap.
@@ -149,13 +151,14 @@ if [ -n "$ALIASES" ]; then
   printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "${ALIASES// /, }" "$HOST" >> /etc/caddy/Caddyfile
 fi
 systemctl daemon-reload
-systemctl enable sonata sonata-indexer sonata-crank.timer >/dev/null 2>&1
+# The crank's timer is enabled only once the database is migrated, below.
+systemctl enable sonata sonata-indexer >/dev/null 2>&1
 # The indexer's startup migrates the database (tables the crank reads).
 systemctl restart sonata sonata-indexer
 echo "Waiting for sonata-indexer to migrate the database..."
 wait_for_migration
 # The crank is started by its timer, never enabled on its own.
-systemctl start sonata-crank.timer
+systemctl enable --now sonata-crank.timer
 CRANK_HELD=0
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
