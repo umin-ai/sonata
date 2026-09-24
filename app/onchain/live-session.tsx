@@ -64,6 +64,21 @@ const names = {
 import { LiveContext, useLive, type Pending } from "./live-context";
 import { signedChange } from "@/lib/treasury/signed-check";
 export { useLive } from "./live-context";
+// An amount in a review window: the number, then the token's logo and ticker,
+// kept together on one line and grouped by thousands (177,316,147.761803).
+const grouped = (text: string) => {
+  const [whole, fraction] = text.split(".");
+  return `${BigInt(whole || "0").toLocaleString("en-US")}${fraction ? `.${fraction}` : ""}`;
+};
+function Amount({ atoms, decimals, symbol }: { atoms: string | bigint; decimals: number; symbol: string }) {
+  return (
+    <span className="review-amount">
+      <span>{grouped(formatUnits(atoms, decimals))}</span>
+      <TokenName symbol={symbol} size={18} />
+    </span>
+  );
+}
+
 export function LiveProvider({ children }: { children: ReactNode }) {
   const wallet = useWallet("solana:devnet", true),
     [walletOpen, setWalletOpen] = useState(false),
@@ -508,17 +523,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                           ? "Fees to claim"
                           : "Estimated receive"}
                     </span>
-                    <strong>
+                    <strong className="review-amounts">
                       {/* A claim from a stock-only fee pool has no token side. */}
                       {(review.liquidity.kind !== "claim" || review.liquidity.a !== "0") && (
-                        <>
-                          {formatUnits(review.liquidity.a, review.liquidity.decimalsA ?? 6)}{" "}
-                          <TokenName symbol={review.liquidity.symbolA ?? "ROOM"} />
-                          <br />
-                        </>
+                        <Amount atoms={review.liquidity.a} decimals={review.liquidity.decimalsA ?? 6} symbol={review.liquidity.symbolA ?? "ROOM"} />
                       )}
-                      {formatUnits(review.liquidity.b, review.liquidity.decimalsB ?? 8)}{" "}
-                      <TokenName symbol={review.liquidity.symbolB ?? "mSPY"} />
+                      <Amount atoms={review.liquidity.b} decimals={review.liquidity.decimalsB ?? 8} symbol={review.liquidity.symbolB ?? "mSPY"} />
                     </strong>
                   </div>
                   {review.liquidity.kind !== "claim" && (
@@ -528,12 +538,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                         ? "Maximum debit"
                         : "Minimum receive"}
                     </span>
-                    <strong>
-                      {formatUnits(review.liquidity.limitA, review.liquidity.decimalsA ?? 6)}{" "}
-                      <TokenName symbol={review.liquidity.symbolA ?? "ROOM"} />
-                      <br />
-                      {formatUnits(review.liquidity.limitB, review.liquidity.decimalsB ?? 8)}{" "}
-                      <TokenName symbol={review.liquidity.symbolB ?? "mSPY"} />
+                    <strong className="review-amounts">
+                      <Amount atoms={review.liquidity.limitA} decimals={review.liquidity.decimalsA ?? 6} symbol={review.liquidity.symbolA ?? "ROOM"} />
+                      <Amount atoms={review.liquidity.limitB} decimals={review.liquidity.decimalsB ?? 8} symbol={review.liquidity.symbolB ?? "mSPY"} />
                     </strong>
                   </div>
                   )}
@@ -551,8 +558,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   {review.rewards.allocations.map((a) => (
                     <div className="sr-detail-row" key={a.recipient}>
                       <span className="break-all">{a.recipient}</span>
-                      <strong>
-                        {formatUnits(a.amount)} <TokenName symbol="mSPY" />
+                      <strong className="review-amounts">
+                        <Amount atoms={a.amount} decimals={8} symbol="mSPY" />
                       </strong>
                     </div>
                   ))}
@@ -562,22 +569,14 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                 <div className="space-y-3">
                   <div className="sr-detail-row">
                     <span>Estimated receive</span>
-                    <strong>
-                      {formatUnits(
-                        review.trade.expectedOut,
-                        review.trade.outputDecimals,
-                      )}{" "}
-                      <TokenName symbol={review.trade.outputSymbol} />
+                    <strong className="review-amounts">
+                      <Amount atoms={review.trade.expectedOut} decimals={review.trade.outputDecimals} symbol={review.trade.outputSymbol} />
                     </strong>
                   </div>
                   <div className="sr-detail-row">
                     <span>Minimum receive</span>
-                    <strong>
-                      {formatUnits(
-                        review.trade.minimumOut,
-                        review.trade.outputDecimals,
-                      )}{" "}
-                      <TokenName symbol={review.trade.outputSymbol} />
+                    <strong className="review-amounts">
+                      <Amount atoms={review.trade.minimumOut} decimals={review.trade.outputDecimals} symbol={review.trade.outputSymbol} />
                     </strong>
                   </div>
                   <div className="sr-detail-row">
