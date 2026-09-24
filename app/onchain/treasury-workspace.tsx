@@ -40,6 +40,11 @@ import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-vie
 import { LiveWallet, useLive } from "./live-session";
 import type { Market } from "@/lib/treasury/runtime";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
+// "3 min ago" from an on-chain unix time, relative to when the data was read.
+const sinceText = (seconds: number, now: number) => {
+  const mins = Math.max(0, Math.round((now / 1000 - seconds) / 60));
+  return mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
+};
 export function OnchainTreasury({ selected = market }: { selected?: Market }) {
   const market = selected;
   const q = quoteSymbolOf(market.quoteMint);
@@ -391,6 +396,10 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
         <p className="sr-note">
           Every net fee the treasury collects goes to the creator&apos;s fixed payout wallet.
           Nothing is held back, so there is no reserve to withdraw.
+        </p>
+        <p className="sr-note">
+          Paid automatically: a Sonata bot collects and pays out about every 15 minutes, and anyone can
+          press Collect sooner. {data && data.lastClaimTs > 0 ? `Last collected ${sinceText(data.lastClaimTs, data.fetchedAt)}.` : "Nothing collected yet."}
         </p>
       </Card>
       ) : market.mode === "floor" ? (

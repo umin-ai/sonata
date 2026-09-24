@@ -85,6 +85,7 @@ type Treasury = {
   totalDistributed: BN;
   totalRetained: BN;
   totalWithdrawn: BN;
+  lastClaimTs: BN;
 };
 type Pool = {
   poolState?: Pool;
@@ -201,6 +202,8 @@ export async function readTreasury(market: Market = exportsMarket) {
     available: available.toString(),
     custody: custody.amount.toString(),
     recipientBalance: payout.amount.toString(),
+    // Unix seconds of the last fee collection, 0 if never; the payout bot collects every 15 minutes.
+    lastClaimTs: Number(treasury.lastClaimTs.toString()),
     uncollected: pool.partnerQuoteFee.toString(),
     migrated: pool.isMigrated !== 0,
     mode,
