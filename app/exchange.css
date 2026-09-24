@@ -255,11 +255,12 @@
 .sr-app .pool-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted-foreground)}
 .sr-app .pool-tag[data-tone=farm]{color:#3fcf8e;border-color:color-mix(in srgb,#3fcf8e 45%,var(--border));background:color-mix(in srgb,#3fcf8e 10%,transparent)}
 .sr-app .pool-tag[data-tone=mine]{color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,var(--border))}
-/* Market page, as on other launchpads: chart and trades on the left; the swap, then the market's details, on the right. */
+/* Market page, as on other launchpads: chart, details and trades on the left; the swap on the right, kept in view. */
 .sr-app .terminal-trade-main,.sr-app .terminal-trade-side{display:grid;gap:16px;min-width:0;align-content:start}
+.sr-app .terminal-trade-side{position:sticky;top:86px}
 .sr-app .terminal-trade-main>.sr-panel,.sr-app .terminal-trade-side>.sr-panel{padding:22px;gap:12px;margin-bottom:0}
 /* Phones: one column, in the order chart, swap, details, trades. */
-@media(max-width:800px){.sr-app .terminal-trade-main,.sr-app .terminal-trade-side{display:contents}.sr-app .terminal-chart-card{order:1}.sr-app .terminal-trade-side>*{order:3}.sr-app .terminal-trade-side>.swap-panel{order:2}.sr-app .terminal-trades-card{order:4}.sr-app .terminal-trade-layout{gap:16px}}
+@media(max-width:800px){.sr-app .terminal-trade-main,.sr-app .terminal-trade-side{display:contents}.sr-app .terminal-trade-main>*{order:3}.sr-app .terminal-trade-main>.terminal-chart-card{order:1}.sr-app .terminal-trade-side>*{order:2}.sr-app .terminal-trade-main>.terminal-trades-card{order:4}.sr-app .terminal-trade-layout{gap:16px}}
 /* The swap box: compact, like other launchpads'. */
 .sr-app .swap-panel{display:grid;gap:10px;padding:14px!important}
 .sr-app .swap-side{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:12px;background:var(--muted)}

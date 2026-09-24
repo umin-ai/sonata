@@ -320,33 +320,10 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       <Tabs value={view} onValueChange={setView} className="mb-6"><TabsList><TabsTrigger value="trade">Trade</TabsTrigger><TabsTrigger value="fees">Fees & treasury</TabsTrigger><TabsTrigger value="history">Transactions</TabsTrigger></TabsList></Tabs>
       <LiveWallet />
       {view === "trade" && <div className="terminal-trade-layout">
-      {/* As on other launchpads: the chart and trades on the left; the swap, then the market's details, on the right. */}
+      {/* As on other launchpads: the chart, the market's details and its trades on the left; the swap on the right, kept in view. */}
       <div className="terminal-trade-main">
         <Card className="sr-panel terminal-chart-card"><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /></Card>
-        <Card className="sr-panel terminal-trades-card">
-          <span className="sr-eyebrow">RECENT TRADES</span>
-          <RecentTrades pool={market.pool} symbol={market.symbol} quote={q} revision={revision} />
-        </Card>
-      </div>
-      <div className="terminal-trade-side">
-      {data?.migrated ? (
-        // A graduated market trades in its DAMM v2 pool, not on its closed curve.
-        <GraduatedSwap market={market} quote={q} balances={balances} baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>} />
-      ) : (
-        <SwapPanel
-          market={market}
-          quoteSymbol={q}
-          balances={balances}
-          baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>}
-          route="Meteora bonding curve"
-          fee={data ? { bps: data.tradingFeeBps, dynamic: !!data.volatilityFee } : undefined}
-          unavailable={data ? undefined : "Reading the market…"}
-          quote={(side, amount) => quoteTrade(side, amount, market)}
-          prepare={(side, amount) => prepareTrade(side, address, amount, market)}
-        />
-      )}
-      {walletError && <p className="swap-hint" data-tone="error">{walletError}</p>}
-      <Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+        <Card className="sr-panel terminal-market-overview"><span className="sr-eyebrow">MARKET DETAILS</span><h2><TokenPair base={market.symbol} quote={q}/></h2><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><div className="sr-detail-row"><span>Quote asset</span><TokenName symbol={q}/></div><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {data?.migrated && (
         <Card className="sr-panel">
           <div className="sr-section-top">
@@ -383,6 +360,29 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           )}
         </Card>
       )}
+        <Card className="sr-panel terminal-trades-card">
+          <span className="sr-eyebrow">RECENT TRADES</span>
+          <RecentTrades pool={market.pool} symbol={market.symbol} quote={q} revision={revision} />
+        </Card>
+      </div>
+      <div className="terminal-trade-side">
+      {data?.migrated ? (
+        // A graduated market trades in its DAMM v2 pool, not on its closed curve.
+        <GraduatedSwap market={market} quote={q} balances={balances} baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>} />
+      ) : (
+        <SwapPanel
+          market={market}
+          quoteSymbol={q}
+          balances={balances}
+          baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>}
+          route="Meteora bonding curve"
+          fee={data ? { bps: data.tradingFeeBps, dynamic: !!data.volatilityFee } : undefined}
+          unavailable={data ? undefined : "Reading the market…"}
+          quote={(side, amount) => quoteTrade(side, amount, market)}
+          prepare={(side, amount) => prepareTrade(side, address, amount, market)}
+        />
+      )}
+      {walletError && <p className="swap-hint" data-tone="error">{walletError}</p>}
       </div></div>}
       {/* Where this market's fees go, and the treasury's balances: on the Fees tab, so the trade view starts with the chart and the swap. */}
       {view === "fees" && <>
