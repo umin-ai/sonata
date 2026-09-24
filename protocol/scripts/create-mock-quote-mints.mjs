@@ -44,6 +44,13 @@ const TOKENS = [
   { symbol: "mMCD", name: "Mock McDonald's (Sonata devnet)", key: ".keys/mock-mmcd.json" },
   { symbol: "mANTHROPIC", name: "Mock Anthropic pre-IPO (Sonata devnet)", key: ".keys/mock-manthropic.json" },
   { symbol: "mNVDA", name: "Mock NVIDIA (Sonata devnet)", key: ".keys/mock-mnvda.json" },
+  { symbol: "mOPENAI", name: "Mock OpenAI pre-IPO (Sonata devnet)", key: ".keys/mock-mopenai.json" },
+  { symbol: "mSPACEX", name: "Mock SpaceX pre-IPO (Sonata devnet)", key: ".keys/mock-mspacex.json" },
+  { symbol: "mKALSHI", name: "Mock Kalshi pre-IPO (Sonata devnet)", key: ".keys/mock-mkalshi.json" },
+  { symbol: "mPOLYMARKET", name: "Mock Polymarket pre-IPO (Sonata devnet)", key: ".keys/mock-mpolymarket.json" },
+  { symbol: "mANDURIL", name: "Mock Anduril pre-IPO (Sonata devnet)", key: ".keys/mock-manduril.json" },
+  { symbol: "mFIGUREAI", name: "Mock Figure AI pre-IPO (Sonata devnet)", key: ".keys/mock-mfigureai.json" },
+  { symbol: "mNEURALINK", name: "Mock Neuralink pre-IPO (Sonata devnet)", key: ".keys/mock-mneuralink.json" },
 ];
 
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");

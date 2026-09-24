@@ -1,6 +1,6 @@
 {
   "network": "solana:devnet",
-  "createdAt": "2026-09-24T15:34:26.630Z",
+  "createdAt": "2026-09-24T15:46:36.737Z",
   "note": "Mock stock quote tokens, no monetary value. Same profile as mSPY; permissionless DBC quote assets.",
   "tokens": [
     {
@@ -226,6 +226,139 @@
           "signature": "46NNhXSMwUWYent3kAruacWEcvewfWumXTrZZxf3eH1gHJWMYszAvCtNfsKq1Qoe7V8EDEG8wcYmJ2WpFqYFrxdv"
         }
       ]
+    },
+    {
+      "symbol": "mOPENAI",
+      "name": "Mock OpenAI pre-IPO (Sonata devnet)",
+      "mint": "9AmhkThKBQPGamCnomtWzLeymQYj8Ny9ymXs2hXRzoAd",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": []
+    },
+    {
+      "symbol": "mSPACEX",
+      "name": "Mock SpaceX pre-IPO (Sonata devnet)",
+      "mint": "72YxUgrzw86vWoKYoFBbwEVkdUGdERJaEQK86FgyKT2n",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": []
+    },
+    {
+      "symbol": "mKALSHI",
+      "name": "Mock Kalshi pre-IPO (Sonata devnet)",
+      "mint": "CCMchRhnqEvcuzjcRCg178rqTMS2yLYDffm6xPKZoskz",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": []
+    },
+    {
+      "symbol": "mPOLYMARKET",
+      "name": "Mock Polymarket pre-IPO (Sonata devnet)",
+      "mint": "Ff6jchxKLazxirjkZDxb4gLU4wxqugN9MfnaiPiJjocc",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": []
+    },
+    {
+      "symbol": "mANDURIL",
+      "name": "Mock Anduril pre-IPO (Sonata devnet)",
+      "mint": "3Xio7aTLXGsiewpacQq1VFmzEpYPGdj9C5LMJQAkfZVK",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": []
+    },
+    {
+      "symbol": "mFIGUREAI",
+      "name": "Mock Figure AI pre-IPO (Sonata devnet)",
+      "mint": "81uCoCarMNmShFX7th4AhaygPkHPXmCqZAFyiCiipWZ",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": []
+    },
+    {
+      "symbol": "mNEURALINK",
+      "name": "Mock Neuralink pre-IPO (Sonata devnet)",
+      "mint": "7XcvMX4CWdq1FLrzPwU5aVF3d7bGUDSmDQQmN4DpEe2E",
+      "decimals": 8,
+      "supply": "1000000000000",
+      "extensions": [
+        "MetadataPointer",
+        "TokenMetadata"
+      ],
+      "checks": {
+        "token2022": true,
+        "decimals8": true,
+        "noFreezeAuthority": true,
+        "onlyMetadataExtensions": true,
+        "symbolMatches": true
+      },
+      "traces": []
     }
   ]
 }
