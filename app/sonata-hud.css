@@ -205,3 +205,65 @@ body:has(.sr-app) [data-slot=button],body:has(.sr-app) [data-slot=tabs-trigger],
 .sr-app .sonata-token-card .stock-floor-compact strong{font-size:13px;flex-wrap:wrap;overflow-wrap:anywhere;min-width:0}
 .sr-app .sx-topbar [data-slot=breadcrumb-item]{display:inline-flex}
 .sr-app .sx-demo-badge{display:inline-flex}
+
+/* Vector heat signals: solid silhouettes stay legible inside compact cards. */
+.sr-app .sonata-heat-signal{display:inline-flex;align-items:center;gap:3px;vertical-align:middle;margin-left:3px;white-space:nowrap;color:var(--primary);line-height:1;flex-shrink:0}
+.sr-app .sonata-heat-signal svg{display:block;flex-shrink:0;width:20px;height:23px;overflow:visible}
+.sr-app .sonata-heat-signal .sonata-heat-core{fill:var(--background)}
+.sr-app .sonata-heat-signal[data-heat=heating]{opacity:.85}
+.sr-app .sonata-heat-signal:is([data-heat=fire],[data-heat=complete],[data-heat=graduated]){filter:drop-shadow(0 0 5px color-mix(in srgb,var(--primary) 45%,transparent))}
+.sr-app .sonata-heat-signal:is([data-heat=fire],[data-heat=complete],[data-heat=graduated]) .sonata-heat-core{fill:var(--foreground)}
+.sr-app .sonata-heat-signal .sonata-heat-cap{width:24px;height:24px;color:var(--foreground)}
+.sr-app .sonata-token-card .sonata-heat-signal svg{width:17px;height:20px}
+.sr-app .sonata-token-card .sonata-heat-signal .sonata-heat-cap{width:21px;height:21px}
+
+/* A raised double-chevron badge marks active curve momentum. */
+.sr-app .sonata-heat-overlay{position:absolute;top:10px;right:10px;z-index:2;display:grid;place-items:center;width:30px;height:36px;pointer-events:none;color:var(--primary);background:color-mix(in srgb,var(--primary) 12%,var(--card));border:1px solid color-mix(in srgb,var(--primary) 45%,transparent);clip-path:polygon(0 5px,5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%)}
+.sr-app .sonata-heat-overlay svg{width:22px;height:28px;filter:drop-shadow(0 0 3px color-mix(in srgb,var(--primary) 55%,transparent));animation:sonata-heat-rise 1.8s ease-in-out infinite}
+.sr-app .sonata-heat-overlay path:first-child{opacity:.65}
+.sr-app .sonata-token-card:has(.sonata-heat-overlay) .sonata-token-identity{padding-right:30px}
+.sr-app .sonata-token-card:has(.sonata-heat-overlay) .sonata-token-identity>svg{display:none}
+.sr-app .sonata-token-card:is([data-heat=fire],[data-heat=complete]) .sonata-heat-overlay{background:color-mix(in srgb,var(--primary) 24%,var(--card));border-color:var(--primary)}
+@keyframes sonata-heat-rise{0%,100%{transform:translateY(2px);opacity:.75}50%{transform:translateY(-2px);opacity:1}}
+@media(prefers-reduced-motion:reduce){.sr-app .sonata-heat-overlay svg{animation:none}}
+
+/* Center the cap text and vector status icons on the same horizontal axis. */
+.sr-app .graduation-head{align-items:center}
+.sr-app .sonata-market-cap{display:inline-flex;align-items:center;gap:5px;min-width:0}
+.sr-app .sonata-market-cap>.sonata-heat-signal{margin-left:0}
+
+/* Market polish: preserve the trading layout and let narrow cards shrink. */
+.sr-app .terminal-trade-main>.sr-panel,.sr-app .terminal-trade-side>.sr-panel,.sr-app .price-chart{min-width:0}
+.sr-app .swap-token{min-height:30px;background:var(--secondary);border-color:var(--border)}
+.sr-app .swap-box{border-radius:4px 12px 4px 12px}
+.sr-app .swap-box-top{flex-wrap:wrap}
+.sr-app .swap-rows>div>span{flex-shrink:0}
+.sr-app .swap-rows strong{min-width:0;overflow-wrap:anywhere}
+.sr-app .swap-side button,.sr-app .swap-chips button{min-height:36px}
+.sr-app .swap-side button:focus-visible,.sr-app .swap-chips button:focus-visible,.sr-app .pool-chips button:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.sr-app .swap-chips button:hover:not(:disabled){background:var(--accent)}
+.sr-app .pool-chips button{min-height:36px}
+.sr-app .pool-chips button span{font-size:12px}
+:root.light .sr-app .swap-rows>div[data-tone=warn] strong,:root.light .sr-app .pool-tag[data-tone=warn]{color:#875000}
+:root.light .sr-app .pool-tag[data-tone=farm]{color:#166440}
+@media(max-width:800px){
+  .sr-app .terminal-trade-layout{grid-template-columns:minmax(0,1fr)}
+  .sr-app .terminal-trade-main>.sr-panel{padding:16px}
+  .sr-app .graduation-head{flex-wrap:wrap}
+  .sr-app .terminal-chart-card [data-slot=chart]{min-width:0}
+  .sr-app .sr-main>[data-slot=tabs]>[data-slot=tabs-list]{width:100%;height:auto;flex-wrap:wrap;justify-content:flex-start}
+}
+@media(max-width:767px){
+  .sr-app .sx-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 8px}
+  .sr-app .sx-topbar>nav{grid-row:1;grid-column:1;min-width:0}
+  .sr-app .sx-header-actions{display:contents}
+  .sr-app .sx-header-actions>[data-slot=button]:first-child{grid-row:1;grid-column:2;justify-self:end}
+  .sr-app .sx-header-actions>.sx-demo-badge{grid-row:2;grid-column:1;justify-self:start;max-width:100%;white-space:normal}
+  .sr-app .sx-header-actions>[data-slot=button]:last-child{grid-row:2;grid-column:2;max-width:100%;min-width:0}
+}
+@media(max-width:800px){
+  .sr-app .recent-trade{grid-template-columns:38px minmax(0,1fr);gap:5px 8px}
+  .sr-app .recent-trade>span:nth-child(2){flex-wrap:wrap;overflow-wrap:anywhere}
+  .sr-app .recent-trade>span:nth-child(3),.sr-app .recent-trade>span:nth-child(4){display:none}
+  .sr-app .recent-trade>span:last-child{grid-column:2;justify-self:end;font-size:12px}
+}

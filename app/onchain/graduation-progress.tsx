@@ -46,7 +46,33 @@ function money(cap: number, usd: number | null, quote: string, compact = false) 
   }).format(cap * usd);
 }
 
-const ICON: Record<Heat, string> = { new: "", heating: "🔥", fire: "🔥", complete: "🔥", graduated: "🔥🎓" };
+const HEAT_LABEL: Record<Heat, string> = {
+  new: "New market",
+  heating: "Heating up",
+  fire: "On fire",
+  complete: "Curve complete",
+  graduated: "Graduated",
+};
+
+function HeatSignal({ heat }: { heat: Heat }) {
+  if (heat === "new") return null;
+  return (
+    <span className="sonata-heat-signal" data-heat={heat} role="img" aria-label={HEAT_LABEL[heat]} title={HEAT_LABEL[heat]}>
+      <svg className="sonata-heat-flame" viewBox="0 0 24 28" fill="none" aria-hidden="true">
+        <path d="M13 1 15 8 18 5C18 10 23 13 23 18A11 10 0 0 1 1 18C1 14 3 10 7 7L6 14C11 11 13 6 13 1Z" fill="currentColor" />
+        <path className="sonata-heat-core" d="m13 12 1 6 3-2c2 4 0 8-5 8-4 0-6-4-4-7l1 3c2-2 3-5 4-8Z" />
+      </svg>
+      {heat === "graduated" && (
+        <svg className="sonata-heat-cap" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+          <path d="m2 10 12-7 12 7-12 7L2 10Z" fill="currentColor" />
+          <path d="M7 15v6l7 4 7-4v-6l-7 4-7-4Z" fill="currentColor" />
+          <path d="M25 12v9m0 0-2 3m2-3 2 3" stroke="currentColor" strokeWidth="2" strokeLinejoin="miter" />
+          <path d="m9 10 5-3 5 3" stroke="var(--background)" strokeWidth="1.5" />
+        </svg>
+      )}
+    </span>
+  );
+}
 
 // Three chevron segments, one per milestone: heating up at a third of the
 // threshold, on fire at two thirds, graduation at the end.
@@ -97,8 +123,9 @@ export function GraduationProgress({
     return (
       <div className="graduation" data-heat={heat}>
         <div className="graduation-head">
-          <span>
-            MC <b>{money(marketCap, usd, quote, true)}</b> {ICON[heat]}
+          <span className="sonata-market-cap">
+            <span>MC <b>{money(marketCap, usd, quote, true)}</b></span>
+            <HeatSignal heat={heat} />
           </span>
           <strong>{status}</strong>
         </div>
@@ -109,13 +136,13 @@ export function GraduationProgress({
     heat === "new"
       ? ["Heats up at", money(heatCap, usd, quote)]
       : heat === "heating"
-        ? ["This token is heating up! 🔥"]
+        ? ["This token is heating up!"]
         : ["Heated up at", money(heatCap, usd, quote)],
     heat === "fire"
-      ? ["This token is on fire! 🔥"]
+      ? ["This token is on fire!"]
       : [heat === "new" || heat === "heating" ? "On fire at" : "Caught fire at", money(fireCap, usd, quote)],
     heat === "graduated"
-      ? ["Graduated 🎓 at", money(gradCap, usd, quote)]
+      ? ["Graduated at", money(gradCap, usd, quote)]
       : heat === "complete"
         ? ["Curve complete", "migration pending"]
         : ["Graduates at", money(gradCap, usd, quote)],
@@ -126,14 +153,16 @@ export function GraduationProgress({
         <span>
           Bonding curve progress: <b>{status}</b>
         </span>
-        <strong>
-          MC {money(marketCap, usd, quote)} {ICON[heat]}
+        <strong className="sonata-market-cap">
+          <span>MC {money(marketCap, usd, quote)}</span>
+          <HeatSignal heat={heat} />
         </strong>
       </div>
       {bar}
       <div className="curve-marks">
         {marks.map(([text, value], i) => (
           <div key={i} className={value ? undefined : "current"}>
+            {/* The heat icons show once, next to the market cap above. */}
             <span>{text}</span>
             {value && <strong>{value}</strong>}
           </div>
