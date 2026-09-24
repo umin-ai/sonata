@@ -25,6 +25,7 @@ import treasuryIdl from "./stockroom_treasury.json";
 import dbcIdl from "./dbc.json";
 import initialMarket from "./market.json";
 import { buildCurveParams, type CurveOptions } from "./dbc-preview";
+import { standardConfigProblem, type StandardConfigFields } from "./standard";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { buyOut, graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl, type FeeModel } from "../token-profile";
@@ -150,6 +151,8 @@ export async function readTreasury(market: Market = exportsMarket) {
   const config = coder.decode<
     { quoteMint: PublicKey; feeClaimer: PublicKey } & CurveConfig
   >("poolConfig", ca.data);
+  const nonStandard = standardConfigProblem(config as unknown as StandardConfigFields, market.vault);
+  if (nonStandard) throw Error(`This market is not a standard Sonata launch: ${nonStandard}.`);
   for (const key of [
     "pool",
     "config",
@@ -879,15 +882,25 @@ export async function discoverMarkets(): Promise<Market[]> {
       quoteMints.has(t.quoteMint.toBase58()) && modeOf(t.mode) !== null,
   );
   if (!supported.length) return [];
-  const pools = await connection.getMultipleAccountsInfo(
-    supported.map(({ account: t }) => t.pool),
-  );
+  const [pools, configs] = await Promise.all([
+    connection.getMultipleAccountsInfo(supported.map(({ account: t }) => t.pool)),
+    connection.getMultipleAccountsInfo(supported.map(({ account: t }) => t.config)),
+  ]);
   const { deriveMintMetadata, METAPLEX_PROGRAM_ID } =
     await import("@meteora-ag/dynamic-bonding-curve-sdk");
   const metadata = await connection.getMultipleAccountsInfo(
     supported.map(({ account: t }) => deriveMintMetadata(t.baseMint)),
   );
-  return supported.map(({ publicKey, account: t }, i) => {
+  // A market whose Meteora config is not Sonata's standard launch (liquidity the
+  // creator could pull, a mintable token, hidden fees) is never listed, even if
+  // it was registered before the treasury program refused such configs.
+  const standard = supported.map((_, i) => {
+    const info = configs[i];
+    if (!info?.owner.equals(pk(dbc.program))) return false;
+    return standardConfigProblem(coder.decode<StandardConfigFields>("poolConfig", info.data), exportsMarket.vault) === null;
+  });
+  return supported.filter((_, i) => standard[i]).map(({ publicKey, account: t }) => {
+    const i = supported.findIndex((e) => e.publicKey.equals(publicKey));
     const info = pools[i];
     if (!info?.owner.equals(pk(dbc.program)))
       throw Error("A registered pool could not be verified.");
