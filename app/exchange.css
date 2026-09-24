@@ -255,10 +255,19 @@
 .sr-app .pool-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted-foreground)}
 .sr-app .pool-tag[data-tone=farm]{color:#3fcf8e;border-color:color-mix(in srgb,#3fcf8e 45%,var(--border));background:color-mix(in srgb,#3fcf8e 10%,transparent)}
 .sr-app .pool-tag[data-tone=mine]{color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,var(--border))}
+/* Compact rows everywhere: label left, value right, a thin line between. */
+.sr-app .sr-detail-row{padding:7px 0}
+/* (Doubled classes: later stylesheets set .sr-app .sr-panel{gap:14px}.) */
+.sr-app .sr-panel.sr-panel{gap:10px}
+.sr-app .sr-panel.pool-facts,.sr-app .sr-panel.terminal-market-overview{gap:0}
+.sr-app .sr-panel.pool-facts{padding-top:6px;padding-bottom:6px}
+.sr-app .sr-panel.pool-add,.sr-app .sr-panel.pool-positions{gap:10px}
+.sr-app .pool-position{gap:0;padding:10px 14px}
+.sr-app .pool-position .sr-detail-row{padding:6px 0}
 /* Market page, as on other launchpads: chart, details and trades on the left; the swap on the right, kept in view. */
 .sr-app .terminal-trade-main,.sr-app .terminal-trade-side{display:grid;gap:16px;min-width:0;align-content:start}
 .sr-app .terminal-trade-side{position:sticky;top:86px}
-.sr-app .terminal-trade-main>.sr-panel,.sr-app .terminal-trade-side>.sr-panel{padding:22px;gap:12px;margin-bottom:0}
+.sr-app .terminal-trade-main>.sr-panel,.sr-app .terminal-trade-side>.sr-panel{padding:18px;gap:8px;margin-bottom:0}
 /* Phones: one column, in the order chart, swap, details, trades. */
 @media(max-width:800px){.sr-app .terminal-trade-main,.sr-app .terminal-trade-side{display:contents}.sr-app .terminal-trade-main>*{order:3}.sr-app .terminal-trade-main>.terminal-chart-card{order:1}.sr-app .terminal-trade-side>*{order:2}.sr-app .terminal-trade-main>.terminal-trades-card{order:4}.sr-app .terminal-trade-layout{gap:16px}}
 /* The swap box: compact, like other launchpads'. */
@@ -277,6 +286,9 @@
 /* Review windows: each amount on its own line, number then logo and ticker, right-aligned. */
 /* Not scoped to .sr-app: the review window renders outside the page's container. */
 .review-amounts{display:grid;gap:6px;justify-items:end;text-align:right}
+.review-facts{display:grid;gap:0}
+.review-facts>.sr-detail-row{padding:7px 0}
+.review-facts>.sr-note{margin:6px 0 0}
 .review-amount{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px 6px;font-variant-numeric:tabular-nums}
 .review-amount>*{white-space:nowrap}
 .review-amount .sr-token-name{display:inline-flex;align-items:center;gap:5px}

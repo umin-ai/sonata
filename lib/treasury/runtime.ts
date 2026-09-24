@@ -397,6 +397,8 @@ export type PreparedTreasury = {
     symbolA?:string;symbolB?:string;decimalsA?:number;decimalsB?:number;
     // A claim has no slippage limits: limitA and limitB are "0".
     kind: "deposit" | "withdraw" | "claim";
+    /** The pool adds its fees back into the pool (nothing to claim). */
+    compounding?: boolean;
     a: string;
     b: string;
     limitA: string;

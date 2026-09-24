@@ -79,6 +79,16 @@ function Amount({ atoms, decimals, symbol }: { atoms: string | bigint; decimals:
   );
 }
 
+// One line of a review window: what, then its value.
+function Fact({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="sr-detail-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 export function LiveProvider({ children }: { children: ReactNode }) {
   const wallet = useWallet("solana:devnet", true),
     [walletOpen, setWalletOpen] = useState(false),
@@ -487,7 +497,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           {review && (
             <>
               {review.redeem && (
-                <div className="space-y-3">
+                <div className="review-facts">
                   <div className="sr-detail-row">
                     <span>You burn</span>
                     <strong>
@@ -514,7 +524,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   </p>
                 )}
               {review.liquidity && (
-                <div className="space-y-3">
+                <div className="review-facts">
                   <div className="sr-detail-row">
                     <span>
                       {review.liquidity.kind === "deposit"
@@ -544,16 +554,29 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                     </strong>
                   </div>
                   )}
-                  <p className="sr-note">{review.liquidity.description}</p>
-                  <p className="sr-note">
-                    {review.liquidity.kind === "claim"
-                      ? "Expires in 30 seconds."
-                      : "0.5% slippage protection on both assets. Expires in 30 seconds."}
-                  </p>
+                  {review.liquidity.kind === "deposit" && (
+                    <>
+                      <Fact label="You get" value="A position NFT · withdraw any time" />
+                      <Fact label="Fees" value={review.liquidity.compounding ? "Added back into the pool" : "Earned by the position · claim any time"} />
+                    </>
+                  )}
+                  {review.liquidity.kind === "withdraw" && (
+                    <>
+                      <Fact label="You keep" value="The position NFT" />
+                      <Fact label="Fees" value={review.liquidity.compounding ? "Included" : "Stay on the position · claim separately"} />
+                    </>
+                  )}
+                  {review.liquidity.kind === "claim" && <Fact label="Liquidity" value="Stays in the pool" />}
+                  {review.liquidity.kind !== "claim" && (
+                    <>
+                      <Fact label="Slippage limit" value="0.5% on both tokens" />
+                      <Fact label="Risk" value="Price moves change what you get back" />
+                    </>
+                  )}
                 </div>
               )}
               {review.rewards && (
-                <div className="space-y-3">
+                <div className="review-facts">
                   <p className="sr-note">{review.rewards.description}</p>
                   {review.rewards.allocations.map((a) => (
                     <div className="sr-detail-row" key={a.recipient}>
@@ -566,7 +589,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                 </div>
               )}
               {review.trade && (
-                <div className="space-y-3">
+                <div className="review-facts">
                   <div className="sr-detail-row">
                     <span>Estimated receive</span>
                     <strong className="review-amounts">
@@ -596,13 +619,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   </p>
                 </div>
               )}
+              {!review.liquidity && (
               <p className="sr-note">
                 {review.rewards
                   ? "Only the named recipient can claim each fixed allocation, once. This is funded mock stock, not a promised investment return."
-                  : review.liquidity
-                    ? review.liquidity.kind === "claim"
-                      ? "These are valueless mock assets on Devnet."
-                      : "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
                     : review.action === "launch"
                       ? `${review.bundle ? `One approval, ${review.bundle.length + 1} transactions sent in order: this launch's Meteora config, then the token and its pool${review.devBuy ? `, with your first buy of ${review.devBuy.quoteAmount} ${review.devBuy.quote} for about ${review.devBuy.percent.toFixed(2)}% of the supply as its very first trade, in the same transaction, so nothing trades before you` : ""}, then the Sonata treasury. ` : "Create a permanent token and its own Meteora pool with the trading fee you chose. "}Net collected fees go ${review.market && isRewardMarket(review.market) ? `${botShare(review.market.feeModel)}, run by Sonata's payout bot every 15 minutes, and 50% to Sonata` : review.market?.mode === "standardFloor" ? "25% to your fixed recipient, 25% into the backing, which only holders can redeem, and 50% to Sonata" : review.market?.mode === "standard" ? "50% to your fixed recipient and 50% to Sonata" : review.market?.mode === "floor" ? "50% to your fixed recipient and 50% into the backing, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. At graduation you get half of the locked pool, which keeps earning fees.${review.bundle ? "" : " A second signature activates the treasury."}`
                       : review.action === "register"
@@ -634,19 +654,26 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                                 ? "This trade uses the token's Meteora DAMM v2 pool. Its fee, less Meteora's share, goes to the pool's liquidity providers: the creator and Sonata's locked halves (Sonata's half keeps paying the token's fee model) and anyone who adds liquidity. Test assets, with no real stock exposure."
                                 : "This trade changes your token balances and earns fees for the pool. It does not deposit into the creator reserve."}
               </p>
-              <p className="sr-note break-all">
-                Destination: {review.recipient}
-              </p>
-              <p className="sr-note">
-                Estimated network fee: {(review.feeLamports / 1e9).toFixed(6)}{" "}
-                Devnet SOL.
-                {review.rentLamports
-                  ? ` Estimated account rent: ${formatUnits(BigInt(review.rentLamports), 9)} Devnet SOL.`
-                  : ""}
-                {review.trade || review.liquidity
-                  ? " Review expires after 30 seconds."
-                  : " Review expires after 60 seconds."}
-              </p>
+              )}
+              <div className="review-facts">
+                <Fact
+                  label={review.recipient === review.wallet ? "To" : review.liquidity ? "Pool" : "Destination"}
+                  value={
+                    review.recipient === review.wallet ? (
+                      "Your wallet"
+                    ) : (
+                      <a className="sr-text-link" href={explorer("address", review.recipient)} target="_blank" rel="noreferrer">
+                        {review.recipient.slice(0, 4)}…{review.recipient.slice(-4)}
+                      </a>
+                    )
+                  }
+                />
+                <Fact label="Network fee" value={`${(review.feeLamports / 1e9).toFixed(6)} SOL`} />
+                {!!review.rentLamports && (
+                  <Fact label="Account rent" value={`${formatUnits(BigInt(review.rentLamports), 9)} SOL`} />
+                )}
+                <Fact label="Expires in" value={review.trade || review.liquidity ? "30 seconds" : "60 seconds"} />
+              </div>
               <DialogFooter>
                 <Button
                   variant="outline"

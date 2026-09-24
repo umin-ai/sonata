@@ -698,6 +698,7 @@ function reviewFields(pool: GraduatedPool) {
     decimalsA: pool.market.baseDecimals,
     decimalsB: pool.market.quoteDecimals,
     pool: pool.address,
+    compounding: pool.collectFeeMode === COMPOUNDING,
   };
 }
 // Checked in poolProblem: A is an SPL Token mint, B a Token-2022 mint.
