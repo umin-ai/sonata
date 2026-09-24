@@ -8,9 +8,10 @@ const HANDOFF = "https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md
 const explorer = (a: string) => `https://explorer.solana.com/address/${a}?cluster=devnet`;
 
 const parts: [string, string, string, string][] = [
-  ["Launch", "Meteora Dynamic Bonding Curve", "Every launch deploys its own Meteora DBC config and pool from the creator's choices, paired with a stock: S&P 500, Nasdaq 100, Tesla, Microsoft, Amazon, Meta, McDonald's or pre-IPO Anthropic. Sonata's treasury program is the config's fee claimer, so fees go to code, not a wallet.", "Live on Devnet"],
-  ["Dollar targets", "Jupiter, checked by Pyth", "Graduation targets are set in US dollars and converted at the price of the real tokenized stock on Solana (xStocks such as SPYx or MSFTx, or PreStocks for Anthropic). Pyth's equity feed is an independent check: a gap above 1% blocks the launch.", "Live on Devnet"],
-  ["Stock Floor", "Sonata treasury program", "Half of net trading fees builds a floor in the stock token. Any holder can burn tokens for their exact share; the creator can never withdraw it.", "Live on Devnet"],
+  ["Launch", "Meteora Dynamic Bonding Curve", "One page: a name and a ticker, then pick a stock: S&P 500, Nasdaq 100, Tesla, Microsoft, Amazon, Meta, McDonald's or pre-IPO Anthropic. Every launch deploys its own Meteora DBC config and pool, opening at $5,000 and graduating at $100,000 by default. Sonata's treasury program is the config's fee claimer, so fees go to code, not a wallet.", "Live on Devnet"],
+  ["Creator earnings", "Sonata treasury program", "Meteora keeps 20% of the trading fee. The other 80% goes to the creator's wallet, paid in the stock: $8 of every $1,000 traded at the default 1% fee. Sonata takes nothing. The payout recipient is fixed at launch.", "Live on Devnet"],
+  ["Dollar targets", "Jupiter, checked by Pyth", "Graduation targets are set in US dollars and converted at the price of the real tokenized stock on Solana (xStocks such as SPYx or MSFTx, or PreStocks for Anthropic). For stocks Pyth covers, its equity feed is an independent check: a gap above 1% blocks the launch.", "Live on Devnet"],
+  ["Stock Floor", "Sonata treasury program", "Optional, chosen at launch. Half of the creator's share builds a floor in the stock token instead. Any holder can burn tokens for their exact share; the creator can never withdraw it.", "Live on Devnet"],
   ["Graduation", "Meteora DAMM v2", "When a curve fills, the market migrates to a DAMM v2 pool with 100% of its liquidity permanently locked.", "Proven on Devnet"],
   ["Charts and trades", "Sonata trade indexer", "Every swap on a Sonata market is read from Meteora's own swap events into a database, which powers the charts, recent trades and 24h volume.", "Live on Devnet"],
   ["Token profiles", "Amazon S3 and CloudFront", "Images, descriptions and links are stored under the SHA-256 of each file, so anyone can check a token's image is the one uploaded.", "Live on Devnet"],
@@ -26,7 +27,7 @@ const programs: [string, string][] = [
 
 const notYet = [
   "Mainnet, and real stock tokens as the quote asset (they need a Meteora token badge).",
-  "Collecting fees after graduation, so the Stock Floor stops growing at graduation.",
+  "Collecting fees after graduation: creators and the Stock Floor stop earning when a token graduates.",
   "Holder rewards on markets not quoted in mSPY.",
   "NVIDIA as a paired stock (no Devnet test token yet).",
   "A professional audit. One key can upgrade all programs.",
