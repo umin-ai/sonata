@@ -9,7 +9,7 @@ const HANDOFF = "https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md
 const explorer = (a: string) => `https://explorer.solana.com/address/${a}?cluster=devnet`;
 
 const parts: [string, string, string, string][] = [
-  ["Launch", "Meteora Dynamic Bonding Curve", "Quick launch: name, ticker, image, go, on the default curve (opens at $5,000, graduates at $75,000, 1.25% fee, 0.5% to you). Advanced: five steps to pick the stock (S&P 500, Nasdaq 100, Tesla, Microsoft, Amazon, Meta, McDonald's or pre-IPO Anthropic), the curve shape (Classic, Steady, Rocket or Whale wall), the graduation target ($25K, $50K or $75K), the fee (1.25%, 2% or 3%), the extras and the fee model. Either way it is one wallet approval, with an optional dev buy of up to 75% of the supply in the same transaction that creates the pool, so nothing trades before you.", "Live on Devnet"],
+  ["Launch", "Meteora Dynamic Bonding Curve", "Quick launch: name, ticker, image, go, on the default curve (opens at $5,000, graduates at $75,000, 1.25% fee, 0.5% to you). Advanced: five steps to pick the stock (S&P 500, Nasdaq 100, Tesla, NVIDIA, Microsoft, Amazon, Meta, McDonald's or pre-IPO Anthropic), the curve shape (Classic, Steady, Rocket or Whale wall), the graduation target ($25K, $50K or $75K), the fee (1.25%, 2% or 3%), the extras and the fee model. Either way it is one wallet approval, with an optional dev buy of up to 75% of the supply in the same transaction that creates the pool, so nothing trades before you.", "Live on Devnet"],
   ["Fee model", "Sonata treasury program", "A 1.25% trading fee. Meteora keeps 0.25%. Standard token: 0.5% to the creator (or to a fee module), 0.5% to Sonata. Reward token: the creator's 0.5% is paid to holders instead. Backed token: 0.25% to the creator and 0.25% into a stock reserve holders can cash out. No extra tax on transfers.", "Live on Devnet"],
   ["Fee modules", "Sonata payout bot", "Instead of keeping it, a Standard token's creator can send their 0.5% to Buyback & burn (buys the token and burns it), Top Buyer Bounty (each 15-minute round's 3 biggest net buyers win 50% / 30% / 20%), LP Farm (holders on the curve, then liquidity providers after graduation, once their liquidity has been in for a full round), Split (up to 5 wallets) or Diamond Hands (holders, weighted up to 3× by how long they hold; selling or moving tokens restarts the clock for that amount). The choice is written into the token's metadata at launch and can't be changed.", PAYOUT_BOT_V2 ? "Live on Devnet" : "Next update"],
   ["Paid automatically", "Sonata payout bot", `Every 15 minutes a bot collects each market's fees and sends them out, in the stock: to the creator's wallet, pro rata to holders${PAYOUT_BOT_V2 ? ", or into the chosen fee module" : " for Reward tokens"}. Destinations are fixed on-chain or in the token's metadata; for Reward tokens${PAYOUT_BOT_V2 ? " and fee modules" : ""} the bot holds the funds briefly while it pays them.`, "Live on Devnet"],
@@ -36,7 +36,6 @@ const notYet = [
       ]),
   "Mainnet, and real stock tokens as the quote asset (they need a Meteora token badge).",
   "Cheaper launches: about 0.032 SOL today, mostly token metadata; switching to Token-2022 tokens removes most of it.",
-  "NVIDIA as a paired stock (no Devnet test token yet).",
   "A professional audit. One key can upgrade all programs.",
 ];
 

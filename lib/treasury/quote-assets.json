@@ -24,6 +24,13 @@
       "tokenProgram": "token2022"
     },
     {
+      "symbol": "mNVDA",
+      "name": "NVIDIA",
+      "mint": "H6Z6SdHpiVudTeUM8iNJ8mDMgZNHv5VgX6vJXoNuDiJd",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
       "symbol": "mMSFT",
       "name": "Microsoft",
       "mint": "DZr6KNYrthdmkcMJeSvJwPAAKUFjeazQ2VeC7YKtFnnu",
