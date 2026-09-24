@@ -5,6 +5,7 @@ import {
   normalizeLinks,
   normalizeDescription,
   buildMetadata,
+  normalizeSplit,
   parseProfile,
   isProfileUrl,
   sniffImage,
@@ -80,4 +81,37 @@ test("recognises image types by their bytes", () => {
   assert.equal(sniffImage(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0])), "image/jpeg");
   assert.equal(sniffImage(new TextEncoder().encode("RIFF1234WEBPVP8 ")), "image/webp");
   assert.equal(sniffImage(new TextEncoder().encode("<svg onload=alert(1)>")), null);
+});
+
+test("the fee model is written into the metadata and read back", () => {
+  const meta = buildMetadata({ name: "Burny", symbol: "BRN", description: "", links: {}, feeModel: "buyback" });
+  assert.deepEqual(meta.sonata, { feeModel: "buyback" });
+  assert.equal(parseProfile(JSON.parse(JSON.stringify(meta))).feeModel, "buyback");
+  // Unknown models are dropped, never passed to the payout bot's readers.
+  assert.equal(parseProfile({ sonata: { feeModel: "drain" } }).feeModel, undefined);
+  assert.equal(buildMetadata({ name: "Plain", symbol: "PLN", description: "", links: {} }).sonata, undefined);
+});
+
+test("a split names 1 to 5 wallets with whole-number shares", () => {
+  const a = "5uxAQ2Jd8pVWw1pXnVnCzN3bq6mJq8kqQeJFz8gjd4",
+    b = "C77RCWhxSkKDLTQ9drBdchJujrSjfwDBEs6DrvCtiKwM";
+  const split = normalizeSplit([
+    { wallet: ` ${a} `, weight: 60 },
+    { wallet: b, weight: 40 },
+  ]);
+  assert.deepEqual(split, [
+    { wallet: a, weight: 60 },
+    { wallet: b, weight: 40 },
+  ]);
+  const meta = buildMetadata({ name: "Pair", symbol: "PR", description: "", links: {}, feeModel: "split", split });
+  assert.deepEqual(parseProfile(JSON.parse(JSON.stringify(meta))).split, split);
+  assert.throws(() => normalizeSplit([]), /1 to 5/);
+  assert.throws(() => normalizeSplit(Array.from({ length: 6 }, (_, i) => ({ wallet: a.slice(0, -1) + i, weight: 1 }))), /1 to 5/);
+  assert.throws(() => normalizeSplit([{ wallet: a, weight: 1 }, { wallet: a, weight: 1 }]), /once/);
+  assert.throws(() => normalizeSplit([{ wallet: a, weight: 0 }]), /1 to 100/);
+  assert.throws(() => normalizeSplit([{ wallet: a, weight: 2.5 }]), /1 to 100/);
+  assert.throws(() => normalizeSplit([{ wallet: "not-a-wallet", weight: 5 }]), /Solana address/);
+  assert.throws(() => normalizeSplit([{ wallet: "Fb83XLPdUM11FrUUBNaB1JXJ2feJacNkcPGUzP8dtGz", weight: 5 }]), /Sonata/);
+  // A bad split in stored metadata is dropped rather than shown.
+  assert.equal(parseProfile({ sonata: { feeModel: "split", split: [{ wallet: a, weight: 0 }] } }).split, undefined);
 });

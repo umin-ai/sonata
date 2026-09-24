@@ -1,9 +1,11 @@
 import { z } from "zod";
 import {
   MAX_IMAGE_BYTES,
+  FEE_MODELS,
   buildMetadata,
   normalizeDescription,
   normalizeLinks,
+  normalizeSplit,
   sniffImage,
 } from "@/lib/token-profile";
 import { uploadToIrys } from "@/lib/server/irys-upload";
@@ -26,6 +28,7 @@ const Fields = z.object({
   website: z.string().max(300).optional(),
   x: z.string().max(300).optional(),
   telegram: z.string().max(300).optional(),
+  feeModel: z.enum(FEE_MODELS).optional(),
 });
 
 export async function POST(request: Request) {
@@ -53,8 +56,18 @@ export async function POST(request: Request) {
       website: text("website"),
       x: text("x"),
       telegram: text("telegram"),
+      feeModel: text("feeModel"),
     });
     const description = normalizeDescription(f.description);
+    // A split names its wallets in the metadata, where Sonata's payout bot reads them.
+    const parse = (raw = "null") => {
+      try {
+        return JSON.parse(raw) as unknown;
+      } catch {
+        return null;
+      }
+    };
+    const split = f.feeModel === "split" ? normalizeSplit(parse(text("split"))) : undefined;
     const links = normalizeLinks(f);
     const s3 = s3Config();
     const store = (bytes: Uint8Array, type: string, ext: string) =>
@@ -77,6 +90,8 @@ export async function POST(request: Request) {
       image,
       imageType,
       links,
+      feeModel: f.feeModel,
+      split,
     });
     const uri = await store(
       new TextEncoder().encode(JSON.stringify(metadata)),

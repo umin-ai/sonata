@@ -134,6 +134,12 @@ export const XSTOCK_MINTS: Record<string, { symbol: string; mint: string }> = {
   mANTHROPIC: { symbol: "ANTHROPIC", mint: "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw" },
 };
 
+/** Which family of tokenized stocks on Solana a mock quote token is priced from. */
+export const STOCK_FAMILIES = ["xStocks", "PreStocks"] as const;
+export type StockFamily = (typeof STOCK_FAMILIES)[number];
+export const stockFamily = (quote: string): StockFamily =>
+  XSTOCK_MINTS[quote] && !XSTOCK_MINTS[quote].symbol.endsWith("x") ? "PreStocks" : "xStocks";
+
 // Checks that stand in for a confidence interval when pricing from DEX liquidity.
 export const MIN_LIQUIDITY_USD = 250_000;
 export const MAX_PRICE_IMPACT = 0.01;

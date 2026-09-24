@@ -24,10 +24,10 @@ import {
 import treasuryIdl from "./stockroom_treasury.json";
 import dbcIdl from "./dbc.json";
 import initialMarket from "./market.json";
-import { buildCurveParams } from "./dbc-preview";
+import { buildCurveParams, type CurveOptions } from "./dbc-preview";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { buyOut, graduationProgress, milestoneCaps } from "./graduation";
-import { isProfileUrl } from "../token-profile";
+import { isProfileUrl, type FeeModel } from "../token-profile";
 // Of the net fees the treasury claims (80% of the trading fee; Meteora keeps 20%):
 // "standard": 50% to the creator's payout wallet, 50% to Sonata. New launches.
 // "standardFloor": 25% creator, 25% Stock Floor, 50% Sonata. New launches with a floor.
@@ -51,6 +51,8 @@ export type Market = typeof initialMarket & {
   fee?: number;
   // Token profile metadata JSON (image, description, links), when published.
   uri?: string;
+  // Where the creator's share goes, as written in the metadata (launches made here).
+  feeModel?: FeeModel;
 };
 const modeOf = (m: Record<string, unknown>): TreasuryMode | null =>
   MODES.find((mode) => mode in m) ?? null;
@@ -109,6 +111,8 @@ type Pool = {
   isMigrated: number;
 };
 type CurveConfig = {
+  leftoverReceiver: PublicKey;
+  poolFees: { dynamicFee: { initialized: number } };
   migrationQuoteThreshold: BN;
   migrationFeeOption: number;
   migrationSqrtPrice: BN;
@@ -268,6 +272,10 @@ async function readGraduation(
     milestoneCaps: caps.milestones,
     remainingToGraduate: progress.remaining.toString(),
     dammPool,
+    // Launch extras, read from the config itself: a Graduation Airdrop sends the
+    // held-back supply to Sonata's payout bot; the volatility fee is Meteora's dynamic fee.
+    airdrop: config.leftoverReceiver.equals(pk(REWARDS_WALLET)),
+    volatilityFee: config.poolFees.dynamicFee.initialized !== 0,
   };
 }
 export type TreasurySnapshot = Awaited<ReturnType<typeof readTreasury>>;
@@ -446,7 +454,7 @@ export async function prepareTreasury(
     // Both instructions are permissionless; the caller only pays the network fee.
     const uncollected = state.migrated ? 0n : BigInt(state.uncollected);
     if (uncollected <= 0n && BigInt(state.unallocated) <= 0n)
-      throw Error("No new trading fees to add to the floor yet.");
+      throw Error("No new trading fees to add to the backing yet.");
     raw = (uncollected + BigInt(state.unallocated)).toString();
     recipient = market.treasury;
     if (uncollected > 0n) tx.add(await claimIx());
@@ -454,7 +462,7 @@ export async function prepareTreasury(
   }
   if (action === "redeem") {
     if (!hasFloor(state.mode))
-      throw Error("This market has no Stock Floor.");
+      throw Error("This market is not a Backed token.");
     const burn = parseUnits(amount ?? "", 6);
     if (burn <= 0n) throw Error("Enter how many tokens to burn.");
     const holderBase = getAssociatedTokenAddressSync(pk(market.baseMint), owner);
@@ -466,7 +474,7 @@ export async function prepareTreasury(
     // Same rounding as the program: floor * burn / supply, rounded down.
     const payout = (BigInt(state.floor) * burn) / BigInt(state.baseSupply);
     if (payout <= 0n)
-      throw Error("Too few tokens to redeem any stock at the current floor.");
+      throw Error("Too few tokens to get any stock back yet.");
     raw = payout.toString();
     recipient = wallet;
     const holderQuote = getAssociatedTokenAddressSync(
@@ -507,7 +515,7 @@ export async function prepareTreasury(
   }
   if (action === "withdraw") {
     if (hasFloor(state.mode))
-      throw Error("The Stock Floor belongs to holders; the creator cannot withdraw it.");
+      throw Error("The backing belongs to holders; the creator can never withdraw it.");
     if (state.mode === "standard" || state.mode === "refrain")
       throw Error("This market pays the creator directly; it has no reserve to withdraw.");
     if (wallet !== market.creator)
@@ -882,7 +890,11 @@ export type LaunchCurve = {
   devBuy?: number;
   // Reward token: the creator's share is paid to holders by Sonata's payout bot.
   reward?: boolean;
-};
+  // Fee module: the creator's share runs this instead, also through the payout bot.
+  module?: FeeModule;
+} & CurveOptions;
+export const FEE_MODULES = ["buyback", "topBuyers", "lpFarm", "split", "diamond"] as const;
+export type FeeModule = (typeof FEE_MODULES)[number];
 const MAX_TX_BYTES = 1232;
 function txBytes(tx: Transaction, feePayer: PublicKey) {
   tx.feePayer = feePayer;
@@ -923,8 +935,27 @@ export async function prepareLaunch(
     );
   if (!/^[A-Z][A-Z0-9]{1,9}$/.test(symbol))
     throw Error("Use a 2–10 character uppercase ticker.");
-  // A reward token's payout owner is always Sonata's payout bot.
-  if (curve.reward) payout = REWARDS_WALLET;
+  // Holder rewards and fee modules are paid by Sonata's payout bot, which reads the
+  // module from the token's metadata, so a module launch must carry it.
+  const botRun = !!curve.reward || !!curve.module;
+  if (curve.module) {
+    if (!uri) throw Error("A fee module is saved in the token's metadata, which did not upload. Try again.");
+    const meta = (await fetch(`/api/token-meta?uri=${encodeURIComponent(uri)}`)
+      .then((r) => r.json())
+      .catch(() => null)) as { sonata?: { feeModel?: string; split?: { wallet: string }[] } } | null;
+    if (meta?.sonata?.feeModel !== curve.module)
+      throw Error("The token's metadata does not name this fee module. Try again.");
+    // The metadata is permanent and the payout bot never pays a program, so a split
+    // naming one would hold its share forever: refuse it before launch.
+    if (curve.module === "split") {
+      const wallets = (meta.sonata.split ?? []).map((r) => pk(r.wallet));
+      if (!wallets.length) throw Error("The token's metadata has no split wallets. Try again.");
+      const infos = await connection.getMultipleAccountsInfo(wallets);
+      const bad = wallets.find((w, i) => !PublicKey.isOnCurve(w.toBytes()) || infos[i]?.executable);
+      if (bad) throw Error(`Split: ${bad.toBase58()} is a program, not a wallet. Use normal wallets only.`);
+    }
+  }
+  if (botRun) payout = REWARDS_WALLET;
   const owner = pk(wallet),
     recipient = pk(payout);
   if (!PublicKey.isOnCurve(recipient.toBytes()))
@@ -940,11 +971,11 @@ export async function prepareLaunch(
     // choices are the deployed ones rather than a shared preset.
     config = Keypair.generate(),
     quoteMint = pk(asset.mint);
-  const curveParams = await buildCurveParams(
-    curve.initial,
-    curve.target,
-    curve.fee,
-  );
+  const curveParams = await buildCurveParams(curve.initial, curve.target, curve.fee, {
+    shape: curve.shape,
+    volatility: curve.volatility,
+    airdrop: curve.airdrop,
+  });
   const pool = deriveDbcPoolAddress(quoteMint, mint.publicKey, config.publicKey);
   const [treasury] = PublicKey.findProgramAddressSync(
     [Buffer.from("treasury"), pool.toBuffer()],
@@ -963,8 +994,9 @@ export async function prepareLaunch(
     creator: wallet,
     payoutOwner: payout,
     // Creator 50% / Sonata 50% of claimed fees, or creator 25% / floor 25% / Sonata 50%.
-    mode: curve.floor && !curve.reward ? "standardFloor" : "standard",
+    mode: curve.floor && !botRun ? "standardFloor" : "standard",
     fee: curve.fee,
+    feeModel: curve.module ?? (curve.reward ? "holders" : curve.floor ? "backed" : "standard"),
     ...(uri ? { uri } : {}),
     baseVault: deriveDbcTokenVaultAddress(pool, mint.publicKey).toBase58(),
     quoteVault: deriveDbcTokenVaultAddress(pool, quoteMint).toBase58(),
@@ -1009,6 +1041,9 @@ export async function prepareLaunch(
       curveParams.curve.map((c) => ({ sqrtPrice: big(c.sqrtPrice), liquidity: big(c.liquidity) })),
     );
     if (quote.unspent > 0n) throw Error("That first buy is larger than the whole curve. Buy less.");
+    // A buy that fills the curve would graduate the token the moment it launches.
+    if (devBuyAtoms - quote.fee >= big(curveParams.migrationQuoteThreshold))
+      throw Error("That first buy would fill the curve and graduate the token at launch. Buy less.");
     const percent = Number((quote.out * 10_000n) / 10n ** 15n) / 100;
     if (percent > 75) throw Error("A first buy can take at most 75% of the supply. Buy less.");
     firstBuyParam = {
@@ -1021,12 +1056,14 @@ export async function prepareLaunch(
     devBuy = { quoteAmount: String(curve.devBuy), quote: asset.symbol, tokens: quote.out.toString(), percent };
   }
   // Three transactions in one approval: this launch's config; its pool with the
-  // dev buy (atomic); then the treasury. leftoverReceiver matches feeClaimer so
-  // unsold curve inventory also returns to the Sonata vault.
+  // dev buy (atomic); then the treasury. Without an airdrop, leftoverReceiver matches
+  // feeClaimer so any leftover supply also returns to the Sonata vault.
   const { createConfigTx, createPoolWithFirstBuyTx } = await client.partner.createConfigAndPoolWithFirstBuy({
     config: config.publicKey,
     feeClaimer: pk(exportsMarket.vault),
-    leftoverReceiver: pk(exportsMarket.vault),
+    // A Graduation Airdrop's held-back supply goes to Sonata's payout bot, which
+    // withdraws it at graduation and airdrops it to holders.
+    leftoverReceiver: pk(curve.airdrop ? REWARDS_WALLET : exportsMarket.vault),
     quoteMint,
     payer: owner,
     ...curveParams,

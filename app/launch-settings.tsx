@@ -1,5 +1,6 @@
 import {isDeployableQuote} from '@/lib/treasury/quote-assets';
 import {OPEN_USD,usdToQuote,type StockPrice} from '@/lib/pricing/stock-price';
+import type {CurveOptions} from '@/lib/treasury/dbc-preview';
 // A dollar target converted to quote units at the Solana market price. The converted
 // initial/target are what the on-chain config uses; the snapshot records the
 // price that produced them and does not move afterwards.
@@ -7,7 +8,8 @@ export type Pricing={source:'pyth'|'jupiter';openUsd:number;targetUsd:number;pri
 // floor: half of net fees becomes a Stock Floor that holders redeem by burning; fixed at creation.
 // devBuy: optional first buy in quote tokens, made in the same transaction that creates the pool.
 // reward: the creator's share goes to holders instead (paid out by Sonata's payout bot).
-export type LaunchSettings={quote:string;initial:number;target:number;fee:number;rewards:string;floor:boolean;reward?:boolean;devBuy?:number;pricing?:Pricing};
+// shape, volatility, airdrop: the curve options (see CurveOptions in lib/treasury/dbc-preview.ts).
+export type LaunchSettings={quote:string;initial:number;target:number;fee:number;rewards:string;floor:boolean;reward?:boolean;devBuy?:number;pricing?:Pricing}&CurveOptions;
 export type PythState=
  |{status:'loading'}
  |{status:'unconfigured'}

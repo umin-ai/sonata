@@ -130,6 +130,131 @@
       "args": []
     },
     {
+      "name": "claim_graduated",
+      "docs": [
+        "After graduation: pull the trading fees earned by the Vault's permanently locked",
+        "position in the market's DAMM v2 pool into the treasury, signed by the Vault PDA.",
+        "They are then paid out by the treasury's mode like any other claim. Anyone may",
+        "call it; fees only ever move into the treasury. The pool must hold this market's",
+        "token and stock, so another market's fees can never be credited here; DAMM v2",
+        "checks that the position is in that pool and that the Vault holds its NFT."
+      ],
+      "discriminator": [
+        222,
+        207,
+        134,
+        177,
+        150,
+        153,
+        67,
+        202
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  111,
+                  99,
+                  107,
+                  114,
+                  111,
+                  111,
+                  109
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "treasury.pool",
+                "account": "Treasury"
+              }
+            ]
+          }
+        },
+        {
+          "name": "damm_pool_authority"
+        },
+        {
+          "name": "damm_pool"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "treasury_base",
+          "writable": true
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "token_a_vault",
+          "writable": true
+        },
+        {
+          "name": "token_b_vault",
+          "writable": true
+        },
+        {
+          "name": "base_mint",
+          "relations": [
+            "treasury"
+          ]
+        },
+        {
+          "name": "quote_mint",
+          "relations": [
+            "treasury"
+          ]
+        },
+        {
+          "name": "position_nft_account"
+        },
+        {
+          "name": "token_base_program"
+        },
+        {
+          "name": "token_quote_program"
+        },
+        {
+          "name": "damm_event_authority"
+        },
+        {
+          "name": "damm_program",
+          "address": "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_partner_metadata",
       "docs": [
         "Name the launchpad behind every pool whose config uses this Vault as fee",

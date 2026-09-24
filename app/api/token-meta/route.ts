@@ -36,6 +36,7 @@ export async function GET(request: Request) {
       ...(p.links.website ? { website: p.links.website } : {}),
       ...(p.links.x ? { twitter: p.links.x } : {}),
       ...(p.links.telegram ? { telegram: p.links.telegram } : {}),
+      ...(p.feeModel ? { sonata: { feeModel: p.feeModel, ...(p.split ? { split: p.split } : {}) } } : {}),
     };
     return Response.json(body, {
       headers: { "Cache-Control": "public, max-age=86400" },

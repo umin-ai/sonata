@@ -240,7 +240,7 @@ export default function RewardsPage() {
         <TabsContent value="holders" className="space-y-5 mt-5">
           {excluded > 0 && (
             <p className="sr-note" role="status">
-              {excluded} market{excluded === 1 ? " is" : "s are"} not shown: holder rewards are paid by a program that currently funds only mSPY markets, and never from a Stock Floor, which holders redeem directly.
+              {excluded} market{excluded === 1 ? " is" : "s are"} not shown: holder rewards are paid by a program that currently funds only mSPY markets, and never from a Backed token&apos;s backing, which holders redeem directly.
             </p>
           )}
           <div className="grid gap-5 lg:grid-cols-2">

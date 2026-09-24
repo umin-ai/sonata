@@ -30,6 +30,15 @@ import { formatUnits } from "@/lib/treasury/units";
 import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 const storagePrefix = `stockroom.session.${market.programId}`;
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
+// Where a bot-run market's 50% goes, by the fee model in its metadata.
+const botShare = (model?: string) =>
+  ({
+    buyback: "50% to buy back your token and burn it",
+    topBuyers: "50% to each round's top 3 net buyers",
+    lpFarm: "50% to holders, then to liquidity providers after graduation",
+    split: "50% split between your wallets",
+    diamond: "50% to holders, weighted by how long they hold",
+  })[model ?? ""] ?? "50% to holders, paid in the stock";
 const names = {
   "creator-claim": "Claim graduated pool fees",
   "reward-policy": "Configure holder rewards",
@@ -49,7 +58,7 @@ const names = {
   collect: "Collect trading fees",
   allocate: "Allocate collected fees",
   redeem: "Burn tokens for stock",
-  sync: "Add new fees to the Stock Floor",
+  sync: "Add new fees to the backing",
 };
 import { LiveContext, useLive, type Pending } from "./live-context";
 export { useLive } from "./live-context";
@@ -570,21 +579,21 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   : review.liquidity
                     ? "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
                     : review.action === "launch"
-                      ? `${review.bundle ? `One approval, ${review.bundle.length + 1} transactions sent in order: this launch's Meteora config, then the token and its pool${review.devBuy ? `, with your first buy of ${review.devBuy.quoteAmount} ${review.devBuy.quote} for about ${review.devBuy.percent.toFixed(2)}% of the supply as its very first trade, in the same transaction, so nothing trades before you` : ""}, then the Sonata treasury. ` : "Create a permanent token and its own Meteora pool with the trading fee you chose. "}Net collected fees go ${review.market && isRewardMarket(review.market) ? "50% to holders, paid out by Sonata's payout bot in the stock, and 50% to Sonata" : review.market?.mode === "standardFloor" ? "25% to your fixed recipient, 25% to the Stock Floor, which only holders can redeem, and 50% to Sonata" : review.market?.mode === "standard" ? "50% to your fixed recipient and 50% to Sonata" : review.market?.mode === "floor" ? "50% to your fixed recipient and 50% to the Stock Floor, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. At graduation you get half of the locked pool, which keeps earning fees.${review.bundle ? "" : " A second signature activates the treasury."}`
+                      ? `${review.bundle ? `One approval, ${review.bundle.length + 1} transactions sent in order: this launch's Meteora config, then the token and its pool${review.devBuy ? `, with your first buy of ${review.devBuy.quoteAmount} ${review.devBuy.quote} for about ${review.devBuy.percent.toFixed(2)}% of the supply as its very first trade, in the same transaction, so nothing trades before you` : ""}, then the Sonata treasury. ` : "Create a permanent token and its own Meteora pool with the trading fee you chose. "}Net collected fees go ${review.market && isRewardMarket(review.market) ? `${botShare(review.market.feeModel)}, run by Sonata's payout bot every 15 minutes, and 50% to Sonata` : review.market?.mode === "standardFloor" ? "25% to your fixed recipient, 25% into the backing, which only holders can redeem, and 50% to Sonata" : review.market?.mode === "standard" ? "50% to your fixed recipient and 50% to Sonata" : review.market?.mode === "floor" ? "50% to your fixed recipient and 50% into the backing, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. At graduation you get half of the locked pool, which keeps earning fees.${review.bundle ? "" : " A second signature activates the treasury."}`
                       : review.action === "register"
                         ? review.market?.mode === "standard" || review.market?.mode === "standardFloor"
                           ? "Register the creator, immutable recipient and fee split in Sonata, and create its custody accounts."
                           : review.market?.mode === "floor"
-                          ? "Register the creator, immutable recipient and Stock Floor in Sonata, and create its custody accounts. Once active, the creator can never withdraw the floor."
+                          ? "Register the creator, immutable recipient and backing in Sonata, and create its custody accounts. Once active, the creator can never withdraw the backing."
                           : review.market?.mode === "refrain"
                             ? "Register the creator and immutable recipient in Sonata, and create its custody accounts. Every net fee collected goes to the recipient."
                             : "Register the creator, immutable recipient and 50/50 allocation in Sonata, and create its custody accounts."
                         : review.action === "creator-claim"
                           ? "Claims the trading fees your locked graduated pool position has earned, into your own token accounts. The position stays locked."
                         : review.action === "redeem"
-                          ? "Your tokens are burned and you receive their exact share of the Stock Floor: floor × tokens burned ÷ total supply, rounded down. Nobody else's share goes down."
+                          ? "Your tokens are burned and you receive their exact share of the backing: backing × tokens burned ÷ total supply, rounded down. Nobody else's share goes down."
                         : review.action === "sync"
-                          ? `Collects new trading fees from Meteora and splits them: ${review.market?.mode === "standardFloor" ? "25% to the fixed recipient, 25% into the Stock Floor, 50% to Sonata" : "50% to the fixed recipient, 50% into the Stock Floor"}. Anyone can do this; you only pay the network fee.`
+                          ? `Collects new trading fees from Meteora and splits them: ${review.market?.mode === "standardFloor" ? "25% to the fixed recipient, 25% into the backing, 50% to Sonata" : "50% to the fixed recipient, 50% into the backing"}. Anyone can do this; you only pay the network fee.`
                         : review.action === "withdraw"
                           ? "Move the requested allocated reserve to the creator’s wallet. No holder balances are redeemed."
                           : review.action === "allocate"

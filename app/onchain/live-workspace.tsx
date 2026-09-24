@@ -43,7 +43,7 @@ import { LiveWallet, useLive } from "./live-session";
 import { OnchainTreasury } from "./treasury-workspace";
 import { LiquidityPortfolio } from "@/app/earn/workspace";
 import { GraduationProgress } from "./graduation-progress";
-import { StockFloor } from "./stock-floor";
+import { MarketBadges } from "./market-badges";
 import { MarketStats } from "./market-activity";
 import { isDeployableQuote } from "@/lib/treasury/quote-assets";
 import {
@@ -173,7 +173,7 @@ export function LiveDirectory() {
         <div className="nm-market-toolbar">
           <div className="sonata-market-tabs" aria-label="Filter markets">
             <button type="button" aria-pressed={category === "all"} onClick={() => setCategory("all")}>All markets <span>{loading ? "…" : markets.length}</span></button>
-            <button type="button" aria-pressed={category === "floor"} onClick={() => setCategory("floor")}><ShieldCheck size={14} /> Stock Floor</button>
+            <button type="button" aria-pressed={category === "floor"} onClick={() => setCategory("floor")}><ShieldCheck size={14} /> Backed</button>
           </div>
           <div className="nm-market-search">
             <Search size={17} />
@@ -273,8 +273,8 @@ function MarketCard({ market: m }: { market: Market }) {
         <ArrowUpRight size={16} />
       </Link>
       <div className="sonata-token-pair"><span>Paired with</span><TokenName symbol={quoteSymbolOf(m.quoteMint)} size={20} />
+        <MarketBadges market={m} data={data} feeModel={tokenProfile?.feeModel} quote={quoteSymbolOf(m.quoteMint)} />
       </div>
-      <StockFloor data={data} market={m} quote={quoteSymbolOf(m.quoteMint)} compact />
       <GraduationProgress data={data} quote={quoteSymbolOf(m.quoteMint)} compact />
       <div className="sonata-token-activity"><MarketStats pool={m.pool} quote={quoteSymbolOf(m.quoteMint)} /></div>
       {error && <p className="sonata-token-error">Chain data unavailable · <Link href={href(m)}>Open market to retry</Link></p>}

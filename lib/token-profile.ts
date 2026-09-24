@@ -11,12 +11,44 @@ export const MAX_IMAGE_BYTES = 95_000; // under Irys's free upload size
 export const MAX_DESCRIPTION = 280;
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 
+// Where a token's creator share of the fee goes, fixed at launch. Written into the
+// metadata JSON as `sonata.feeModel`; Sonata's payout bot reads it for markets it
+// pays out ("holders" and the three modules).
+export const FEE_MODELS = ["standard", "backed", "holders", "buyback", "topBuyers", "lpFarm", "split", "diamond"] as const;
+export type FeeModel = (typeof FEE_MODELS)[number];
+export const isFeeModel = (v: unknown): v is FeeModel =>
+  typeof v === "string" && (FEE_MODELS as readonly string[]).includes(v);
+// Split: up to 5 wallets, each with a whole-number weight from 1 to 100.
+export type SplitRecipient = { wallet: string; weight: number };
+export const MAX_SPLIT = 5;
+const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+// Sonata's payout bot and the Vault admin can never be split recipients.
+const SPLIT_BLOCKED = ["Fb83XLPdUM11FrUUBNaB1JXJ2feJacNkcPGUzP8dtGz", "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF"];
+export function normalizeSplit(input: unknown): SplitRecipient[] {
+  if (!Array.isArray(input) || input.length < 1 || input.length > MAX_SPLIT)
+    throw Error(`Split: add 1 to ${MAX_SPLIT} wallets.`);
+  const seen = new Set<string>();
+  return input.map((r) => {
+    const wallet = typeof r?.wallet === "string" ? r.wallet.trim() : "";
+    const weight = Number(r?.weight);
+    if (!BASE58.test(wallet)) throw Error("Split: one of the wallets is not a Solana address.");
+    if (SPLIT_BLOCKED.includes(wallet)) throw Error("Split: Sonata's own wallets can't be recipients.");
+    if (seen.has(wallet)) throw Error("Split: each wallet can appear once.");
+    if (!Number.isInteger(weight) || weight < 1 || weight > 100)
+      throw Error("Split: use a whole number from 1 to 100 for each share.");
+    seen.add(wallet);
+    return { wallet, weight };
+  });
+}
+
 export type SocialKind = "website" | "x" | "telegram";
 export type TokenLinks = Partial<Record<SocialKind, string>>;
 export type TokenProfile = {
   description?: string;
   image?: string;
   links: TokenLinks;
+  feeModel?: FeeModel;
+  split?: SplitRecipient[];
 };
 
 const SOCIAL_HOSTS: Record<Exclude<SocialKind, "website">, string[]> = {
@@ -93,6 +125,8 @@ export function buildMetadata(input: {
   image?: string;
   imageType?: string;
   links: TokenLinks;
+  feeModel?: FeeModel;
+  split?: SplitRecipient[];
 }) {
   const { website, x, telegram } = input.links;
   const socials = {
@@ -117,6 +151,9 @@ export function buildMetadata(input: {
         }
       : {}),
     createdOn: "https://sonata.umin.ai",
+    ...(input.feeModel
+      ? { sonata: { feeModel: input.feeModel, ...(input.feeModel === "split" ? { split: input.split } : {}) } }
+      : {}),
   };
 }
 
@@ -149,10 +186,21 @@ export function parseProfile(json: unknown): TokenProfile {
   } catch {
     description = undefined;
   }
+  const sonata = (o.sonata && typeof o.sonata === "object" ? o.sonata : {}) as Record<string, unknown>;
+  const feeModel = isFeeModel(sonata.feeModel) ? sonata.feeModel : undefined;
+  let split: SplitRecipient[] | undefined;
+  if (feeModel === "split")
+    try {
+      split = normalizeSplit(sonata.split);
+    } catch {
+      split = undefined;
+    }
   return {
     description,
     image: image && isProfileUrl(image) ? image : undefined,
     links,
+    ...(feeModel ? { feeModel } : {}),
+    ...(split ? { split } : {}),
   };
 }
 
