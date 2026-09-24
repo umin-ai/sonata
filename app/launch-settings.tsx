@@ -4,7 +4,7 @@ import type {CurveOptions} from '@/lib/treasury/dbc-preview';
 // A dollar target converted to quote units at the Solana market price. The converted
 // initial/target are what the on-chain config uses; the snapshot records the
 // price that produced them and does not move afterwards.
-export type Pricing={source:'pyth'|'jupiter';openUsd:number;targetUsd:number;price:number;confidenceRatio:number;publishTimeMs:number;label:string;live:boolean;feed:string};
+export type Pricing={source:'pyth'|'jupiter'|'prestocks';openUsd:number;targetUsd:number;price:number;confidenceRatio:number;publishTimeMs:number;label:string;live:boolean;feed:string};
 // floor: half of net fees becomes a Stock Floor that holders redeem by burning; fixed at creation.
 // devBuy: optional first buy in quote tokens, made in the same transaction that creates the pool.
 // reward: the creator's share goes to holders instead (paid out by Sonata's payout bot).
@@ -15,7 +15,7 @@ export type PythState=
  |{status:'unconfigured'}
  |{status:'error';message:string}
  |{status:'unusable';message:string;data:StockPrice}
- |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number;guard?:{feed:string;price:number;divergence:number}};
+ |{status:'ok';data:StockPrice;label:string;live:boolean;confidenceRatio:number;guard?:{feed:string;price:number;divergence:number};mark?:{price:number;premium:number|null}};
 export const initialSettings:LaunchSettings={quote:'mSPY',initial:2,target:12,fee:125,rewards:'treasury',floor:false};
 // Every curve and fee combination now deploys as its own DBC config. What still
 // gates a launch is a quote mint that exists onchain and a reward policy the

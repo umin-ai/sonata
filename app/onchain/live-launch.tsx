@@ -205,9 +205,10 @@ export function LiveLaunch() {
         const data = d as StockPrice;
         const a = assessPrice(data, Date.now());
         const guard = (d as { guard?: { feed: string; price: number; divergence: number } }).guard;
+        const mark = (d as { mark?: { price: number; premium: number | null } }).mark;
         setPyth(
           a.usable
-            ? { status: "ok", data, label: a.label, live: a.live, confidenceRatio: a.confidenceRatio, guard }
+            ? { status: "ok", data, label: a.label, live: a.live, confidenceRatio: a.confidenceRatio, guard, mark }
             : { status: "unusable", message: a.reason, data },
         );
       })
@@ -627,7 +628,7 @@ export function LiveLaunch() {
         {pyth.status === "loading"
           ? "Loading the stock price…"
           : priced
-            ? `${q.slice(1)} ${formatUsd(priced.data.price)} · ${priced.data.source === "pyth" ? "Pyth" : "Jupiter"}${priced.guard ? " · checked by Pyth" : ""}. Prices are converted at launch, so the curve is worth the same in dollars whatever the stock.`
+            ? `${q.slice(1)} ${formatUsd(priced.data.price)} · ${priced.data.source === "pyth" ? "Pyth" : priced.data.source === "prestocks" ? "PreStocks mark price (the Solana market is too thin)" : "Jupiter"}${priced.guard ? " · checked by Pyth" : ""}${priced.mark && priced.mark.premium !== null ? ` · ${Math.abs(priced.mark.premium * 100).toFixed(1)}% ${priced.mark.premium >= 0 ? "above" : "below"} PreStocks' mark (${formatUsd(priced.mark.price)})` : ""}. Prices are converted at launch, so the curve is worth the same in dollars whatever the stock.`
             : `Dollar price unavailable right now, so the curve is set in ${q}: opens at 2 ${q}, graduates at ${FALLBACK_TARGET[targetUsd]} ${q}.`}
       </p>
     </section>

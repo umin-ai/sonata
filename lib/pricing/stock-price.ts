@@ -27,9 +27,11 @@ export type MarketSession =
   | "overNight"
   | "closed"
   // Priced from Solana DEX liquidity, which trades around the clock.
-  | "onchain";
+  | "onchain"
+  // PreStocks' own mark price for a pre-IPO token (its public API).
+  | "mark";
 
-export type PriceSource = "pyth" | "jupiter";
+export type PriceSource = "pyth" | "jupiter" | "prestocks";
 
 export type StockPrice = {
   source: PriceSource;
@@ -52,6 +54,7 @@ const MAX_AGE_MS: Record<MarketSession, number> = {
   // Covers a weekend plus a Monday holiday; anything older suggests a broken feed.
   closed: 96 * 3_600_000,
   onchain: 60_000,
+  mark: 5 * 60_000,
 };
 const SESSION_LABEL: Record<MarketSession, string> = {
   regular: "US regular session",
@@ -60,6 +63,7 @@ const SESSION_LABEL: Record<MarketSession, string> = {
   overNight: "US overnight session",
   closed: "US market closed",
   onchain: "Solana market, 24/7",
+  mark: "PreStocks mark price",
 };
 
 export function assessPrice(p: StockPrice, nowMs: number) {
@@ -130,8 +134,16 @@ export const XSTOCK_MINTS: Record<string, { symbol: string; mint: string }> = {
   mAMZN: { symbol: "AMZNx", mint: "Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg" },
   mMETA: { symbol: "METAx", mint: "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu" },
   mMCD: { symbol: "MCDx", mint: "XsqE9cRRpzxcGKDXj1BJ7Xmg4GRhZoyY1KpmGSxAWT2" },
-  // PreStocks: pre-IPO exposure, priced from its Solana market only.
+  // PreStocks: pre-IPO exposure. Priced from its Solana market when that market is
+  // deep enough, otherwise from PreStocks' own mark price (their public API).
   mANTHROPIC: { symbol: "ANTHROPIC", mint: "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw" },
+  mOPENAI: { symbol: "OPENAI", mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF" },
+  mSPACEX: { symbol: "SPACEX", mint: "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh" },
+  mKALSHI: { symbol: "KALSHI", mint: "PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua" },
+  mPOLYMARKET: { symbol: "POLYMARKET", mint: "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP" },
+  mANDURIL: { symbol: "ANDURIL", mint: "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB" },
+  mFIGUREAI: { symbol: "FIGUREAI", mint: "PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd" },
+  mNEURALINK: { symbol: "NEURALINK", mint: "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S" },
 };
 
 /** Which family of tokenized stocks on Solana a mock quote token is priced from. */

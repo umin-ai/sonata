@@ -64,6 +64,55 @@
       "mint": "6LSXE2125CsYkFdospyip66rcBoazuFSXVbuQSFjZHDa",
       "decimals": 8,
       "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mOPENAI",
+      "name": "OpenAI (pre-IPO)",
+      "mint": "9AmhkThKBQPGamCnomtWzLeymQYj8Ny9ymXs2hXRzoAd",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mSPACEX",
+      "name": "SpaceX (pre-IPO)",
+      "mint": "72YxUgrzw86vWoKYoFBbwEVkdUGdERJaEQK86FgyKT2n",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mKALSHI",
+      "name": "Kalshi (pre-IPO)",
+      "mint": "CCMchRhnqEvcuzjcRCg178rqTMS2yLYDffm6xPKZoskz",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mPOLYMARKET",
+      "name": "Polymarket (pre-IPO)",
+      "mint": "Ff6jchxKLazxirjkZDxb4gLU4wxqugN9MfnaiPiJjocc",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mANDURIL",
+      "name": "Anduril (pre-IPO)",
+      "mint": "3Xio7aTLXGsiewpacQq1VFmzEpYPGdj9C5LMJQAkfZVK",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mFIGUREAI",
+      "name": "Figure AI (pre-IPO)",
+      "mint": "81uCoCarMNmShFX7th4AhaygPkHPXmCqZAFyiCiipWZ",
+      "decimals": 8,
+      "tokenProgram": "token2022"
+    },
+    {
+      "symbol": "mNEURALINK",
+      "name": "Neuralink (pre-IPO)",
+      "mint": "7XcvMX4CWdq1FLrzPwU5aVF3d7bGUDSmDQQmN4DpEe2E",
+      "decimals": 8,
+      "tokenProgram": "token2022"
     }
   ]
 }

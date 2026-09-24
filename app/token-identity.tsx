@@ -25,6 +25,24 @@ const stockLogos: Record<string, string> = {
   ANTHROPIC: "ANTHROPIC",
 };
 
+// PreStocks' own logos, as its public API lists them (prestocks.com/api/prestocks).
+const remoteLogos: Record<string, string> = {
+  mOPENAI: "https://www.prestocks.com/logos/openai.png",
+  OPENAI: "https://www.prestocks.com/logos/openai.png",
+  mSPACEX: "https://www.prestocks.com/logos/spacex.png",
+  SPACEX: "https://www.prestocks.com/logos/spacex.png",
+  mKALSHI: "https://www.prestocks.com/logos/kalshi.png",
+  KALSHI: "https://www.prestocks.com/logos/kalshi.png",
+  mPOLYMARKET: "https://www.prestocks.com/logos/polymarket.png",
+  POLYMARKET: "https://www.prestocks.com/logos/polymarket.png",
+  mANDURIL: "https://www.prestocks.com/logos/anduril.png",
+  ANDURIL: "https://www.prestocks.com/logos/anduril.png",
+  mFIGUREAI: "https://www.prestocks.com/logos/figureai.png",
+  FIGUREAI: "https://www.prestocks.com/logos/figureai.png",
+  mNEURALINK: "https://www.prestocks.com/logos/neuralink.png",
+  NEURALINK: "https://www.prestocks.com/logos/neuralink.png",
+};
+
 /** Mock stock labels stay explicit; unknown community tokens use a monogram. */
 export function TokenName({
   symbol,
@@ -38,7 +56,7 @@ export function TokenName({
       ? "/favicon.svg"
       : stockLogos[symbol]
         ? `/token-logos/${stockLogos[symbol]}.png`
-        : undefined;
+        : remoteLogos[symbol];
   return (
     <span
       className="sr-token-name"
