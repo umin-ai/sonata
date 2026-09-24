@@ -1,7 +1,7 @@
 "use client";
 import { MeteoraLabel } from "@/app/protocol-identity";
 import { TokenName, TokenPair } from "@/app/token-identity";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import Link from "@/app/plain-link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -292,8 +292,15 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
         <div>
           <span className="sr-eyebrow">SONATA / TRADE</span>
           <h1 className="token-title">
+            {/* The token's own image (or the "?" badge) once, then the pair; only the stock repeats its logo. */}
             <TokenImage profile={tokenProfile} symbol={market.symbol} size={44} />
-            <TokenPair base={market.symbol} quote={q} size={36} />
+            <span className="sr-token-pair-label">
+              <span className="sr-token-name" style={{ "--token-size": "36px" } as CSSProperties}>
+                <b>{market.symbol}</b>
+              </span>
+              <span className="sr-pair-divider">/</span>
+              <TokenName symbol={q} size={36} />
+            </span>
           </h1>
           <p>
             {tokenProfile?.description ?? "Trade, view fees and manage your market."}
