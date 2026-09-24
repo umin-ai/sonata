@@ -11,11 +11,11 @@
     "programs/stockroom-credit/Cargo.toml": "d5a6d6fbb19da6be3707320786a0c11c56a8963f834a0bb64930f28f068d54bf",
     "programs/stockroom-credit/src/lib.rs": "f1af1187948d6935994dd650f7a39db947fca7de256ad815f3ef635c7399df70",
     "programs/stockroom-treasury/Cargo.toml": "529398d28c1b17e5136abf9ac070c5f0ac4a91d65b343a183af6b7eaf7f6e507",
-    "programs/stockroom-treasury/src/lib.rs": "209166be52d783d6e8eee113b1d0d61656dd2e4d9a6c217bc032a897aad0d65f",
+    "programs/stockroom-treasury/src/lib.rs": "e74b9e88737234a3e8d3005e8d59f5b695afbef52aeb0e25d68c08a848c6046e",
     "programs/stockroom-rewards/Cargo.toml": "0404d9b2efcecf8787376331562c6d495982f427253eccf1e831c483acb81793",
     "programs/stockroom-rewards/src/lib.rs": "20e451bce05179a3b3f1019cdf8dfe5dcf525fe23f55fc3c30da067b6b261d5d"
   },
-  "builtAt": "2026-09-24T09:54:49.125Z",
+  "builtAt": "2026-09-24T12:24:19.170Z",
   "anchor": "1.0.2",
   "agave": "3.1.13",
   "hostRust": "1.90.0",
@@ -30,11 +30,11 @@
       "bytes": 147464
     },
     "stockroom_treasury": {
-      "sha256": "3f0cde8ffb43a3f87bdddbf9e3ea93cc8ac28fc824c957cae2eb6192865562e9",
-      "bytes": 363848
+      "sha256": "af385b00c5cf3ad18c5e6ec12d2332de16c5a00f9987bd021904e4d385cbeef4",
+      "bytes": 388608
     },
     "stockroom_rewards": {
-      "sha256": "9b860dabee5a921ec0be8be4fea8c4a42b8e83987fbaa44167018ca1aac33868",
+      "sha256": "1250d0fc4a62140b3c719010899c994d98a93859951c431b9d0a33b53aa83cdf",
       "bytes": 329552
     }
   }

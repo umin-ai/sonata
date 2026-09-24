@@ -8,6 +8,14 @@ declare_id!("GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj");
 
 pub const VAULT_SEED: &[u8] = b"stockroom";
 pub const TREASURY_SEED: &[u8] = b"treasury";
+/// Meteora DAMM v2, where graduated Sonata pools live (same address on every cluster).
+pub const DAMM_V2_PROGRAM_ID: Pubkey = pubkey!("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG");
+/// DAMM v2 `Pool` account: discriminator, and the offsets of its token A and B mints.
+const DAMM_POOL_DISCRIMINATOR: [u8; 8] = [241, 154, 109, 4, 17, 177, 109, 188];
+const DAMM_POOL_TOKEN_A_MINT: usize = 168;
+const DAMM_POOL_TOKEN_B_MINT: usize = 200;
+/// DAMM v2 `claim_position_fee` instruction discriminator.
+const DAMM_CLAIM_POSITION_FEE: [u8; 8] = [180, 38, 154, 17, 133, 33, 162, 211];
 
 /// How claimed fees are split, fixed at treasury creation.
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, PartialEq, Eq, Debug)]
@@ -245,6 +253,84 @@ pub mod stockroom_treasury {
             pool: t.pool,
             amount: got
         });
+        Ok(())
+    }
+
+    /// After graduation: pull the trading fees earned by the Vault's permanently locked
+    /// position in the market's DAMM v2 pool into the treasury, signed by the Vault PDA.
+    /// They are then paid out by the treasury's mode like any other claim. Anyone may
+    /// call it; fees only ever move into the treasury. The pool must hold this market's
+    /// token and stock, so another market's fees can never be credited here; DAMM v2
+    /// checks that the position is in that pool and that the Vault holds its NFT.
+    pub fn claim_graduated(ctx: Context<ClaimGraduated>) -> Result<()> {
+        {
+            let pool = &ctx.accounts.damm_pool;
+            require_keys_eq!(*pool.owner, DAMM_V2_PROGRAM_ID, TreasuryError::InvalidPool);
+            let data = pool.try_borrow_data()?;
+            require!(
+                data.len() >= DAMM_POOL_TOKEN_B_MINT + 32 && data[..8] == DAMM_POOL_DISCRIMINATOR,
+                TreasuryError::InvalidPool
+            );
+            let mint_at = |at: usize| Pubkey::try_from(&data[at..at + 32]).map_err(|_| TreasuryError::InvalidPool);
+            require_keys_eq!(mint_at(DAMM_POOL_TOKEN_A_MINT)?, ctx.accounts.base_mint.key(), TreasuryError::InvalidPool);
+            require_keys_eq!(mint_at(DAMM_POOL_TOKEN_B_MINT)?, ctx.accounts.quote_mint.key(), TreasuryError::InvalidPool);
+        }
+        let before = ctx.accounts.treasury_quote.amount;
+        let a = &ctx.accounts;
+        let ix = anchor_lang::solana_program::instruction::Instruction {
+            program_id: DAMM_V2_PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new_readonly(a.damm_pool_authority.key(), false),
+                AccountMeta::new_readonly(a.damm_pool.key(), false),
+                AccountMeta::new(a.position.key(), false),
+                AccountMeta::new(a.treasury_base.key(), false),
+                AccountMeta::new(a.treasury_quote.key(), false),
+                AccountMeta::new(a.token_a_vault.key(), false),
+                AccountMeta::new(a.token_b_vault.key(), false),
+                AccountMeta::new_readonly(a.base_mint.key(), false),
+                AccountMeta::new_readonly(a.quote_mint.key(), false),
+                AccountMeta::new_readonly(a.position_nft_account.key(), false),
+                AccountMeta::new_readonly(a.vault.key(), true),
+                AccountMeta::new_readonly(a.token_base_program.key(), false),
+                AccountMeta::new_readonly(a.token_quote_program.key(), false),
+                AccountMeta::new_readonly(a.damm_event_authority.key(), false),
+                AccountMeta::new_readonly(a.damm_program.key(), false),
+            ],
+            data: DAMM_CLAIM_POSITION_FEE.to_vec(),
+        };
+        let seeds: &[&[u8]] = &[VAULT_SEED, &[a.vault.bump]];
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[
+                a.damm_pool_authority.to_account_info(),
+                a.damm_pool.to_account_info(),
+                a.position.to_account_info(),
+                a.treasury_base.to_account_info(),
+                a.treasury_quote.to_account_info(),
+                a.token_a_vault.to_account_info(),
+                a.token_b_vault.to_account_info(),
+                a.base_mint.to_account_info(),
+                a.quote_mint.to_account_info(),
+                a.position_nft_account.to_account_info(),
+                a.vault.to_account_info(),
+                a.token_base_program.to_account_info(),
+                a.token_quote_program.to_account_info(),
+                a.damm_event_authority.to_account_info(),
+                a.damm_program.to_account_info(),
+            ],
+            &[seeds],
+        )?;
+        ctx.accounts.treasury_quote.reload()?;
+        let got = ctx
+            .accounts
+            .treasury_quote
+            .amount
+            .checked_sub(before)
+            .ok_or(TreasuryError::Math)?;
+        let t = &mut ctx.accounts.treasury;
+        t.total_claimed = t.total_claimed.checked_add(got).ok_or(TreasuryError::Math)?;
+        t.last_claim_ts = Clock::get()?.unix_timestamp;
+        emit!(Claimed { pool: t.pool, amount: got });
         Ok(())
     }
 
@@ -592,6 +678,42 @@ pub struct Claim<'info> {
     /// CHECK: DBC event authority PDA (seeds ["__event_authority"]); validated by the DBC program.
     pub dbc_event_authority: UncheckedAccount<'info>,
     pub dbc_program: Program<'info, dynamic_bonding_curve::program::DynamicBondingCurve>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimGraduated<'info> {
+    #[account(seeds = [VAULT_SEED], bump = vault.bump)]
+    pub vault: Box<Account<'info, Vault>>,
+    #[account(mut, seeds = [TREASURY_SEED, treasury.pool.as_ref()], bump = treasury.bump, has_one = quote_mint, has_one = base_mint)]
+    pub treasury: Box<Account<'info, Treasury>>,
+    /// CHECK: DAMM v2 constant pool authority; checked by DAMM v2.
+    pub damm_pool_authority: UncheckedAccount<'info>,
+    /// CHECK: the market's graduated DAMM v2 pool; owner, discriminator and both mints are checked in the handler.
+    pub damm_pool: UncheckedAccount<'info>,
+    /// CHECK: the Vault's position in that pool; DAMM v2 checks it belongs to the pool and its NFT.
+    #[account(mut)]
+    pub position: UncheckedAccount<'info>,
+    #[account(mut, token::mint = base_mint, token::authority = treasury)]
+    pub treasury_base: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    /// CHECK: DAMM v2 token A vault; checked by DAMM v2 against the pool.
+    #[account(mut)]
+    pub token_a_vault: UncheckedAccount<'info>,
+    /// CHECK: DAMM v2 token B vault; checked by DAMM v2 against the pool.
+    #[account(mut)]
+    pub token_b_vault: UncheckedAccount<'info>,
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    /// CHECK: the Vault's token account holding the position NFT; DAMM v2 checks the holder signs.
+    pub position_nft_account: UncheckedAccount<'info>,
+    pub token_base_program: Interface<'info, TokenInterface>,
+    pub token_quote_program: Interface<'info, TokenInterface>,
+    /// CHECK: DAMM v2 event authority PDA; checked by DAMM v2.
+    pub damm_event_authority: UncheckedAccount<'info>,
+    /// CHECK: must be Meteora DAMM v2.
+    #[account(address = DAMM_V2_PROGRAM_ID)]
+    pub damm_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]

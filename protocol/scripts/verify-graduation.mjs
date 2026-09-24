@@ -26,6 +26,7 @@ import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
 } from "@solana/spl-token";
 import {
   DynamicBondingCurveClient,
@@ -42,7 +43,9 @@ import assert from "node:assert/strict";
 const FLAGSHIP_POOL = "BZVxHsS8DQAkigYvQAPfssFGZRVSuWSYHrYQn2QmeFSf";
 // MigrationProgress in DBC: 0 PreBondingCurve, 1 PostBondingCurve, 2 LockedVesting, 3 CreatedPool.
 const LOCKED_VESTING = 2, CREATED_POOL = 3;
-const FILL_IN = 480_000_000n; // 4.8 mSPY offered; PartialFill uses only what the curve needs
+// Offered to complete the curve: what is left plus the fee and a margin. PartialFill
+// uses only what the curve needs and returns the rest.
+let FILL_IN = 480_000_000n;
 
 const proofPath = process.argv[2] ?? "artifacts/configurable-launch-proof-post-upgrade.json";
 const out = process.argv[3] ?? "artifacts/graduation-proof.json";
@@ -81,6 +84,8 @@ console.log(`Pool ${pool.toBase58()} | threshold ${threshold} | migration fee op
 let s = await state();
 const before = { quoteReserve: s.quoteReserve.toString(), progress: s.migrationProgress };
 if (BigInt(s.quoteReserve.toString()) < threshold) {
+  const left = threshold - BigInt(s.quoteReserve.toString());
+  if ((left * 11n) / 10n > FILL_IN) FILL_IN = (left * 11n) / 10n;
   const wrapped = await dbc.state.getPool(pool);
   const quote = dbc.pool.swapQuote2({
     virtualPool: wrapped, config: poolConfig, swapBaseForQuote: false,
@@ -116,10 +121,19 @@ if (s.isMigrated === 0 && BigInt(s.partnerQuoteFee.toString()) > 0n) {
     }).instruction(),
   ));
   const payoutQuote = getAssociatedTokenAddressSync(quoteMint, t0.payoutOwner, true, TOKEN_2022_PROGRAM_ID);
-  await send("Allocate 50/50 before migration", new Transaction().add(
-    await program.methods.distribute().accounts({
-      treasury, treasuryQuote, payoutQuote, quoteMint, tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
-    }).instruction(),
+  // Standard and StandardFloor markets pay Sonata's share in the same step (distribute_split).
+  const split = "standard" in t0.mode || "standardFloor" in t0.mode;
+  const platformQuote = getAssociatedTokenAddressSync(quoteMint, admin.publicKey, false, TOKEN_2022_PROGRAM_ID);
+  await send(split ? "Pay out creator and Sonata shares before migration" : "Allocate 50/50 before migration", new Transaction().add(
+    createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, payoutQuote, t0.payoutOwner, quoteMint, TOKEN_2022_PROGRAM_ID),
+    ...(split ? [createAssociatedTokenAccountIdempotentInstruction(admin.publicKey, platformQuote, admin.publicKey, quoteMint, TOKEN_2022_PROGRAM_ID)] : []),
+    split
+      ? await program.methods.distributeSplit().accountsPartial({
+          vault, treasury, treasuryQuote, payoutQuote, platformQuote, quoteMint, tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+        }).instruction()
+      : await program.methods.distribute().accounts({
+          treasury, treasuryQuote, payoutQuote, quoteMint, tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+        }).instruction(),
   ));
   const t1 = await program.account.treasury.fetch(treasury);
   collected = {
