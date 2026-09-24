@@ -13,9 +13,10 @@
 // the market's last allocation round and now; a position missing from any of
 // those readings counts 0. So liquidity added just before a payout, or taken
 // out after one and put back before the next, earns nothing for that time.
-// (Every reading is taken during a crank pass. An LP whose liquidity is in
-// place for every pass, and only then, still counts; readings between passes
-// would need a process that runs between them, such as the indexer.)
+// The indexer takes more readings between passes, 5 to 10 minutes apart at
+// random (indexer/index.mjs lpReadings, into the same snapshots), so
+// liquidity that is in place only around the crank's passes is caught out:
+// it earns the least it held at those readings too.
 //
 // Dust: a position holding less than 0.01% of the pool's liquidity earns
 // nothing, and if the eligible positions together hold less than 0.1% of it,

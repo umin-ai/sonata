@@ -187,8 +187,15 @@ say what each transaction did.
   After graduation it pays the DAMM v2 pool's liquidity providers pro rata to
   each position's unlocked liquidity, to the holder of the position NFT (DBC's
   two locked graduation positions have none); the crank key, the Vault, its
-  admin and non-wallets are excluded, existing quote accounts only. With no
-  eligible position it pays holders instead.
+  admin and non-wallets are excluded, existing quote accounts only. A
+  position counts only the least liquidity it held at every reading since
+  the last payout: the crank reads each pass, and `sonata-indexer` reads the
+  known positions again at random times between passes (5 to 10 minutes
+  apart), so liquidity added only around the crank's passes earns only what
+  stayed. An LP who cannot be paid now (no usable quote account, or an
+  earlier share still unpaid) is left out of the new round. With no eligible
+  position, or eligible positions holding under 0.1% of the pool's
+  liquidity, it pays holders instead.
 - **split**: up to five wallets from the metadata
   (`"split": [{ "wallet", "weight" }]`, weights 1-100), paid owed × weight ÷
   total, creating a missing quote account (the crank pays about 0.002 SOL of

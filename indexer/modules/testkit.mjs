@@ -804,3 +804,42 @@ export function withOwnerLookup(chain) {
   };
   return chain;
 }
+
+// ---- The indexer's LP readings (indexer/index.mjs lpReadings) ----------------
+
+/**
+ * A db answering indexer/index.mjs lpReadings' queries as PostgreSQL would,
+ * over `ledger`'s balance snapshots (payoutLedger or lpFarmLedger), so the
+ * crank's modules see the indexer's readings. `markets` stand in for pools
+ * joined with market_fee_models: { pool, damm_pool, fee_model }. Every query
+ * is kept in `queries` (whitespace collapsed).
+ */
+export function lpReadingDb(ledger, markets = []) {
+  const queries = [];
+  async function query(sql, args = []) {
+    const s = sql.replace(/\s+/g, " ").trim();
+    queries.push({ sql: s, args });
+    if (s.startsWith("select p.pool, p.damm_pool from pools p join market_fee_models f on f.pool = p.pool where f.fee_model = 'lpFarm' and p.damm_pool is not null order by p.pool"))
+      return {
+        rows: markets
+          .filter((m) => m.fee_model === "lpFarm" && m.damm_pool != null)
+          .map(({ pool, damm_pool }) => ({ pool, damm_pool }))
+          .sort((a, b) => (a.pool < b.pool ? -1 : 1)),
+      };
+    if (s.startsWith("select holder from balance_snapshot_rows where pool = $1 and kind = 'lp' and taken_at = (select max(taken_at) from balance_snapshots where pool = $1 and kind = 'lp')")) {
+      const series = ledger.snapshots.get(`${args[0]}|lp`);
+      if (!series?.size) return { rows: [] };
+      return { rows: [...series.get(Math.max(...series.keys())).keys()].sort().map((holder) => ({ holder })) };
+    }
+    if (s.startsWith("with taken as ( insert into balance_snapshots (pool, kind, taken_at) values ($1, 'lp', to_timestamp($2::double precision)) on conflict do nothing returning taken_at)")) {
+      await ledger.recordSnapshot(args[0], "lp", args[1], args[2].map((h, i) => [h, BigInt(args[3][i])]));
+      return { rows: [], rowCount: args[2].length };
+    }
+    if (s.startsWith("delete from balance_snapshots where pool = $1 and kind = 'lp' and taken_at < (select max(taken_at) from balance_snapshots where pool = $1 and kind = 'lp' and taken_at <= to_timestamp($2::double precision) - $3::int * interval '1 second')")) {
+      await ledger.pruneSnapshots(args[0], "lp", args[2], args[1]);
+      return { rows: [] };
+    }
+    throw Error(`unexpected query: ${s}`);
+  }
+  return { query, queries };
+}

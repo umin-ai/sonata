@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
-import { BACKFILL_TRANSACTIONS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, migratedState, retrying, syncer } from "./index.mjs";
+import { BACKFILL_TRANSACTIONS, LP_READING_GAP_SECONDS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, lpReadings, migratedState, retrying, syncer } from "./index.mjs";
 import { HEAD_LAG_SECONDS, indexProgress } from "./modules/indexer-schema.mjs";
-import { dammPoolAccount, dammSwapTx, dbcAccounts, key } from "./modules/testkit.mjs";
+import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
+import { BN, dammPoolAccount, dammSwapTx, dbcAccounts, editPosition, key, lpReadingDb, payoutLedger, positionAccounts } from "./modules/testkit.mjs";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url)));
 const T = 1_790_000_000; // unix seconds
@@ -455,6 +456,92 @@ test("the migration read before a DBC pool's sync retries a 503, and if it still
   assert.equal(await retrying(async () => {})(flaky(["429 Too Many Requests", "502 Bad Gateway", "504 Gateway Timeout", "fetch failed"])), "ok");
   await assert.rejects(retrying(async () => {})(flaky(["400 Bad Request", "x"])), /400 Bad Request/);
   await assert.rejects(retrying(async () => {}, { attempts: 2 })(flaky(Array(3).fill("503 Service Unavailable"))), /503/);
+});
+
+// ---- LP Farm readings between crank passes (round 3 review) --------------------
+
+test("LP readings: 5 to 10 minutes apart at random, for graduated lpFarm markets, of the positions their newest reading lists, 100 per call", async () => {
+  assert.deepEqual(LP_READING_GAP_SECONDS, [300, 600]);
+  const ledger = payoutLedger();
+  const accounts = new Map(), calls = [];
+  const conn = {
+    getMultipleAccountsInfo: async (keys) => {
+      calls.push(keys.length);
+      if (conn.down) throw Error("400 Bad Request");
+      return keys.map((k) => accounts.get(k.toBase58()) ?? null);
+    },
+  };
+  const put = (acc) => accounts.set(acc.address.toBase58(), acc.info);
+  // A: lpFarm, graduated, 150 positions at the crank's last reading: 147 still open (one of them
+  // shrunk), one closed since, one emptied, and an address that is not a position of this pool.
+  const [A, B, C, D] = [key(), key(), key(), key()].map(String);
+  const dammA = key(), otherPool = key();
+  const open = Array.from({ length: 147 }, (_, i) => positionAccounts(dammA, { owner: key(), unlocked: BigInt(1000 + i) }));
+  const shrunk = open[5];
+  open.forEach(put);
+  editPosition({ accounts, put: (k, info) => accounts.set(k.toBase58(), info) }, shrunk.address, (st) => void (st.unlockedLiquidity = new BN(7)));
+  const closed = positionAccounts(dammA, { owner: key(), unlocked: 5n });
+  const emptied = positionAccounts(dammA, { owner: key(), unlocked: 0n });
+  put(emptied);
+  const elsewhere = positionAccounts(otherPool, { owner: key(), unlocked: 9n });
+  put(elsewhere);
+  const T0 = 1_900_000_000;
+  const listed = [...open, closed, emptied, elsewhere];
+  await ledger.recordSnapshot(A, "lp", T0 - 900, [[open[0].address.toBase58(), 1n]]);
+  await ledger.recordSnapshot(A, "lp", T0 - 10, listed.map((p) => [p.address.toBase58(), 1000n]));
+  // B: lpFarm on the curve; C: another fee model; D: lpFarm, graduated, but no crank reading yet.
+  await ledger.recordSnapshot(C, "lp", T0 - 10, [[open[0].address.toBase58(), 1n]]);
+  const db = lpReadingDb(ledger, [
+    { pool: A, damm_pool: dammA.toBase58(), fee_model: "lpFarm" },
+    { pool: B, damm_pool: null, fee_model: "lpFarm" },
+    { pool: C, damm_pool: key().toBase58(), fee_model: "holders" },
+    { pool: D, damm_pool: key().toBase58(), fee_model: "lpFarm" },
+  ]);
+  let t = T0 * 1000;
+  const draws = [0, 1, 0.5];
+  const logged = [];
+  const lp = lpReadings({ db, conn, rpc: (fn) => fn(), now: () => t, random: () => draws.shift(), log: (...a) => logged.push(a.join(" ")) });
+  const at = async (seconds) => ((t = (T0 + seconds) * 1000), lp.tick());
+
+  // The first draw is 300 s: nothing is read before then.
+  assert.equal(await at(0), false);
+  assert.equal(await at(299.999), false);
+  assert.deepEqual(calls, []);
+  assert.equal(await at(300), true);
+  // One market read, in two calls (100 + 50); the reading has the 147 open positions as they are now.
+  assert.deepEqual(calls, [100, 50]);
+  const series = ledger.snapshots.get(`${A}|lp`);
+  const reading = series.get(T0 + 300.001);
+  assert.equal(reading.size, 147);
+  assert.equal(reading.get(shrunk.address.toBase58()), 7n);
+  assert.equal(reading.get(open[146].address.toBase58()), 1146n);
+  for (const gone of [closed, emptied, elsewhere]) assert.ok(!reading.has(gone.address.toBase58()));
+  assert.equal(ledger.snapshots.get(`${D}|lp`)?.size ?? 0, 0);
+  assert.equal(ledger.snapshots.get(`${C}|lp`).size, 1);
+  // Kept as the crank keeps its own: pruned past 24 hours.
+  const prune = db.queries.find((q) => q.sql.startsWith("delete from balance_snapshots"));
+  assert.deepEqual(prune.args, [A, T0 + 300.001, LP_SNAPSHOT_KEEP_SECONDS]);
+  // The next is drawn 600 s on; a failed read writes nothing and throws nothing.
+  assert.equal(await at(899), false);
+  conn.down = true;
+  assert.equal(await at(900), true);
+  assert.equal(series.size, 3);
+  assert.match(logged.join("\n"), new RegExp(`lp reading failed: ${A} 400 Bad Request`));
+  conn.down = false;
+  // Then 450 s: that reading follows the newest one (the 147 positions).
+  calls.length = 0;
+  assert.equal(await at(1350), true);
+  assert.deepEqual(calls, [100, 47]);
+  assert.equal(series.get(T0 + 1350.001).size, 147);
+});
+
+test("the sync loop runs its `between` hook after each address, so LP readings are taken in a long loop too", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  markets(chain, 2, { migrated: true });
+  let n = 0;
+  const run = loop(chain, db, clock, { between: async () => void n++ });
+  await run.syncAll();
+  assert.equal(n, 4, "two markets, each with its DBC and DAMM v2 pool");
 });
 
 test("graduation is read from the DBC pool and config and checked against the DAMM v2 pool's tokens", () => {

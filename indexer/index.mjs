@@ -18,6 +18,7 @@ import { splitRecipients } from "./modules/split.mjs";
 import { parseKey } from "./modules/common.mjs";
 import { amm, dbcClient, graduatedPool } from "./modules/meteora.mjs";
 import { migrateIndexerSchema } from "./modules/indexer-schema.mjs";
+import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
 
 const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PORT = Number(process.env.INDEXER_PORT || 8790);
@@ -241,9 +242,10 @@ const COLUMNS = {
  * The sync loop over `db` (pg) and `conn` (a web3.js Connection). `now` is the
  * clock progress is stamped with; `txRetries` and `txRetryMs` bound the wait
  * for a listed transaction that the RPC does not serve yet; `backfillCap` is
- * BACKFILL_TRANSACTIONS.
+ * BACKFILL_TRANSACTIONS. `between`, if given, runs after each address (the LP
+ * readings' tick, so a long loop does not hold them up).
  */
-export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS }) {
+export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS, between = null }) {
   // Markets are the pools that have a Sonata treasury.
   async function discoverPools() {
     const accounts = await conn.getProgramAccounts(TREASURY_PROGRAM, {
@@ -416,7 +418,7 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   // Reads one address's new signatures and files its swaps under the
   // market's DBC pool: readAll, or backfill while it has not caught up.
   function syncCursor(cursor, startedAt = now()) {
-    return cursor.caughtUp ? readAll(cursor) : backfill(cursor, startedAt);
+    return cursor.caughtUp === false ? backfill(cursor, startedAt) : readAll(cursor);
   }
 
   // Stamps an address's progress (modules/indexer-schema.mjs) once its sync completed.
@@ -479,6 +481,7 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
           fail(cursor, e);
         }
         await sleep(200);
+        if (between) await between();
       }
     }
     state.lastSync = new Date().toISOString();
@@ -487,6 +490,118 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   }
 
   return { discoverPools, findGraduated, syncCursor, syncAll };
+}
+
+// ---- LP Farm readings between crank passes -----------------------------------
+
+// The gap between two LP readings, drawn uniformly in [min, max] seconds: 1.5
+// to 3 readings per 15 minutes, and at least one in any 10, so one lands
+// between every two crank passes, at a time the crank's timer does not tell.
+export const LP_READING_GAP_SECONDS = [300, 600];
+
+/** A DAMM v2 position account's unlocked liquidity if it is a position in `dammPool`, else 0. */
+export function unlockedIn(info, dammPool) {
+  if (!info || String(info.owner) !== DAMM_PROGRAM) return 0n;
+  try {
+    const s = amm._program.coder.accounts.decode("position", Buffer.from(info.data));
+    return s.pool.equals(dammPool) ? BigInt(s.unlockedLiquidity.toString()) : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+/**
+ * Readings of the graduated LP Farm markets' positions at random times
+ * between crank passes, written as the crank writes its own (ledger kind
+ * 'lp' in balance_snapshots and balance_snapshot_rows), so
+ * modules/lp-farm.mjs counts them: a position earns the least it held at
+ * every reading since the last round, and liquidity that is only in place
+ * around the crank's passes is caught out at one of these. Markets are those
+ * whose fee model (market_fee_models) is lpFarm and whose DAMM v2 pool the
+ * indexer has recorded. Only the positions of the market's newest reading are
+ * read, 100 per getMultipleAccountsInfo: any other position is missing from
+ * that reading, so it earns nothing at the next round anyway, and a closed
+ * one (no account) or one no longer in the pool is left out, as none held. A
+ * reading is taken at a time with a fraction of a second, so it never takes a
+ * crank reading's place (those are whole seconds, one per pool and second).
+ * tick() takes the readings once due and draws the next time; failures are
+ * logged, never thrown, and a market whose read fails gets no reading.
+ */
+export function lpReadings({ db, conn, rpc, now = Date.now, random = Math.random, gap = LP_READING_GAP_SECONDS, log = (...a) => console.error(...a) }) {
+  let due = null;
+  const draw = () => (due = now() + (gap[0] + random() * (gap[1] - gap[0])) * 1000);
+
+  // One market's reading: { positions (read), held (with liquidity), at }, or null if it has no reading to follow.
+  async function readMarket({ pool, damm_pool }) {
+    const dammPool = parseKey(damm_pool);
+    if (!dammPool) return null;
+    const { rows } = await db.query(
+      `select holder from balance_snapshot_rows
+        where pool = $1 and kind = 'lp'
+          and taken_at = (select max(taken_at) from balance_snapshots where pool = $1 and kind = 'lp')
+        order by holder`,
+      [pool],
+    );
+    const positions = rows.map((r) => parseKey(r.holder)).filter(Boolean);
+    if (!positions.length) return null;
+    const entries = [];
+    for (let i = 0; i < positions.length; i += 100) {
+      const batch = positions.slice(i, i + 100);
+      const infos = await rpc(() => conn.getMultipleAccountsInfo(batch, "confirmed"));
+      batch.forEach((p, j) => {
+        const unlocked = unlockedIn(infos[j], dammPool);
+        if (unlocked > 0n) entries.push([p.toBase58(), unlocked]);
+      });
+    }
+    const ms = Math.floor(now());
+    const at = (ms % 1000 === 0 ? ms + 1 : ms) / 1000;
+    await db.query(
+      `with taken as (
+         insert into balance_snapshots (pool, kind, taken_at) values ($1, 'lp', to_timestamp($2::double precision)) on conflict do nothing returning taken_at)
+       insert into balance_snapshot_rows (pool, kind, taken_at, holder, amount)
+       select $1, 'lp', taken.taken_at, t.holder, t.amount from taken, unnest($3::text[], $4::numeric[]) as t(holder, amount)`,
+      [pool, at, entries.map(([h]) => h), entries.map(([, a]) => a.toString())],
+    );
+    // As the crank prunes after its own readings (modules/lp-farm.mjs recordPositions).
+    await db.query(
+      `delete from balance_snapshots
+        where pool = $1 and kind = 'lp'
+          and taken_at < (select max(taken_at) from balance_snapshots where pool = $1 and kind = 'lp' and taken_at <= to_timestamp($2::double precision) - $3::int * interval '1 second')`,
+      [pool, at, LP_SNAPSHOT_KEEP_SECONDS],
+    );
+    return { positions: positions.length, held: entries.length, at };
+  }
+
+  // Every graduated LP Farm market's reading, now.
+  async function readAll() {
+    const { rows } = await db.query(
+      `select p.pool, p.damm_pool from pools p join market_fee_models f on f.pool = p.pool
+        where f.fee_model = 'lpFarm' and p.damm_pool is not null
+        order by p.pool`,
+    );
+    for (const row of rows) {
+      try {
+        await readMarket(row);
+      } catch (e) {
+        log("lp reading failed:", row.pool, String(e?.message ?? e).slice(0, 200));
+      }
+    }
+  }
+
+  // Takes the readings if they are due; returns whether it did.
+  async function tick() {
+    if (due === null) draw();
+    if (now() < due) return false;
+    draw();
+    try {
+      await readAll();
+    } catch (e) {
+      log("lp readings failed:", String(e?.message ?? e).slice(0, 200));
+    }
+    return true;
+  }
+
+  return { tick, readAll, readMarket };
 }
 
 // ---- Read-only API ----------------------------------------------------------
@@ -787,7 +902,9 @@ if (isMain) {
   await migrateIndexerSchema(db);
   // deploy/lightsail/setup.sh waits for this line before it starts the crank's timer.
   console.log(MIGRATED_LINE);
-  const { syncAll } = syncer({ db, conn, rpc, sleep, state });
+  // LP Farm readings at random times between crank passes (lpReadings).
+  const lp = lpReadings({ db, conn, rpc });
+  const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: lp.tick });
   for (;;) {
     try {
       await syncAll();
@@ -795,6 +912,7 @@ if (isMain) {
       state.lastError = String(e?.message ?? e).slice(0, 300);
       console.error("sync failed:", state.lastError);
     }
+    await lp.tick();
     await sleep(POLL_MS);
   }
 }

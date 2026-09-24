@@ -6,8 +6,9 @@ import { SONATA_VAULT, VAULT_ADMIN } from "./common.mjs";
 import { MAX_NFT_LOOKUPS, POSITION_RELEASE_SECONDS, heldLiquidity, lpShares, lpWeights, nftHolder, observeLpFarm, runLpFarm } from "./lp-farm.mjs";
 import { MAX_TX_BYTES, allocationOf } from "./payout.mjs";
 import {
-  BN, dammPoolAccount, dbcAccounts, editPosition, fakeChain, holdBase, key, lpFarmLedger, moduleContext, passContext, pda, positionAccounts, rewardMarket, rewardsPass, tokenAccount,
+  BN, dammPoolAccount, dbcAccounts, editPosition, fakeChain, holdBase, key, lpFarmLedger, lpReadingDb, moduleContext, passContext, pda, positionAccounts, rewardMarket, rewardsPass, tokenAccount,
 } from "./testkit.mjs";
+import { lpReadings } from "../index.mjs";
 
 const position = (owner, unlocked, extra = {}) => ({ address: key(), nftMint: key(), owner, unlocked, ...extra });
 const NOW = 1_900_000_000; // moduleContext's clock, in seconds
@@ -437,4 +438,52 @@ test("an earlier row of an LP who cannot receive stays its own; the LP sits out 
   assert.equal(quoteOf(run.chain, run.m, big), 500_000n + 970_873n);
   assert.equal(quoteOf(run.chain, run.m, small), 1_029_126n);
   assert.ok(run.ledger.allocationRows.every((r) => r.status === "paid"));
+});
+
+// ---- The indexer's readings between passes (round 3 review) -------------------
+
+test("liquidity taken out between passes is caught by the indexer's reading at a random time: the position earns only the least it held", async () => {
+  const [steady, jit] = [key(), key()];
+  const run = await farm({ migrated: true, ataFor: [steady, jit], owed: 1_100_000n, held: 10_000_000n, positions: [{ owner: steady, unlocked: 10n ** 18n }, { owner: jit, unlocked: 10n ** 19n }] });
+  const pool = run.m.pool.toBase58();
+  const jitPosition = run.accounts[1].address;
+  // A crank pass as payRewards runs it: the module's reading one second in, the one after the payouts a second later.
+  const pass = async (at, distributed) => {
+    let clock = at * 1000;
+    run.ledger.clock = () => Math.floor(clock / 1000);
+    return rewardsPass({ chain: run.chain, markets: [run.m], authority: run.authority, ledger: run.ledger, distributed, now: () => (clock += 1000) });
+  };
+  // The indexer between passes, its next reading drawn 450 s ahead (random 0.5 of 300-600 s).
+  let t = 0;
+  const db = lpReadingDb(run.ledger, [{ pool, damm_pool: run.damm.address.toBase58(), fee_model: "lpFarm" }]);
+  const reads = [];
+  const conn = { getMultipleAccountsInfo: (keys, c) => (reads.push(keys.length), run.chain.connection.getMultipleAccountsInfo(keys, c)) };
+  const indexer = lpReadings({ db, conn, rpc: (fn) => fn(), now: () => t, random: () => 0.5 });
+  const tickAt = (seconds) => ((t = seconds * 1000), indexer.tick());
+  const paid = () => [steady, jit].map((w) => quoteOf(run.chain, run.m, w));
+
+  await pass(NOW, 1_100_000n);
+  assert.deepEqual(paid(), [100_000n, 1_000_000n]);
+  assert.equal(await tickAt(NOW + 10), false, "not due yet");
+  // jit takes 80% out right after the pass and puts it back before the next one.
+  setUnlocked(run.chain, jitPosition, 2n * 10n ** 18n);
+  assert.equal(await tickAt(NOW + 460), true);
+  setUnlocked(run.chain, jitPosition, 10n ** 19n);
+  await pass(NOW + PASS, 2_200_000n);
+  // It earns what it held at that reading, 2e18 against steady's 1e18, not its 1e19.
+  assert.deepEqual(paid(), [100_000n + 366_666n, 1_000_000n + 733_333n]);
+  const series = run.ledger.snapshots.get(`${pool}|lp`);
+  assert.ok(series.has(NOW + 460.001), "a reading at a fraction of a second, never a crank reading's whole second");
+  assert.deepEqual([...series.get(NOW + 460.001).values()].sort(), [10n ** 18n, 2n * 10n ** 18n]);
+
+  // Taken out altogether at the next random reading (due at NOW + 910): nothing at the next payout.
+  setUnlocked(run.chain, jitPosition, 0n);
+  assert.equal(await tickAt(NOW + 910), true);
+  assert.deepEqual([...series.get(NOW + 910.001).keys()], [run.accounts[0].address.toBase58()]);
+  setUnlocked(run.chain, jitPosition, 10n ** 19n);
+  await pass(NOW + 2 * PASS, 3_300_000n);
+  // steady takes the round (and the atom rounding left over from the last one).
+  assert.deepEqual(paid(), [466_666n + 1_100_001n, 1_733_333n]);
+  // Each reading read just the two positions the newest reading listed, in one call.
+  assert.deepEqual(reads, [2, 2]);
 });
