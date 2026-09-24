@@ -294,6 +294,7 @@ export type PreparedTreasury = {
     | "register"
     | "lp-deposit"
     | "lp-withdraw"
+    | "lp-claim"
     | "lp-buy"
     | "lp-sell"
     | "reserve-deploy"
@@ -309,7 +310,8 @@ export type PreparedTreasury = {
   };
   liquidity?: {
     symbolA?:string;symbolB?:string;decimalsA?:number;decimalsB?:number;
-    kind: "deposit" | "withdraw";
+    // A claim has no slippage limits: limitA and limitB are "0".
+    kind: "deposit" | "withdraw" | "claim";
     a: string;
     b: string;
     limitA: string;

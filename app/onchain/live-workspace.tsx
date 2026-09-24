@@ -41,7 +41,7 @@ import { PublicKey } from "@solana/web3.js";
 import { formatUnits } from "@/lib/treasury/units";
 import { LiveWallet, useLive } from "./live-session";
 import { OnchainTreasury } from "./treasury-workspace";
-import { LiquidityPortfolio } from "@/app/earn/workspace";
+import { LiquidityPortfolio } from "@/app/earn/demo-portfolio";
 import { GraduationProgress } from "./graduation-progress";
 import { MarketBadges } from "./market-badges";
 import { MarketStats } from "./market-activity";

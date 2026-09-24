@@ -50,6 +50,7 @@ const names = {
   "lp-sell": "Sell ROOM in liquidity pool",
   "lp-deposit": "Supply liquidity",
   "lp-withdraw": "Withdraw liquidity",
+  "lp-claim": "Claim pool fees",
   buy: "Buy community tokens",
   sell: "Sell community tokens",
   withdraw: "Withdraw creator reserve",
@@ -490,16 +491,24 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                     <span>
                       {review.liquidity.kind === "deposit"
                         ? "Estimated supply"
-                        : "Estimated receive"}
+                        : review.liquidity.kind === "claim"
+                          ? "Fees to claim"
+                          : "Estimated receive"}
                     </span>
                     <strong>
-                      {formatUnits(review.liquidity.a, review.liquidity.decimalsA ?? 6)}{" "}
-                      <TokenName symbol={review.liquidity.symbolA ?? "ROOM"} />
-                      <br />
+                      {/* A claim from a stock-only fee pool has no token side. */}
+                      {(review.liquidity.kind !== "claim" || review.liquidity.a !== "0") && (
+                        <>
+                          {formatUnits(review.liquidity.a, review.liquidity.decimalsA ?? 6)}{" "}
+                          <TokenName symbol={review.liquidity.symbolA ?? "ROOM"} />
+                          <br />
+                        </>
+                      )}
                       {formatUnits(review.liquidity.b, review.liquidity.decimalsB ?? 8)}{" "}
                       <TokenName symbol={review.liquidity.symbolB ?? "mSPY"} />
                     </strong>
                   </div>
+                  {review.liquidity.kind !== "claim" && (
                   <div className="sr-detail-row">
                     <span>
                       {review.liquidity.kind === "deposit"
@@ -514,10 +523,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                       <TokenName symbol={review.liquidity.symbolB ?? "mSPY"} />
                     </strong>
                   </div>
+                  )}
                   <p className="sr-note">{review.liquidity.description}</p>
                   <p className="sr-note">
-                    0.5% slippage protection on both assets. Expires in 30
-                    seconds.
+                    {review.liquidity.kind === "claim"
+                      ? "Expires in 30 seconds."
+                      : "0.5% slippage protection on both assets. Expires in 30 seconds."}
                   </p>
                 </div>
               )}
@@ -577,7 +588,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                 {review.rewards
                   ? "Only the named recipient can claim each fixed allocation, once. This is funded mock stock, not a promised investment return."
                   : review.liquidity
-                    ? "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
+                    ? review.liquidity.kind === "claim"
+                      ? "These are valueless mock assets on Devnet."
+                      : "Full-range liquidity has price and divergence risk. These are valueless mock assets on Devnet."
                     : review.action === "launch"
                       ? `${review.bundle ? `One approval, ${review.bundle.length + 1} transactions sent in order: this launch's Meteora config, then the token and its pool${review.devBuy ? `, with your first buy of ${review.devBuy.quoteAmount} ${review.devBuy.quote} for about ${review.devBuy.percent.toFixed(2)}% of the supply as its very first trade, in the same transaction, so nothing trades before you` : ""}, then the Sonata treasury. ` : "Create a permanent token and its own Meteora pool with the trading fee you chose. "}Net collected fees go ${review.market && isRewardMarket(review.market) ? `${botShare(review.market.feeModel)}, run by Sonata's payout bot every 15 minutes, and 50% to Sonata` : review.market?.mode === "standardFloor" ? "25% to your fixed recipient, 25% into the backing, which only holders can redeem, and 50% to Sonata" : review.market?.mode === "standard" ? "50% to your fixed recipient and 50% to Sonata" : review.market?.mode === "floor" ? "50% to your fixed recipient and 50% into the backing, which only holders can redeem" : review.market?.mode === "refrain" ? "100% to your fixed recipient" : "50% to your fixed recipient and 50% to the creator reserve"}. At graduation you get half of the locked pool, which keeps earning fees.${review.bundle ? "" : " A second signature activates the treasury."}`
                       : review.action === "register"
