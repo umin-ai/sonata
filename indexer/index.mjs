@@ -145,6 +145,7 @@ async function migrate() {
     );
   `);
   await (await import("./modules/ledger-schema.mjs")).migrateLedgerTables(db);
+  await (await import("./modules/crank-schema.mjs")).migrateCrank(db);
 }
 
 // Retries the public RPC's rate limits with backoff.

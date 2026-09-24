@@ -61,13 +61,22 @@ export async function graduatedAccounts({ markets, infoOf, connection, rpc, ledg
   }
   const todo = [];
   for (const g of graduated) {
-    const hit = cached.get(g.m.pool.toBase58());
-    if (hit) out.set(g.m.pool.toBase58(), hit);
-    else todo.push(g);
+    const pool = g.m.pool.toBase58();
+    const hit = cached.get(pool);
+    if (hit) {
+      out.set(pool, hit);
+      continue;
+    }
+    // One market's unusable config (an unsupported migration fee option) is its own error, not every market's.
+    try {
+      todo.push({ ...g, dammPool: graduatedPool(g.m, g.config) });
+    } catch (e) {
+      out.set(pool, { error: errText(e) });
+    }
   }
   if (!todo.length) return out;
   let positions, dammInfos;
-  const dammPools = todo.map(({ m, config }) => graduatedPool(m, config));
+  const dammPools = todo.map((g) => g.dammPool);
   try {
     // Two RPC calls for all of them: the Vault's position NFTs and their positions.
     positions = await rpc(() => (positionsOf ? positionsOf(SONATA_VAULT) : new CpAmm(connection).getPositionsByUser(SONATA_VAULT)));
