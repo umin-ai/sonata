@@ -62,6 +62,7 @@ const names = {
   sync: "Add new fees to the backing",
 };
 import { LiveContext, useLive, type Pending } from "./live-context";
+import { signedChange } from "@/lib/treasury/signed-check";
 export { useLive } from "./live-context";
 export function LiveProvider({ children }: { children: ReactNode }) {
   const wallet = useWallet("solana:devnet", true),
@@ -215,8 +216,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       prepared = await build();
       if (prepared.wallet !== currentAddress.current)
         throw Error("Wallet changed during preparation.");
-      // A swap goes straight to the wallet, as on other launchpads; everything else is reviewed first.
-      if (!options.direct) setReview(prepared);
+      // A swap goes straight to the wallet, as on other launchpads; everything
+      // else is reviewed first. The wallet's own approval gets a minute.
+      if (options.direct) prepared = { ...prepared, expiresAt: Date.now() + 60_000 };
+      else setReview(prepared);
     } catch (e) {
       prepared = null;
       setError(
@@ -273,17 +276,20 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         );
         signed = results.map((r) => Transaction.from(r.signedTransaction));
       }
-      if (
-        review.wallet !== currentAddress.current ||
-        Date.now() > review.expiresAt ||
-        signed.length !== steps.length ||
-        signed.some(
-          (tx, i) => !tx.serializeMessage().equals(messages[i]) || !tx.verifySignatures(),
-        )
-      )
-        throw Error(
-          "Signed transaction does not match the review. Nothing sent.",
-        );
+      if (review.wallet !== currentAddress.current)
+        throw Error("The wallet changed while signing. Nothing sent.");
+      if (Date.now() > review.expiresAt)
+        throw Error("The quote expired before the wallet approved it. Nothing sent; try again.");
+      if (signed.length !== steps.length)
+        throw Error("The wallet returned a different number of transactions. Nothing sent.");
+      for (let i = 0; i < signed.length; i++) {
+        // The test wallet signs our own objects; an extension wallet may add its
+        // own priority fee or Lighthouse checks, and nothing else.
+        const change = signed[i] === unsigned[i] ? (signed[i].serializeMessage().equals(messages[i]) ? null : "it changed") : signedChange(unsigned[i], signed[i]);
+        if (change) throw Error(`The wallet changed the transaction: ${change}. Nothing sent.`);
+        if (!signed[i].verifySignatures())
+          throw Error("A signature on the transaction doesn't check out. Nothing sent.");
+      }
       if (review.action === "launch" && review.market)
         localStorage.setItem(
           "stockroom.launch.draft",
