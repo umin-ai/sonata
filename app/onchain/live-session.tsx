@@ -41,6 +41,7 @@ const botShare = (model?: string) =>
   })[model ?? ""] ?? "50% to holders, paid in the stock";
 const names = {
   "creator-claim": "Claim graduated pool fees",
+  graduate: "Graduate to Meteora pool",
   "reward-policy": "Configure holder rewards",
   "reward-deliver": "Deliver holder payout",
   "reserve-deploy": "Deploy creator reserve",

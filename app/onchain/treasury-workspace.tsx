@@ -32,6 +32,7 @@ import {
   type TreasuryAction,
   readTradingWallet,
   prepareTrade,
+  prepareGraduation,
   quoteTrade,
 } from "@/lib/treasury/runtime";
 import { formatUnits } from "@/lib/treasury/units";
@@ -43,6 +44,7 @@ import { CreatorPosition } from "./creator-position";
 import { PriceChart, RecentTrades } from "./market-activity";
 import { GraduatedSwap } from "./graduated-swap";
 import { SwapPanel } from "./swap-panel";
+import { WalletConnectButton } from "./wallet-connect";
 import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-view";
 import { LiveWallet, useLive } from "./live-session";
 import type { Market } from "@/lib/treasury/runtime";
@@ -376,6 +378,37 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       {data?.migrated ? (
         // A graduated market trades in its DAMM v2 pool, not on its closed curve.
         <GraduatedSwap market={market} quote={q} balances={balances} baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>} />
+      ) : data && BigInt(data.quoteReserve) >= BigInt(data.migrationQuoteThreshold) ? (
+        // The curve is full: it no longer trades until it moves to its Meteora pool, which anyone can do.
+        <Card className="sr-panel swap-panel">
+          <strong>The curve is full</strong>
+          <div className="swap-rows">
+            <div>
+              <span>Next</span>
+              <strong>Move to its Meteora pool</strong>
+            </div>
+            <div>
+              <span>Liquidity</span>
+              <strong>Locked forever, half creator, half Sonata</strong>
+            </div>
+            <div>
+              <span>Who can do it</span>
+              <strong>Anyone</strong>
+            </div>
+          </div>
+          {address ? (
+            <Button
+              className="swap-cta"
+              data-side="buy"
+              disabled={!!busy || !!pending}
+              onClick={() => void execute(() => prepareGraduation(address, market))}
+            >
+              {busy || `Graduate ${market.symbol}`}
+            </Button>
+          ) : (
+            <WalletConnectButton />
+          )}
+        </Card>
       ) : (
         <SwapPanel
           market={market}
@@ -384,6 +417,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
           baseToken={<span className="sr-token-name"><TokenImage profile={tokenProfile} symbol={market.symbol} size={20} /><b>{market.symbol}</b></span>}
           route="Meteora bonding curve"
           fee={data ? { bps: data.tradingFeeBps, dynamic: !!data.volatilityFee } : undefined}
+          fillCurve={data && !data.migrated ? BigInt(data.remainingWithFee) : undefined}
           unavailable={data ? undefined : "Reading the market…"}
           quote={(side, amount) => quoteTrade(side, amount, market)}
           prepare={(side, amount) => prepareTrade(side, address, amount, market)}

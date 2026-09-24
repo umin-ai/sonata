@@ -231,6 +231,14 @@ export async function readTreasury(market: Market = exportsMarket) {
     ...(await readGraduation(pool, config, market, baseSupply)),
   };
 }
+const FEE_DENOMINATOR = 1_000_000_000n;
+function withFee(remaining: bigint, config: CurveConfig) {
+  if (remaining <= 0n) return 0n;
+  let fee = BigInt(config.poolFees.baseFee.cliffFeeNumerator.toString());
+  if (config.poolFees.dynamicFee.initialized !== 0) fee = (fee * 12n) / 10n;
+  if (fee >= FEE_DENOMINATOR) return remaining;
+  return (remaining * FEE_DENOMINATOR + (FEE_DENOMINATOR - fee - 1n)) / (FEE_DENOMINATOR - fee) + 1n;
+}
 // Graduation state from the pool and config already fetched above: no extra RPC.
 async function readGraduation(
   pool: Pool,
@@ -274,6 +282,10 @@ async function readGraduation(
     marketCap: caps.current,
     milestoneCaps: caps.milestones,
     remainingToGraduate: progress.remaining.toString(),
+    // What a buy must send to finish the curve: the fee comes out of the input,
+    // so the remainder plus the fee (the most a volatility fee adds, 20%, on
+    // top). A partial-fill buy returns whatever is not needed.
+    remainingWithFee: withFee(progress.remaining, config).toString(),
     dammPool,
     // Launch extras, read from the config itself: a Graduation Airdrop sends the
     // held-back supply to Sonata's payout bot; the volatility fee is Meteora's dynamic fee.
@@ -387,7 +399,8 @@ export type PreparedTreasury = {
     | "reward-claim"
     | "reward-policy"
     | "reward-deliver"
-    | "creator-claim";
+    | "creator-claim"
+    | "graduate";
   redeem?: { burn: string; payout: string; baseSymbol: string };
   rewards?: {
     description: string;
@@ -766,14 +779,12 @@ export async function readTradingWallet(
     hasQuote: !!value[1],
   };
 }
-/**
- * What a curve trade of `amount` returns now, after fees: the same quote
- * prepareTrade signs, for the swap box's estimate. Fees are in the stock.
- */
-export async function quoteTrade(side: TradeSide, amount: string, market: Market = exportsMarket) {
-  const raw = parseUnits(amount, side === "buy" ? market.quoteDecimals : market.baseDecimals);
-  if (raw <= 0n) throw Error("Enter an amount.");
-  const { DynamicBondingCurveClient, getCurrentPoint } = await import("@meteora-ag/dynamic-bonding-curve-sdk");
+// A curve trade's quote. Buys are partial fills: a buy larger than what the
+// curve still needs takes only that (fee included) and completes the curve;
+// the rest stays in the wallet. Without it, buying exactly the amount shown
+// as left always fell a fee short, and the curve never finished.
+async function curveQuote(side: TradeSide, raw: bigint, market: Market) {
+  const { DynamicBondingCurveClient, getCurrentPoint, SwapMode } = await import("@meteora-ag/dynamic-bonding-curve-sdk");
   const client = new DynamicBondingCurveClient(connection, "confirmed");
   const [virtualPool, config] = await Promise.all([
     client.state.getPool(pk(market.pool)),
@@ -782,26 +793,40 @@ export async function quoteTrade(side: TradeSide, amount: string, market: Market
   if (!virtualPool || !config || !virtualPool.poolState.config.equals(pk(market.config)))
     throw Error("Pool quote is unavailable.");
   const { BN } = browserAnchor as typeof import("@coral-xyz/anchor");
-  const quote = client.pool.swapQuote({
+  const mode = side === "buy" ? SwapMode.PartialFill : SwapMode.ExactIn;
+  const quote = client.pool.swapQuote2({
     virtualPool,
     config,
     swapBaseForQuote: side === "sell",
-    amountIn: new BN(raw.toString()),
-    slippageBps: 50,
     hasReferral: false,
     eligibleForFirstSwapWithMinFee: false,
     currentPoint: await getCurrentPoint(connection, config.activationType),
-  }) as ReturnType<typeof client.pool.swapQuote> & { outputAmount: InstanceType<typeof BN>; tradingFee: InstanceType<typeof BN>; protocolFee: InstanceType<typeof BN> };
-  const minimum = BigInt(quote.minimumAmountOut.toString());
+    slippageBps: 50,
+    swapMode: mode,
+    amountIn: new BN(raw.toString()),
+  } as Parameters<typeof client.pool.swapQuote2>[0]);
+  const minimum = BigInt((quote.minimumAmountOut ?? quote.outputAmount).toString());
   if (minimum <= 0n) throw Error("Trade is too small to receive anything after fees.");
   return {
+    client,
+    mode,
     out: BigInt(quote.outputAmount.toString()),
     minimum,
     fee: BigInt(quote.tradingFee.toString()) + BigInt(quote.protocolFee.toString()),
+    /** The input actually used, fee included: less than `raw` when a buy completes the curve. */
+    used: BigInt(quote.includedFeeInputAmount.toString()),
     // DBC fees are numerators over 1e9.
     feeBps: Number(config.poolFees.baseFee.cliffFeeNumerator.toString()) / 100_000,
     dynamicFee: config.poolFees.dynamicFee.initialized !== 0,
   };
+}
+
+/** What a curve trade of `amount` returns now, after fees, for the swap box's estimate. */
+export async function quoteTrade(side: TradeSide, amount: string, market: Market = exportsMarket) {
+  const raw = parseUnits(amount, side === "buy" ? market.quoteDecimals : market.baseDecimals);
+  if (raw <= 0n) throw Error("Enter an amount.");
+  const { out, minimum, fee, used, feeBps, dynamicFee } = await curveQuote(side, raw, market);
+  return { out, minimum, fee, used, feeBps, dynamicFee };
 }
 
 export async function prepareTrade(
@@ -821,47 +846,17 @@ export async function prepareTrade(
   const balances = await readTradingWallet(wallet, market);
   if (raw > BigInt(side === "buy" ? balances.quote : balances.base))
     throw Error("Insufficient test-token balance.");
-  const { DynamicBondingCurveClient, getCurrentPoint } =
-    await import("@meteora-ag/dynamic-bonding-curve-sdk");
-  const client = new DynamicBondingCurveClient(connection, "confirmed");
-  const [virtualPool, config] = await Promise.all([
-    client.state.getPool(pk(market.pool)),
-    client.state.getPoolConfig(pk(market.config)),
-  ]);
-  if (
-    !virtualPool ||
-    !config ||
-    !virtualPool.poolState.config.equals(pk(market.config))
-  )
-    throw Error("Pool quote is unavailable.");
+  const quote = await curveQuote(side, raw, market);
   const { BN } = browserAnchor as typeof import("@coral-xyz/anchor");
-  const slippageBps = 50;
-  // The SDK's generated IDL type loses SwapResult fields with Anchor 0.32;
-  // these fields are returned by its shipped swapQuote implementation.
-  const quote = client.pool.swapQuote({
-    virtualPool,
-    config,
-    swapBaseForQuote: side === "sell",
-    amountIn: new BN(raw.toString()),
-    slippageBps,
-    hasReferral: false,
-    eligibleForFirstSwapWithMinFee: false,
-    currentPoint: await getCurrentPoint(connection, config.activationType),
-  }) as ReturnType<typeof client.pool.swapQuote> & {
-    outputAmount: BN;
-    tradingFee: BN;
-    protocolFee: BN;
-  };
-  if (quote.minimumAmountOut.lten(0))
-    throw Error("Trade is too small to receive tokens after fees.");
-  const tx = await client.pool.swap({
+  const tx = await quote.client.pool.swap2({
     owner,
     pool: pk(market.pool),
-    amountIn: new BN(raw.toString()),
-    minimumAmountOut: quote.minimumAmountOut,
     swapBaseForQuote: side === "sell",
     referralTokenAccount: null,
-  });
+    swapMode: quote.mode,
+    amountIn: new BN(raw.toString()),
+    minimumAmountOut: new BN(quote.minimum.toString()),
+  } as Parameters<typeof quote.client.pool.swap2>[0]);
   tx.instructions.unshift(
     ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }),
   );
@@ -872,18 +867,65 @@ export async function prepareTrade(
     ? missingAccounts *
       (await connection.getMinimumBalanceForRentExemption(182))
     : 0;
-  return finalizeTransaction(tx, side, wallet, raw.toString(), wallet, {
+  return finalizeTransaction(tx, side, wallet, quote.used.toString(), wallet, {
     inputSymbol: side === "buy" ? quoteSymbolOf(market.quoteMint) : market.symbol,
     inputDecimals: side === "buy" ? 8 : 6,
     outputSymbol: side === "buy" ? market.symbol : quoteSymbolOf(market.quoteMint),
     outputDecimals: side === "buy" ? 6 : 8,
-    expectedOut: quote.outputAmount.toString(),
-    minimumOut: quote.minimumAmountOut.toString(),
-    slippageBps,
-    tradingFee: quote.tradingFee.toString(),
-    protocolFee: quote.protocolFee.toString(),
+    expectedOut: quote.out.toString(),
+    minimumOut: quote.minimum.toString(),
+    slippageBps: 50,
+    tradingFee: quote.fee.toString(),
+    protocolFee: "0",
     rentLamports,
   });
+}
+
+/**
+ * Moves a market whose curve is full into its Meteora DAMM v2 pool, as Meteora
+ * does on its own for mainnet launches. Anyone can do it. Uncollected curve
+ * fees are collected first, in the same approval, while the pool can still pay
+ * them; then the migration creates the pool and its two locked positions.
+ */
+export async function prepareGraduation(wallet: string, market: Market = exportsMarket): Promise<PreparedTreasury> {
+  const owner = pk(wallet);
+  const { DynamicBondingCurveClient, DAMM_V2_MIGRATION_FEE_ADDRESS } = await import("@meteora-ag/dynamic-bonding-curve-sdk");
+  const client = new DynamicBondingCurveClient(connection, "confirmed");
+  const [virtualPool, config] = await Promise.all([
+    client.state.getPool(pk(market.pool)),
+    client.state.getPoolConfig(pk(market.config)),
+  ]);
+  if (!virtualPool || !config || !virtualPool.poolState.config.equals(pk(market.config)))
+    throw Error("Pool is unavailable.");
+  const p = virtualPool.poolState;
+  if (p.isMigrated !== 0) throw Error("This market has already graduated.");
+  if (BigInt(p.quoteReserve.toString()) < BigInt(config.migrationQuoteThreshold.toString()))
+    throw Error("The curve is not full yet.");
+  // DBC MigrationProgress: 2 = LockedVesting, ready to create the DAMM v2 pool.
+  if (p.migrationProgress !== 2) throw Error("The pool is not ready to graduate yet. Try again in a minute.");
+  const dammConfig = DAMM_V2_MIGRATION_FEE_ADDRESS[config.migrationFeeOption];
+  if (!dammConfig) throw Error("Unsupported migration fee option.");
+  const { transaction, firstPositionNftKeypair, secondPositionNftKeypair } = await client.migration.migrateToDammV2({
+    payer: owner,
+    pool: pk(market.pool),
+    dammConfig,
+  });
+  const migrate = await finalizeTransaction(transaction, "graduate", wallet, "0", market.pool, undefined, [
+    firstPositionNftKeypair,
+    secondPositionNftKeypair,
+  ]);
+  const title = `Graduate ${market.symbol} to its Meteora pool`;
+  const state = await readTreasury(market);
+  if (BigInt(state.uncollected) <= 0n) return { ...migrate, market, title };
+  const collect = await prepareTreasury("collect", wallet, market);
+  return {
+    ...collect,
+    market,
+    title,
+    bundle: [{ transaction: migrate.transaction, action: "graduate" }],
+    feeLamports: collect.feeLamports + migrate.feeLamports,
+    rentLamports: (collect.rentLamports ?? 0) + (migrate.rentLamports ?? 0),
+  };
 }
 
 const exportsMarket = market;

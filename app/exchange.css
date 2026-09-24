@@ -298,7 +298,8 @@
 .sr-app .swap-token{display:inline-flex;align-items:center;flex-shrink:0;padding:3px 10px 3px 4px;border:1px solid var(--border);border-radius:999px;font-size:14px;font-weight:650;white-space:nowrap}
 .sr-app .swap-token .sr-token-name{gap:6px}
 .sr-app .swap-usd{min-height:16px;font-size:12px;color:var(--muted-foreground)}
-.sr-app .swap-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.sr-app .swap-chips{display:flex;gap:6px}
+.sr-app .swap-chips button{flex:1 1 0;white-space:nowrap}
 .sr-app .swap-chips button{padding:6px 0;border:0;border-radius:9px;background:var(--muted);color:var(--foreground);font-size:13px;font-weight:600;cursor:pointer}
 .sr-app .swap-rows{display:grid;gap:4px;padding:0 2px;font-size:13px}
 .sr-app .swap-rows>div{display:flex;justify-content:space-between;gap:12px;color:var(--muted-foreground)}

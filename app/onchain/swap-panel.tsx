@@ -20,6 +20,8 @@ export type SwapQuote = {
   dynamicFee?: boolean;
   /** The price move alone, in percent. */
   impact?: number;
+  /** The input actually used, fee included (a buy that completes the curve uses less). */
+  used?: bigint;
 };
 
 const message = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
@@ -70,6 +72,7 @@ export function SwapPanel({
   prepare,
   unavailable,
   fee,
+  fillCurve,
 }: {
   market: Market;
   quoteSymbol: string;
@@ -83,6 +86,8 @@ export function SwapPanel({
   unavailable?: string;
   /** The fee rate to show before a quote: basis points, and whether it rises on fast moves. */
   fee?: { bps: number; dynamic: boolean };
+  /** Stock atoms that complete the curve, fee included: offered as a "Fill curve" amount. */
+  fillCurve?: bigint;
 }) {
   const { address, busy, pending, error: liveError, execute, revision } = useLive();
   const [side, setSide] = useState<SwapSide>("buy");
@@ -186,6 +191,11 @@ export function SwapPanel({
       </div>
       {balance !== null && balance > 0n && (
         <div className="swap-chips">
+          {side === "buy" && fillCurve !== undefined && fillCurve > 0n && fillCurve <= balance && (
+            <button type="button" disabled={!!busy} onClick={() => setAmount(formatUnits(fillCurve, inDecimals))}>
+              Fill curve
+            </button>
+          )}
           {CHIPS.map((pct) => (
             <button
               type="button"
@@ -209,6 +219,14 @@ export function SwapPanel({
         <span className="swap-usd">{receiveUsd ?? " "}</span>
       </div>
       <div className="swap-rows">
+        {shown?.used !== undefined && raw !== null && shown.used < raw && (
+          <div>
+            <span>Completes the curve</span>
+            <strong>
+              Uses {displayAmount(shown.used, inDecimals)} {side === "buy" ? q : market.symbol}; the rest stays
+            </strong>
+          </div>
+        )}
         {shown && (
           <div>
             <span>Minimum received</span>
