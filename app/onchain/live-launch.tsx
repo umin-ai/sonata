@@ -400,25 +400,22 @@ export function LiveLaunch() {
                 <>
                   <Label>Holder rewards</Label>
                   <div className="segmented" role="radiogroup" aria-label="Holder rewards">
-                    {([0, 125, 300] as const).map((fee) => (
+                    {/* Holder rewards come out of the trading fee, so the fee itself never changes here. */}
+                    {(["standard", "reward"] as const).map((key) => (
                       <button
                         type="button"
                         role="radio"
-                        key={fee}
-                        aria-checked={fee === 0 ? model === "standard" : model === "reward" && settings.fee === fee}
-                        onClick={() =>
-                          fee === 0
-                            ? setModel("standard")
-                            : setSettings((s) => ({ ...s, fee, reward: true, floor: false }))
-                        }
+                        key={key}
+                        aria-checked={model === key}
+                        onClick={() => setModel(key)}
                       >
-                        {fee === 0 ? "None" : pct(fee * 0.4)}
+                        {key === "reward" ? pct(settings.fee * 0.4) : "None"}
                       </button>
                     ))}
                   </div>
                   <p className="sr-note">
                     {model === "reward"
-                      ? "Paid to holders from every trade. No extra tax."
+                      ? "Paid to holders out of the trading fee. No extra tax on trades."
                       : "A standard token has no holder rewards. Pick a rate to launch a reward token instead."}
                   </p>
                 </>
@@ -596,7 +593,7 @@ export function LiveLaunch() {
                   `${settings.pricing ? compactUsd(settings.pricing.targetUsd) : `${settings.target} ${q}`}${raiseText !== "—" ? ` · ${raiseText} raised` : ""}`,
                 ],
                 ["Supply", "1 billion"],
-                ["Trading fee", pct(settings.fee)],
+                ["Trading fee", `${pct(settings.fee)} · no transfer tax`],
                 ["Fee → creator", model === "reward" ? "None" : pct(settings.fee * (model === "backed" ? 0.2 : 0.4))],
                 [
                   "Fee → holders",
