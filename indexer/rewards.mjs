@@ -49,7 +49,7 @@ import { observeLpFarm, runLpFarm } from "./modules/lp-farm.mjs";
 import { runSplit } from "./modules/split.mjs";
 import { observeDiamond, runDiamond } from "./modules/diamond.mjs";
 import { payHolders } from "./modules/holders.mjs";
-import { buyerNets as indexedBuyerNets, indexedThrough as indexedThroughOf } from "./modules/indexer-schema.mjs";
+import { buyerNets as indexedBuyerNets, indexedThrough as indexedThroughOf, netBase as indexedNetBase } from "./modules/indexer-schema.mjs";
 
 export { MAX_RECIPIENTS, MIN_HOLDING_DIVISOR, selectHolders } from "./modules/holders.mjs";
 
@@ -371,9 +371,11 @@ export function pgLedger(db) {
       );
       return row?.round_end == null ? null : Number(row.round_end);
     },
-    // Net quote and base bought per trader in [start, end), both venues (the DBC
-    // curve and, after graduation, the DAMM v2 pool), positive only, largest first.
-    buyerNets: (pool, start, end, limit = 50) => indexedBuyerNets(db, pool, start, end, limit),
+    // Net base and quote bought per trader in [start, end), both venues (the DBC
+    // curve and, after graduation, the DAMM v2 pool), net base positive only, most first.
+    buyerNets: (pool, start, end, limit) => indexedBuyerNets(db, pool, start, end, limit),
+    // Each of `traders`' signed net base in [start, end): Map trader → bigint (0n if none).
+    netBase: (pool, traders, start, end) => indexedNetBase(db, pool, traders, start, end),
     // How far the trade indexer has fully read this market (unix seconds), so a
     // bounty round never closes over trades not indexed yet.
     indexedThrough: (pool) => indexedThroughOf(db, pool),

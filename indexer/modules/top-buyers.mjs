@@ -2,37 +2,54 @@
 // from the end of this pool's last paid round to shortly before now, but never
 // back more than an hour, so a stalled crank does not reward stale buys, and
 // never past what the indexer has read (see below).
-// net = quote spent on buys − quote received from sells, per trader, from the
-// indexer's trades table: curve (DBC) trades and, after graduation, trades in
-// the market's DAMM v2 pool. A net buyer must also have net-bought base tokens
-// (a round trip or a net sell is not a buy, whatever its quote net). The top
-// three net buyers get 50% / 30% / 20% of what is owed (rounded down), in the
-// quote token, to their existing quote account, if they kept the base tokens
-// they net-bought in the round. A share that cannot be paid (fewer than three
-// buyers, a winner who did not keep what they bought, or no quote account)
-// rolls over; it is never given to the next buyer down. The round ends only
-// when someone is paid: its end is stored with the payout's ledger row, so a
-// payout that fails or expires also undoes it.
 //
-// Kept means gained since the round started, not held now: net is per signing
-// wallet, and buying with one wallet and selling from another (moving the
-// bought tokens there first, or selling tokens the buyer already held) must
-// not win. Every pass records the base-token balances of the market's holders
-// (ledger kind 'holders', up to BUYER_SNAPSHOT_MAX wallets, no minimum
-// holding), and a winner's balance now less its balance at the newest
-// snapshot at or before the round's start (0 if it is not in it) must be at
-// least what it net-bought in the round, plus what it net-bought between that
-// snapshot and the round's start. With no snapshot from before the round's
-// start the round does not close this pass.
+// The rules:
+//   Trades: the indexer's trades table, curve (DBC) trades and, after
+//     graduation, trades in the market's DAMM v2 pool. Each trade belongs to
+//     the wallet that signed the swap (its `payer`, whose token accounts it
+//     moved; indexer/parse.mjs), not to whoever paid the transaction fee.
+//   Rank: by net base bought in the round, base bought − base sold, the tokens
+//     a trader kept from the round's own trades. Quote amounts play no part.
+//     Only a trader with net base above 0 ranks, most first (ties by address):
+//     buying 1,000,000 and selling 999,999 ranks on the 1 atom kept.
+//   Pay: the top three get 50% / 30% / 20% of what is owed (rounded down), in
+//     the quote token, to their existing quote account.
+//   Kept: a winner must hold now, in its own classic token accounts, at least
+//     its balance at the round's start plus its net base bought in the round.
+//     Its balance at the round's start is its balance in the newest holder
+//     snapshot taken at or before the round's start (0 if it is not in it),
+//     plus its signed net base traded between that snapshot and the round's
+//     start (ledger.netBase: every trade, no sign or quote filter, no limit),
+//     and never less than 0. With no snapshot from before the round's start
+//     the round does not close this pass. Every pass records the base-token
+//     balances of the market's holders (ledger kind 'holders', up to
+//     BUYER_SNAPSHOT_MAX wallets, no minimum holding).
+//   Rolls over: a share that cannot be paid (fewer than three ranked buyers, a
+//     winner who did not keep what it bought, or no quote account) stays owed;
+//     it is never given to the next buyer down. The round ends only when
+//     someone is paid: its end is stored with the payout's ledger row, so a
+//     payout that fails or expires also undoes it.
 //
-// What this cannot catch: two wallets of one person where one buys and the
-// other sells tokens it already held (its own inventory). The buyer's
-// balance really did grow by what it bought, and nothing onchain links the
-// two wallets, so the buyer wins while the pair's combined holding is
-// unchanged (it still pays both trades' fees). A wallet outside the snapshot
-// (below the BUYER_SNAPSHOT_MAX largest holders) counts as holding nothing at
-// the round's start, so it can pass on tokens it held before up to what the
-// smallest wallet in the snapshot holds.
+// What this cannot catch:
+//   Two wallets of one person, where one buys and the other sells tokens it
+//     already held (its own inventory). The buyer's balance really did grow
+//     by what it bought, and nothing onchain links the two wallets, so the
+//     buyer wins while the pair's combined holding is unchanged (it still pays
+//     both trades' fees).
+//   Transfers are not trades, so the balance at the round's start sees them
+//     only through snapshots. A transfer out between the snapshot and the
+//     round's start leaves that balance too high, and an honest winner who
+//     made one is refused (its share rolls over). A transfer in over that time
+//     is missed, so the winner may count up to that many tokens it held before
+//     the round as kept: the two-wallet case again, since they came from a
+//     wallet it controls. The few seconds around a snapshot (balances read at
+//     the pass's time, trades stamped with their block time) can err the same
+//     way, by no more than the wallet held at the round's start.
+//   A wallet outside the snapshot (below the BUYER_SNAPSHOT_MAX largest
+//     holders) counts as holding nothing at the snapshot, so it can pass on
+//     tokens it held before up to what the smallest wallet in the snapshot holds.
+//   Trades indexed before trades were booked to the swap's payer are booked to
+//     the fee payer (the same wallet for the app's own trades).
 //
 // Indexer progress: a trade indexed after its round closed would never count
 // in any round, so the round ends no later than the unix second before which
@@ -51,8 +68,6 @@ export const BUYER_SNAPSHOT_MAX = 1_000;
 // a round starts at most BOUNTY_MAX_WINDOW_SECONDS before its end, which is
 // at most INDEX_STALE_SECONDS + BOUNTY_SETTLE_SECONDS before now.
 export const BUYER_SNAPSHOT_KEEP_SECONDS = 2 * 3600;
-// At most this many traders are read for the buys between the round-start snapshot and the round's start.
-const GAP_TRADERS = 500;
 export const BOUNTY_MAX_WINDOW_SECONDS = 60 * 60;
 // Trades of the last minute belong to the next round: the indexer polls every
 // 20 seconds, so they may not be in the table yet.
@@ -67,40 +82,54 @@ export function bountyWindow({ now, lastRoundEnd = null, indexedThrough = null }
   return { start, end };
 }
 
+const timeOf = (t) => Math.floor(new Date(t.blockTime ?? t.block_time).getTime() / 1000);
+const signedBase = (t) => (t.side === "buy" ? 1n : -1n) * BigInt(t.baseAmount ?? t.base_amount ?? 0);
+
 /**
- * net quote bought (`net`) and net base bought (`base`) per trader within
- * [start, end), for traders whose net is positive, largest first (ties by
- * address). Mirrors the ledger's SQL (modules/indexer-schema.mjs buyerNets).
+ * Net base bought (`base`) and net quote spent (`net`) per trader within
+ * [start, end), for traders whose net base is positive, most base first (ties
+ * by address). Mirrors the ledger's SQL (modules/indexer-schema.mjs buyerNets).
  */
 export function netByTrader(trades, { start, end }) {
   const net = new Map();
   for (const t of trades) {
-    const time = Math.floor(new Date(t.blockTime ?? t.block_time).getTime() / 1000);
+    const time = timeOf(t);
     if (time < start || time >= end) continue;
-    const q = BigInt(t.quoteAmount ?? t.quote_amount);
-    const b = BigInt(t.baseAmount ?? t.base_amount ?? 0);
-    const sign = t.side === "buy" ? 1n : -1n;
+    const q = (t.side === "buy" ? 1n : -1n) * BigInt(t.quoteAmount ?? t.quote_amount);
     const r = net.get(t.trader) ?? { net: 0n, base: 0n };
-    net.set(t.trader, { net: r.net + sign * q, base: r.base + sign * b });
+    net.set(t.trader, { net: r.net + q, base: r.base + signedBase(t) });
   }
-  return [...net].map(([trader, r]) => ({ trader, ...r })).filter((r) => r.net > 0n).sort(byNet);
+  return [...net].map(([trader, r]) => ({ trader, ...r })).filter((r) => r.base > 0n).sort(byBase);
 }
-const byNet = (a, b) => (a.net === b.net ? (a.trader < b.trader ? -1 : 1) : a.net > b.net ? -1 : 1);
+const byBase = (a, b) => (a.base === b.base ? (a.trader < b.trader ? -1 : 1) : a.base > b.base ? -1 : 1);
 
 /**
- * The top three net buyers, excluding the given addresses (the treasury's
- * creator, the crank key, the Vault and its admin), anything that is not a
- * wallet (unparseable or off the ed25519 curve) and any trader whose net base
- * bought is known and not positive (a round trip or a net sell).
+ * Each of `traders`' signed net base within [start, end): Map trader → bigint,
+ * 0n without trades. Mirrors the ledger's SQL (modules/indexer-schema.mjs netBase).
+ */
+export function netBaseOf(trades, traders, { start, end }) {
+  const out = new Map(traders.map((t) => [t, 0n]));
+  for (const t of trades) {
+    const time = timeOf(t);
+    if (out.has(t.trader) && time >= start && time < end) out.set(t.trader, out.get(t.trader) + signedBase(t));
+  }
+  return out;
+}
+
+/**
+ * The top three by net base bought, excluding the given addresses (the
+ * treasury's creator, the crank key, the Vault and its admin), anything that
+ * is not a wallet (unparseable or off the ed25519 curve) and any trader whose
+ * net base bought is unknown or not positive.
  */
 export function rankTopBuyers(nets, { excluded = [] } = {}) {
   const skip = keySet([SONATA_VAULT, VAULT_ADMIN, ...excluded]);
   const winners = [];
-  for (const r of [...nets].sort(byNet)) {
+  for (const r of nets.filter((r) => typeof r.base === "bigint" && r.base > 0n).sort(byBase)) {
     if (winners.length === BOUNTY_SHARES_BPS.length) break;
     const key = parseKey(r.trader);
-    if (r.net <= 0n || (typeof r.base === "bigint" && r.base <= 0n) || !key || !onCurve(key) || skip.has(r.trader)) continue;
-    winners.push({ trader: r.trader, owner: key, net: r.net, ...(r.base === undefined ? {} : { base: r.base }), rank: winners.length + 1 });
+    if (!key || !onCurve(key) || skip.has(r.trader)) continue;
+    winners.push({ trader: r.trader, owner: key, base: r.base, ...(r.net === undefined ? {} : { net: r.net }), rank: winners.length + 1 });
   }
   return winners;
 }
@@ -130,28 +159,27 @@ export async function baseHeld({ connection, rpc }, baseMint, owner) {
 
 /**
  * The winners who kept the base tokens they net-bought in the round, and why
- * each other one is out: a winner's balance now less its balance in `start`
- * (the round-start snapshot, { amounts: Map wallet → base atoms }; 0 if not
- * in it) must be at least its base bought in the round plus `gap` (Map
- * wallet → base net-bought between that snapshot and the round's start, when
- * positive). A winner whose base amount is unknown (a ledger without it)
- * cannot be checked, and one who net-bought no base (zero or less) did not
- * buy: neither is paid.
+ * each other one is out. A winner's balance at the round's start is its
+ * balance in `snapshot` (the newest at or before the round's start,
+ * { amounts: Map wallet → base atoms }; 0 if not in it) plus `gap` (Map
+ * wallet → its signed net base between that snapshot and the round's start),
+ * and never less than 0. It must hold now at least that balance plus its net
+ * base bought in the round. A winner whose net base bought is unknown or not
+ * positive did not buy, and is not paid.
  */
-export async function stillHolding(ctx, winners, { start = null, gap = new Map() } = {}) {
+export async function stillHolding(ctx, winners, { snapshot, gap = new Map() }) {
   const holding = [], out = [];
   for (const w of winners) {
-    if (typeof w.base !== "bigint") out.push({ ...w, why: "base bought unknown" });
-    else if (w.base <= 0n) out.push({ ...w, why: "no base net-bought" });
-    else {
-      const held = await baseHeld(ctx, ctx.m.baseMint, w.owner);
-      const before = start?.amounts.get(w.trader) ?? 0n;
-      const earlier = gap.get(w.trader) ?? 0n;
-      const need = w.base + (earlier > 0n ? earlier : 0n);
-      const kept = held - before;
-      if (kept >= need) holding.push(w);
-      else out.push({ ...w, held, why: `kept ${kept < 0n ? 0n : kept} of the ${need} base atoms bought (holds ${held}, held ${before} before the round)` });
+    if (typeof w.base !== "bigint" || w.base <= 0n) {
+      out.push({ ...w, why: "no base net-bought" });
+      continue;
     }
+    const held = await baseHeld(ctx, ctx.m.baseMint, w.owner);
+    const sum = (snapshot.amounts.get(w.trader) ?? 0n) + (gap.get(w.trader) ?? 0n);
+    const before = sum > 0n ? sum : 0n;
+    const kept = held - before;
+    if (kept >= w.base) holding.push(w);
+    else out.push({ ...w, held, why: `kept ${kept < 0n ? 0n : kept} of the ${w.base} base atoms bought (holds ${held}, held ${before} before the round)` });
   }
   return { holding, out };
 }
@@ -200,6 +228,8 @@ export async function runTopBuyers(ctx) {
   if (!hasSnapshots(ledger)) return { skip: "ledger has no balance snapshots, so no winner can be checked; the round stays open, the pot rolls over" };
   // This pass's balances, whatever happens below: a later round's start.
   if (!dryRun) await recordBuyerBalances(ctx, Math.floor(at / 1000));
+  if (typeof ledger.netBase !== "function")
+    return { skip: "ledger cannot read a wallet's net base before the round, so no winner can be checked; the round stays open, the pot rolls over" };
   const progress = await progressOf(ledger, pool, Math.floor(at / 1000));
   fields.indexedThrough = progress.through === undefined ? "unknown" : progress.through;
   if (progress.skip) return { skip: progress.skip };
@@ -211,26 +241,25 @@ export async function runTopBuyers(ctx) {
   const ranked = rankTopBuyers(nets, { excluded: [m.creator, authority.publicKey, ...excludedOwners] });
   fields.buyers = nets.length;
   if (!ranked.length) return { skip: "no net buyers this round; the pot rolls over" };
-  // Balances at the round's start: the newest snapshot taken at or before it.
-  const baseline = await ledger.previousSnapshot(pool, "holders", start + 1);
-  if (!baseline) return { skip: "no balance snapshot from before the round's start yet; the round stays open, the pot rolls over" };
-  fields.balancesAt = baseline.takenAt;
-  const gap = new Map();
-  if (baseline.takenAt < start)
-    for (const r of await ledger.buyerNets(pool, baseline.takenAt, start, GAP_TRADERS)) if (typeof r.base === "bigint" && r.base > 0n) gap.set(r.trader, r.base);
-  const { holding: winners, out } = await stillHolding(ctx, ranked, { start: baseline, gap });
+  // Balances at the round's start: the newest snapshot taken at or before it,
+  // moved on by each winner's own trades between the two.
+  const snapshot = await ledger.previousSnapshot(pool, "holders", start + 1);
+  if (!snapshot) return { skip: "no balance snapshot from before the round's start yet; the round stays open, the pot rolls over" };
+  fields.balancesAt = snapshot.takenAt;
+  const gap = snapshot.takenAt < start ? await ledger.netBase(pool, ranked.map((w) => w.trader), snapshot.takenAt, start) : new Map();
+  const { holding: winners, out } = await stillHolding(ctx, ranked, { snapshot, gap });
   if (out.length) fields.notHolding = out.length;
   const outNote = out.length ? `not paid, share rolls over: ${out.map((w) => `rank ${w.rank} ${w.trader} (${w.why})`).join(", ")}` : undefined;
   if (!winners.length) return { skip: "no winner still holds what they bought this round; the pot rolls over", ...(outNote ? { note: outNote } : {}) };
   const shares = bountyShares(winners, owed);
   fields.winners = winners.length;
-  await ctx.payShares(shares.map((s) => ({ ...s, balance: s.net })), {
+  await ctx.payShares(shares.map((s) => ({ ...s, balance: s.base })), {
     module: "topBuyers",
     emptyNote: "no winner has a quote account; the pot rolls over and the round continues",
     detailOf: (batch) => ({
       roundStart: start,
       roundEnd: end,
-      winners: batch.map((i) => ({ trader: i.payout.trader, rank: i.payout.rank, net: i.payout.net, amount: i.payout.amount })),
+      winners: batch.map((i) => ({ trader: i.payout.trader, rank: i.payout.rank, base: i.payout.base, net: i.payout.net, amount: i.payout.amount })),
     }),
   });
   return outNote ? { note: outNote } : {};
