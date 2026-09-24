@@ -164,3 +164,6 @@
 .sr-app .segmented button[aria-checked=true]{background:var(--accent);color:var(--foreground);border-color:var(--primary)}
 .sr-app .launch-info{display:flex;gap:10px;align-items:flex-start;margin:0;font-size:13px;line-height:1.5;color:var(--muted-foreground)}
 .sr-app .launch-info svg{flex:none;margin-top:2px}
+.sr-app .launch-receipt{display:grid}
+.sr-app .launch-summary .launch-receipt .sr-detail-row{padding:6px 0;gap:12px;align-items:center;font-size:13px}
+.sr-app .launch-summary .launch-receipt .sr-detail-row strong{font-size:13px;text-align:right}

@@ -586,6 +586,7 @@ export function LiveLaunch() {
               <TokenPair base={symbol || "TOKEN"} quote={q} />
             </h3>
             <p className="sr-note">{name.trim() || "Your token name"}</p>
+            <div className="launch-receipt">
             {(
               [
                 ["Fee model", model === "reward" ? "Reward token" : model === "backed" ? "Backed token" : "Standard token"],
@@ -617,6 +618,7 @@ export function LiveLaunch() {
                 <strong>{value}</strong>
               </div>
             ))}
+            </div>
             {curveError && (
               <p className="sr-note text-destructive" role="alert">
                 {curveError}
