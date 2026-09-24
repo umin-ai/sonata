@@ -184,7 +184,7 @@ function ProductCoverage() {
             "Capital & compounding",
             "Live on Devnet",
             "Wallet-owned ROOM/mSPY LP positions, native fee compounding, partial withdrawals and full exits. Treasury deployment remains separate work.",
-            "/earn",
+            "/earn?net=devnet",
           ],
           [
             "Creator & community",

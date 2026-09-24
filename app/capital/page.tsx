@@ -112,7 +112,7 @@ export default function CapitalPage() {
           </p>
           <div className="flex gap-3 flex-wrap mt-5">
             <Button asChild variant="outline">
-              <Link href="/earn">
+              <Link href="/earn?net=devnet">
                 Manage LP positions
                 <ArrowUpRight />
               </Link>

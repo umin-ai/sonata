@@ -255,6 +255,17 @@
 .sr-app .pool-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted-foreground)}
 .sr-app .pool-tag[data-tone=farm]{color:#3fcf8e;border-color:color-mix(in srgb,#3fcf8e 45%,var(--border));background:color-mix(in srgb,#3fcf8e 10%,transparent)}
 .sr-app .pool-tag[data-tone=mine]{color:var(--primary);border-color:color-mix(in srgb,var(--primary) 45%,var(--border))}
+.sr-app .pool-network{margin:0 0 16px}
+.sr-app .pool-card-main{display:grid;gap:10px;min-width:0;padding:14px 14px 10px}
+.sr-app .pool-tag[data-tone=warn]{color:#f5a524;border-color:color-mix(in srgb,#f5a524 45%,var(--border));background:color-mix(in srgb,#f5a524 10%,transparent)}
+.sr-app .pool-chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.sr-app .pool-chips button{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted-foreground);font-size:13px;font-weight:600;cursor:pointer}
+.sr-app .pool-chips button span{font-size:11px;color:var(--muted-foreground)}
+.sr-app .pool-chips button[aria-checked=true]{color:var(--foreground);border-color:var(--primary);background:var(--accent)}
+.sr-app .pool-toggle{display:flex;align-items:flex-start;gap:8px;margin:4px 0 12px;font-size:13px;color:var(--muted-foreground);cursor:pointer}
+.sr-app .pool-toggle input{margin-top:2px;accent-color:var(--primary)}
+.sr-app .pool-summary{margin:0 0 12px;font-size:14px;color:var(--muted-foreground)}
+.sr-app .pool-summary strong{color:var(--foreground);font-variant-numeric:tabular-nums}
 .sr-app .pool-card-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:auto;padding:8px 14px 12px;border-top:1px solid var(--border);font-size:13px}
 .sr-app .pool-card-foot .market-badges{margin-left:0}
 .sr-app .pool-card-foot>a{display:inline-flex;align-items:center;gap:4px;color:var(--primary)}

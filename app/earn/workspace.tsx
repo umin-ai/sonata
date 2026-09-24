@@ -37,6 +37,7 @@ import {
   type PoolPosition,
 } from "@/lib/liquidity/pools";
 import type { TokenProfile } from "@/lib/token-profile";
+import { MainnetPools, useMainnetPools } from "./mainnet-pools";
 
 const message = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
@@ -530,11 +531,34 @@ function PoolDetail({
   );
 }
 
+type Network = "mainnet" | "devnet";
+const NETWORKS = [
+  ["mainnet", "Mainnet"],
+  ["devnet", "Devnet (our demo)"],
+] as const;
+
 export function LiquidityWorkspace() {
   const { address } = useLive();
   const { list, error, loading, refresh } = usePoolList();
   const positions = usePositions(address, list);
-  const wanted = useSearchParams().get("pool");
+  const params = useSearchParams();
+  const wanted = params.get("pool");
+  // A link to one of Sonata's own pools (?pool=), or ?net=devnet, opens on Devnet.
+  const [network, setNetwork] = useState<Network>(() =>
+    wanted || params.get("net") === "devnet" ? "devnet" : "mainnet",
+  );
+  const mainnet = useMainnetPools(network === "mainnet");
+  // The tab is kept in the address, so a reload or a shared link opens the same one.
+  function pickNetwork(next: Network) {
+    setNetwork(next);
+    const url = new URL(window.location.href);
+    if (next === "devnet") url.searchParams.set("net", "devnet");
+    else {
+      url.searchParams.delete("net");
+      url.searchParams.delete("pool");
+    }
+    window.history.replaceState(window.history.state, "", url);
+  }
   const [picked, setPicked] = useState<string | null>(null);
   const detail = useRef<HTMLElement>(null);
   const pools = list?.pools ?? [];
@@ -549,6 +573,7 @@ export function LiquidityWorkspace() {
     if (window.matchMedia("(max-width: 900px)").matches)
       requestAnimationFrame(() => detail.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
+  const reading = network === "mainnet" ? mainnet.loading : loading;
   return (
     <>
       <div className="sr-heading">
@@ -556,14 +581,63 @@ export function LiquidityWorkspace() {
           <span className="sr-eyebrow">SONATA / EARN</span>
           <h1>Pools</h1>
           <p>
-            {"Add liquidity to a graduated token's Meteora pool and earn its trading fees. LP Farm tokens also pay their LPs."}
+            {network === "mainnet"
+              ? "Put your stocks to work: add them to a live Meteora pool on Solana mainnet and earn its trading fees."
+              : "Add liquidity to a graduated token's Meteora pool and earn its trading fees. LP Farm tokens also pay their LPs."}
           </p>
         </div>
-        <Button variant="outline" disabled={loading} onClick={refresh}>
-          <RefreshCw className={loading ? "animate-spin" : ""} />
+        <Button variant="outline" disabled={reading} onClick={network === "mainnet" ? mainnet.refresh : refresh}>
+          <RefreshCw className={reading ? "animate-spin" : ""} />
           Refresh
         </Button>
       </div>
+      <div className="segmented pool-network" role="radiogroup" aria-label="Network">
+        {NETWORKS.map(([key, title]) => (
+          <button type="button" role="radio" key={key} aria-checked={network === key} onClick={() => pickNetwork(key)}>
+            {title}
+          </button>
+        ))}
+      </div>
+      {network === "mainnet" ? (
+        <MainnetPools {...mainnet} />
+      ) : (
+        <DevnetPools
+          list={list}
+          error={error}
+          loading={loading}
+          pools={pools}
+          selected={selected}
+          positions={positions}
+          detail={detail}
+          choose={choose}
+        />
+      )}
+    </>
+  );
+}
+
+// Sonata's own graduated pools on Devnet: add liquidity, withdraw and claim here.
+function DevnetPools({
+  list,
+  error,
+  loading,
+  pools,
+  selected,
+  positions,
+  detail,
+  choose,
+}: {
+  list?: PoolList;
+  error?: string;
+  loading: boolean;
+  pools: GraduatedPool[];
+  selected?: GraduatedPool;
+  positions: ReturnType<typeof usePositions>;
+  detail: RefObject<HTMLElement | null>;
+  choose: (pool: GraduatedPool) => void;
+}) {
+  return (
+    <>
       <LiveWallet />
       {error && (
         <Alert variant="destructive" className="mb-5">

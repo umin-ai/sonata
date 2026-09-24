@@ -67,7 +67,7 @@ export function LiquidityPortfolio({ refreshToken = 0 }: { refreshToken?: number
         </>
       )}
       <Button asChild variant="outline">
-        <Link href="/earn">
+        <Link href="/earn?net=devnet">
           Graduated pools <ArrowUpRight />
         </Link>
       </Button>
