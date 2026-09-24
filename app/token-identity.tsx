@@ -43,7 +43,20 @@ const remoteLogos: Record<string, string> = {
   NEURALINK: "https://www.prestocks.com/logos/neuralink.png",
 };
 
-/** Mock stock labels stay explicit; unknown community tokens use a monogram. */
+/** The logo of a token that has none (or whose image fails to load): a round "?" badge. */
+export function TokenFallback({ size = 24 }: { size?: number }) {
+  return (
+    <span
+      className="sr-token-monogram token-fallback"
+      style={{ "--token-size": `${size}px` } as CSSProperties}
+      aria-hidden="true"
+    >
+      ?
+    </span>
+  );
+}
+
+/** Mock stock labels stay explicit; a token without a logo gets the "?" badge. */
 export function TokenName({
   symbol,
   size = 24,
@@ -71,9 +84,7 @@ export function TokenName({
           className="sr-token-logo"
         />
       ) : (
-        <span className="sr-token-monogram" aria-hidden="true">
-          {symbol.slice(0, 2)}
-        </span>
+        <TokenFallback size={size} />
       )}
       <b>{symbol}</b>
     </span>

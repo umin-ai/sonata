@@ -268,7 +268,7 @@ function MarketCard({ market: m }: { market: Market }) {
         </span>
       )}
       <Link href={href(m)} className="sonata-token-identity" aria-label={`Open ${m.name} market`}>
-        <span className="sonata-token-avatar" aria-hidden="true"><span>{m.symbol.slice(0, 2)}</span><TokenImage profile={tokenProfile} symbol={m.symbol} size={42} /></span>
+        <span className="sonata-token-avatar" aria-hidden="true"><span>?</span><TokenImage profile={tokenProfile} symbol={m.symbol} size={42} fallback={false} /></span>
         <div><h3>{m.symbol}</h3><p title={m.name}>{m.name}</p></div>
         <ArrowUpRight size={16} />
       </Link>

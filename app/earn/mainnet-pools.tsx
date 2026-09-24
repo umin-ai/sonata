@@ -1,7 +1,13 @@
 "use client";
 import { useEffect, useState, type CSSProperties } from "react";
 import { ArrowUpRight, Globe, Percent, ShieldAlert, Sprout } from "lucide-react";
-import { TokenName } from "@/app/token-identity";
+import { TokenFallback, TokenName } from "@/app/token-identity";
+
+const TOKEN_LIST = "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet";
+const KNOWN_LOGOS: Record<string, string> = {
+  So11111111111111111111111111111111111111112: `${TOKEN_LIST}/So11111111111111111111111111111111111111112/logo.png`,
+  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: `${TOKEN_LIST}/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png`,
+};
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import {
@@ -96,11 +102,16 @@ function Token({ token, size, stock }: { token: PoolToken; size: number; stock?:
       </span>
     );
   if (token.stock) return <TokenName symbol={token.symbol} size={size} />;
+  // SOL and USDC by mint; any other token gets the "?" badge.
+  const known = KNOWN_LOGOS[token.mint];
   return (
     <span className="sr-token-name" style={{ "--token-size": `${size}px` } as CSSProperties}>
-      <span className="sr-token-monogram" aria-hidden="true">
-        {token.symbol.slice(0, 2)}
-      </span>
+      {known ? (
+        // eslint-disable-next-line @next/next/no-img-element -- the Solana token list's logo
+        <img src={known} width={size} height={size} alt="" className="sr-token-logo" />
+      ) : (
+        <TokenFallback size={size} />
+      )}
       <b>{token.symbol}</b>
     </span>
   );

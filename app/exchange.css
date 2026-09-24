@@ -274,6 +274,8 @@
 /* The amount field is part of its box: no ring or fill of its own; the box shows focus. */
 .sr-app .swap-box-main input,.sr-app .swap-box-main input:focus,.sr-app .swap-box-main input:focus-visible{min-height:0;height:auto;border:0;border-radius:0;outline:none!important;box-shadow:none!important;background:transparent}
 .sr-app .swap-box:focus-within{border-color:var(--primary)}
+/* A token with no logo: a round "?" badge, sized to its slot. */
+.sr-app .token-fallback{display:inline-flex;align-items:center;justify-content:center;width:var(--token-size,24px);height:var(--token-size,24px);flex:none;border-radius:50%;font-size:calc(var(--token-size,24px) * .55);font-weight:800;line-height:1;letter-spacing:0}
 .sr-app .swap-token{display:inline-flex;align-items:center;flex-shrink:0;padding:3px 10px 3px 4px;border:1px solid var(--border);border-radius:999px;font-size:14px;font-weight:650;white-space:nowrap}
 .sr-app .swap-token .sr-token-name{gap:6px}
 .sr-app .swap-usd{min-height:16px;font-size:12px;color:var(--muted-foreground)}

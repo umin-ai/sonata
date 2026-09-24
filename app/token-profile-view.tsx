@@ -1,4 +1,5 @@
 "use client";
+import { TokenFallback } from "@/app/token-identity";
 import { useEffect, useState } from "react";
 import { Globe, Send } from "lucide-react";
 import {
@@ -82,25 +83,34 @@ export function TokenLinks({ profile }: { profile: TokenProfile | null }) {
   );
 }
 
+/**
+ * A token's image, or the "?" badge when it has none or the image fails to
+ * load. `fallback={false}` draws nothing instead, for a frame that has its own.
+ */
 export function TokenImage({
   profile,
   symbol,
   size = 40,
+  fallback = true,
 }: {
   profile: TokenProfile | null;
   symbol: string;
   size?: number;
+  fallback?: boolean;
 }) {
-  if (!profile?.image) return null;
+  const [failed, setFailed] = useState<string | null>(null);
+  const src = profile?.image;
+  if (!src || failed === src) return fallback ? <TokenFallback size={size} /> : null;
   return (
     <img
       className="token-image"
-      src={profile.image}
+      src={src}
       alt={`${symbol} logo`}
       width={size}
       height={size}
       loading="lazy"
       referrerPolicy="no-referrer"
+      onError={() => setFailed(src)}
     />
   );
 }
