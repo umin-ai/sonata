@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
-import { TokenName } from "@/app/token-identity";
 import { explorer, type TreasurySnapshot } from "@/lib/treasury/runtime";
 import { formatProgress, type Heat } from "@/lib/treasury/graduation";
 import { formatUnits } from "@/lib/treasury/units";
@@ -33,6 +32,12 @@ function useUsdPrice(symbol: string) {
   return price?.symbol === symbol ? price.value : null;
 }
 
+// A stock amount from atoms, short: 1.79, 3.48, 0.0123.
+const stock = (atoms: string | bigint) => {
+  const n = Number(formatUnits(atoms));
+  // Tiny amounts in plain digits (0.0000001), not "1.00e-7".
+  return n > 0 && n < 0.001 ? formatUnits(atoms) : quoteAmount(n);
+};
 const quoteAmount = (n: number) =>
   n >= 100 ? n.toFixed(1) : n >= 1 ? n.toFixed(2) : n.toPrecision(3);
 // A market cap in dollars when the stock has a price, else in the stock token.
@@ -168,30 +173,39 @@ export function GraduationProgress({
           </div>
         ))}
       </div>
+      {/* The curve's numbers as rows, in the stock (dollar values use the real stock's price). */}
       {heat !== "graduated" && heat !== "complete" && (
-        <p className="graduation-note">
-          {formatUnits(data.quoteReserve)} of {formatUnits(data.migrationQuoteThreshold)}{" "}
-          <TokenName symbol={quote} /> in the curve · {formatUnits(data.remainingToGraduate)} {quote} more
-          graduates it to a DAMM v2 pool
-        </p>
+        <>
+          <div className="sr-detail-row">
+            <span>In the curve</span>
+            <strong>
+              {stock(data.quoteReserve)} / {stock(data.migrationQuoteThreshold)} {quote}
+            </strong>
+          </div>
+          <div className="sr-detail-row">
+            <span>To graduate</span>
+            <strong>
+              {stock(data.remainingWithFee)} {quote} more, fee included
+            </strong>
+          </div>
+        </>
       )}
       {heat === "complete" && (
-        <p className="graduation-note">
-          The curve has reached its threshold. Anyone can now trigger the migration to DAMM v2.
-        </p>
+        <div className="sr-detail-row">
+          <span>Migration</span>
+          <strong>Ready: anyone can trigger it</strong>
+        </div>
       )}
       {heat === "graduated" && data.dammPool && (
-        <p className="graduation-note">
-          <a className="sr-text-link" href={explorer("address", data.dammPool)} target="_blank" rel="noreferrer">
-            DAMM v2 pool <ArrowUpRight size={13} />
-          </a>{" "}
-          · 100% of migrated liquidity is permanently locked
-        </p>
-      )}
-      {usd !== null && (
-        <p className="graduation-note">
-          Dollar values use the real stock token&apos;s price on Solana. Test tokens have no value.
-        </p>
+        <div className="sr-detail-row">
+          <span>Pool</span>
+          <strong>
+            <a className="sr-text-link" href={explorer("address", data.dammPool)} target="_blank" rel="noreferrer">
+              DAMM v2 <ArrowUpRight size={13} />
+            </a>{" "}
+            · liquidity locked forever
+          </strong>
+        </div>
       )}
     </div>
   );
