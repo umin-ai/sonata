@@ -49,12 +49,10 @@ export function StockFloor({
     burn = 0n;
   }
   const payout = floorShare(floor, burn, supply);
-  const toAdd = data
-    ? pendingFloor(
-        data.migrated ? 0n : BigInt(data.uncollected),
-        BigInt(data.unallocated),
-      )
-    : 0n;
+  // After graduation "uncollected" is the fees of Sonata's locked pool half
+  // (readTreasury), which Collect & pay out adds the same way.
+  const mode = (data?.mode ?? market.mode) === "standardFloor" ? "standardFloor" : "floor";
+  const toAdd = data ? pendingFloor(BigInt(data.uncollected), BigInt(data.unallocated), mode) : 0n;
   const enabled = !!address && !busy && !pending && !!data;
   return (
     <div className="stock-floor">
@@ -87,11 +85,9 @@ export function StockFloor({
           </strong>
         </div>
       )}
-      {data?.migrated ? (
+      {data?.migrated && !PAYOUT_BOT_V2 ? (
         <p className="stock-floor-note">
-          {PAYOUT_BOT_V2
-            ? "This market graduated. Sonata's bot keeps adding the pool's fees about every 15 minutes, and holders can still burn for their share."
-            : "This market graduated. Its backing no longer grows, but holders can still burn for their share."}
+          This market graduated. Its backing no longer grows, but holders can still burn for their share.
         </p>
       ) : (
         toAdd > 0n && (

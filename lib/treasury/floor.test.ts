@@ -32,3 +32,9 @@ test("pending floor is the retained half of the next split", () => {
   assert.equal(pendingFloor(3n, 0n), 2n);
   assert.equal(pendingFloor(0n, 0n), 0n);
 });
+
+test("Backed tokens add a quarter, rounded down, as distribute_split does", () => {
+  assert.equal(pendingFloor(4_000_000n, 800_000n, "standardFloor"), 1_200_000n);
+  assert.equal(pendingFloor(3n, 0n, "standardFloor"), 0n);
+  assert.equal(pendingFloor(7n, 0n, "standardFloor"), 1n);
+});
