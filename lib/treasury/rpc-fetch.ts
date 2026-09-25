@@ -42,11 +42,24 @@ export const RPC_BUSY =
 
 const BASE_COOLDOWN_MS = 15_000;
 const MAX_COOLDOWN_MS = 60_000;
+// Reads that scan or return many accounts can take well over 10 s on the public
+// endpoint, so they get more time than point lookups.
+const HEAVY = new Set([
+  "getProgramAccounts",
+  "getMultipleAccounts",
+  "getSignaturesForAddress",
+  "getTransaction",
+  "getTokenLargestAccounts",
+  "getTokenAccountsByOwner",
+]);
 const READ_TIMEOUT_MS = 12_000;
+const HEAVY_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 20_000;
-// An endpoint coming back from a rest gets a short trial when another endpoint
-// can take the request, so a still-hanging one does not hold up the queue.
-const PROBE_TIMEOUT_MS = 3_000;
+// An endpoint coming back from a rest gets a shorter trial when another endpoint
+// can take the request, so a still-hanging one does not hold up the queue. The
+// final try always gets the full time.
+const PROBE_TIMEOUT_MS = 4_000;
+const HEAVY_PROBE_TIMEOUT_MS = 10_000;
 
 type Health = { restUntil: number; strikes: number };
 
@@ -94,15 +107,17 @@ export function createRpcFetch(
   async function attempt(
     url: string,
     init: RequestInit | undefined,
-    read: boolean,
+    method: string | undefined,
     last: boolean,
   ): Promise<{ response: Response } | { retryAfterMs?: number }> {
     const wait = Math.max(0, nextStart - now());
     if (wait) await sleep(wait);
     nextStart = now() + interval;
-    const ms =
-      options.timeoutMs ??
-      (state(url).strikes && !last ? PROBE_TIMEOUT_MS : read ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
+    const heavy = !!method && HEAVY.has(method);
+    const read = !!method && READS.has(method);
+    const full = !read ? WRITE_TIMEOUT_MS : heavy ? HEAVY_TIMEOUT_MS : READ_TIMEOUT_MS;
+    const probe = heavy ? HEAVY_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS;
+    const ms = options.timeoutMs ?? (state(url).strikes && !last ? Math.min(probe, full) : full);
     const controller = !init?.signal && ms > 0 ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), ms) : null;
     let response: Response, text: string;
@@ -163,7 +178,7 @@ export function createRpcFetch(
           if (!ready.length) ready = soonestFirst().slice(0, 1);
           let retryAfterMs: number | undefined;
           for (const [i, url] of ready.entries()) {
-            const r = await attempt(url, init, read, i === ready.length - 1);
+            const r = await attempt(url, init, request.method, i === ready.length - 1);
             if ("response" in r) return r.response;
             retryAfterMs = r.retryAfterMs ?? retryAfterMs;
           }
@@ -172,9 +187,9 @@ export function createRpcFetch(
           if (!read) throw new Error(RPC_BUSY);
           // Reads wait once (Retry-After, else 4 s), then give every endpoint one more try.
           await sleep(Math.min(10_000, Math.max(2_000, retryAfterMs ?? 4_000)));
-          const again = soonestFirst();
-          for (const [i, url] of again.entries()) {
-            const r = await attempt(url, init, read, i === again.length - 1);
+          // The last round: every endpoint gets its full time.
+          for (const url of soonestFirst()) {
+            const r = await attempt(url, init, request.method, true);
             if ("response" in r) return r.response;
           }
           throw new Error(RPC_BUSY);
