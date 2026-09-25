@@ -519,11 +519,16 @@ export function LiveProvider({ children }: { children: ReactNode }) {
               {!review.liquidity &&
                 !review.redeem &&
                 !review.graduation &&
+                !review.payout &&
                 review.action !== "launch" &&
                 review.action !== "register" && (
-                  <p className="text-2xl">
-                    {formatUnits(review.raw, review.trade?.inputDecimals ?? 8)}{" "}
-                    <TokenName symbol={review.trade?.inputSymbol ?? quoteSymbol} />
+                  // The window renders outside .sr-app, so the amount uses the unscoped review styles.
+                  <p className="text-2xl review-hero">
+                    <Amount
+                      atoms={review.raw}
+                      decimals={review.trade?.inputDecimals ?? 8}
+                      symbol={review.trade?.inputSymbol ?? quoteSymbol}
+                    />
                   </p>
                 )}
               {review.liquidity && (
@@ -652,7 +657,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   }).map((s) => (
                     <Fact key={s.to} label={`${s.percent}% to`} value={s.to === "bot" ? `${s.label} · via Sonata's bot` : s.label} />
                   ))}
-                  <Fact label="Who can do this" value="Anyone · you pay only the network fee" />
+                  <Fact label="Who can do this" value="Anyone" />
+                  {/* Wallets warn "no balance changes" here: nothing moves to or from the signer. */}
+                  <Fact label="Your wallet" value="No tokens move · network fee only" />
                 </div>
               )}
               {!review.liquidity && !review.graduation && !review.payout && (
