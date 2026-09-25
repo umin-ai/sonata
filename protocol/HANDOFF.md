@@ -1,6 +1,6 @@
 # Sonata — handoff and evidence
 
-Updated 24 September 2026 (Asia/Kuching). Supersedes the 18 September handoff. Solana Devnet only. Mock tokens have no monetary value, and nothing here is an offer of securities.
+Last updated 25 September 2026. Every transaction below is on Solana Devnet; its test tokens have no monetary value, and nothing here is an offer of securities.
 
 **How to read this document.** Every factual statement points to one of three things: a source line (pinned permalink or `path:line`), a Devnet transaction or account on Solana Explorer, or an external page. Where a statement cannot be checked that way it is labelled as a limitation or a hypothesis. If a citation here does not support its claim, treat that as a defect in this document.
 
