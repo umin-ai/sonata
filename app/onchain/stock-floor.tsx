@@ -19,6 +19,7 @@ import {
   pendingFloor,
 } from "@/lib/treasury/floor";
 import { PAYOUT_BOT_V2 } from "@/lib/features";
+import { nextRunText, sinceText } from "@/lib/treasury/payout-timing";
 import { useLive } from "./live-context";
 
 // A Backed token's backing (the program's Stock Floor): its share of net trading
@@ -89,11 +90,24 @@ export function StockFloor({
         <p className="stock-floor-note">
           This market graduated. Its backing no longer grows, but holders can still burn for their share.
         </p>
+      ) : toAdd === 0n ? (
+        // Sonata's bot adds new fees on its own; say so, so a button that was
+        // there after a trade does not just seem to vanish.
+        data && (
+          <div className="sr-detail-row">
+            <span>New fees</span>
+            <strong>
+              {data.lastClaimTs > 0 ? `Added ${sinceText(data.lastClaimTs, data.fetchedAt)}` : "None yet"} · bot checks{" "}
+              {nextRunText(data.fetchedAt)}
+            </strong>
+          </div>
+        )
       ) : (
         toAdd > 0n && (
           <div className="stock-floor-pending">
             <span>
-              +{formatUnits(toAdd)} {quote} from new trades is ready to add
+              +{formatUnits(toAdd)} {quote} from new trades is ready to add · or the bot adds it{" "}
+              {nextRunText(data!.fetchedAt)}
             </span>
             <Button
               size="sm"

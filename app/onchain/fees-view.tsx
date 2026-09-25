@@ -16,6 +16,7 @@ import {
   type Market,
   type TreasurySnapshot,
 } from "@/lib/treasury/runtime";
+import { nextRunText, sinceText } from "@/lib/treasury/payout-timing";
 import { formatUnits } from "@/lib/treasury/units";
 import { useLive } from "./live-session";
 
@@ -36,16 +37,6 @@ type BotPayouts = {
 };
 
 const shortKey = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
-// "3 min ago" from a unix time in seconds, relative to when the data was read.
-const since = (seconds: number, now: number) => {
-  const mins = Math.max(0, Math.round((now / 1000 - seconds) / 60));
-  return mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
-};
-// The payout bot runs on the quarter hour (:00, :15, :30, :45).
-const nextRun = (now: number) => {
-  const mins = 15 - (new Date(now).getMinutes() % 15);
-  return mins <= 1 ? "in ~1 min" : `in ~${mins} min`;
-};
 
 function Row({ label, children, tone }: { label: ReactNode; children: ReactNode; tone?: "warn" }) {
   return (
@@ -139,9 +130,9 @@ export function FeesView({
               <Stock atoms={data?.claimed} quote={q} />
             </Row>
             <Row label="Last collected">
-              {!data ? "—" : data.lastClaimTs > 0 ? since(data.lastClaimTs, data.fetchedAt) : "Not yet"}
+              {!data ? "—" : data.lastClaimTs > 0 ? sinceText(data.lastClaimTs, data.fetchedAt) : "Not yet"}
             </Row>
-            <Row label="Auto payout">{data ? `Every 15 min · next ${nextRun(data.fetchedAt)}` : "Every 15 min"}</Row>
+            <Row label="Auto payout">{data ? `Every 15 min · next ${nextRunText(data.fetchedAt)}` : "Every 15 min"}</Row>
             <Row label="Meteora's cut">20% of each fee</Row>
           </div>
           <Button
@@ -218,7 +209,7 @@ export function FeesView({
               {(() => {
                 const t = model === "buyback" ? (bot?.lastBuyAt ?? bot?.lastPaidAt) : model === "topBuyers" ? (bot?.lastRoundAt ?? bot?.lastPaidAt) : bot?.lastPaidAt;
                 if (!t) return "Not yet";
-                const when = since(t, data?.fetchedAt ?? t * 1000);
+                const when = sinceText(t, data?.fetchedAt ?? t * 1000);
                 return model === "holders" || model === "diamond" ? `${when} · ${bot?.recipientsLast ?? 0} holders` : when;
               })()}
             </Row>
