@@ -67,10 +67,18 @@ import dbc from "./dbc-addresses.json";
 import { parseUnits } from "./units.ts";
 
 import { createRpcFetch } from "./rpc-fetch";
-export const connection = new Connection("https://api.devnet.solana.com", {
+// Devnet RPCs in order of preference: Solana's public endpoint, then (in the
+// browser) Sonata's relay to a dedicated provider, app/api/rpc, which keeps that
+// provider's key on the server. rpc-fetch moves a request to the next endpoint
+// when one is busy or down. Subscriptions (websockets) stay on the public endpoint.
+const DEVNET_RPCS = [
+  "https://api.devnet.solana.com",
+  ...(typeof window !== "undefined" ? [new URL("/api/rpc", window.location.origin).toString()] : []),
+];
+export const connection = new Connection(DEVNET_RPCS[0], {
   commitment: "confirmed",
   disableRetryOnRateLimit: true,
-  fetch: createRpcFetch((input, init) => globalThis.fetch(input, init)),
+  fetch: createRpcFetch((input, init) => globalThis.fetch(input, init), { endpoints: DEVNET_RPCS }),
 });
 const pk = (s: string) => new PublicKey(s),
   program = new Program(treasuryIdl as Idl, { connection }),

@@ -353,17 +353,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             ? `Waiting for confirmation ${i + 1} of ${signed.length}…`
             : "Waiting for network confirmation…",
         );
-        const result = await connection.confirmTransaction(
-          {
-            signature: submitted.signature,
-            blockhash: review.blockhash,
-            lastValidBlockHeight: review.lastValidBlockHeight,
-          },
-          "confirmed",
-        );
-        if (result.value.err)
-          throw Error("Transaction failed onchain. Check its receipt.");
-        await check(submitted);
+        // Confirm by polling signature status (and block height for expiry)
+        // through the app's RPC layer, which fails over between endpoints. A
+        // websocket subscription would depend on the public endpoint alone.
+        // check() throws if the transaction failed onchain or expired.
+        while (!(await check(submitted))) await new Promise((r) => setTimeout(r, 1500));
       }
     } catch (e) {
       setReview(null);

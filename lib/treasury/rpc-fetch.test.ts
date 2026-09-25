@@ -116,3 +116,134 @@ test("different accounts remain distinct and non-rate-limit errors remain intact
   assert.equal((await body(a)).error.message, "Account unavailable");
   assert.equal((await body(b)).id, 2);
 });
+
+// --- Failover across endpoints ---
+const A = "https://a.example", B = "https://b.example";
+function clock(start = 1_000_000) {
+  let t = start;
+  return { now: () => t, advance: (ms: number) => (t += ms) };
+}
+test("a rate-limited endpoint rests and the same request moves to the next one", async () => {
+  const c = clock(), hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return String(url) === A ? new Response("busy", { status: 429 }) : ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {} },
+  );
+  assert.equal((await body(await f(A, req("getSlot", 1)))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+  // While A rests, requests go straight to B.
+  await f(A, req("getSlot", 2));
+  assert.deepEqual(hits, [A, B, B]);
+  // After the cooldown A is preferred again.
+  c.advance(16_000);
+  await f(A, req("getSlot", 3)).catch(() => {});
+  assert.equal(hits[3], A);
+});
+test("network errors and server errors fail over too", async () => {
+  const c = clock(), hits: string[] = [];
+  let mode: "throw" | "500" = "throw";
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      if (String(url) === A) {
+        if (mode === "throw") throw new TypeError("Failed to fetch");
+        return new Response("oops", { status: 502 });
+      }
+      return ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {} },
+  );
+  await f(A, req("getBalance", 1, ["x"]));
+  c.advance(61_000);
+  mode = "500";
+  await f(A, req("getBalance", 2, ["y"]));
+  assert.deepEqual(hits, [A, B, A, B]);
+});
+test("a hung endpoint times out and the request moves on", async () => {
+  const hits: string[] = [];
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      if (String(url) === B) return Promise.resolve(ok());
+      return new Promise((_, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+      );
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 20, sleep: async () => {} },
+  );
+  assert.equal((await body(await f(A, req("getSlot", 1)))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+});
+test("Retry-After lengthens the rest", async () => {
+  const c = clock(), hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return String(url) === A ? new Response("busy", { status: 429, headers: { "retry-after": "45" } }) : ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {} },
+  );
+  await f(A, req("getSlot", 1));
+  c.advance(30_000); // past the 15 s base cooldown, still inside Retry-After
+  await f(A, req("getSlot", 2));
+  assert.deepEqual(hits, [A, B, B]);
+});
+test("a write tries each endpoint once, then reports busy", async () => {
+  const c = clock(), hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return new Response("busy", { status: 429 });
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {} },
+  );
+  await assert.rejects(f(A, req("sendTransaction", 1)), { message: RPC_BUSY });
+  assert.deepEqual(hits, [A, B]);
+});
+test("a read every endpoint refused waits once and retries them all", async () => {
+  const c = clock(), hits: string[] = [], waits: number[] = [];
+  let busy = true;
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return busy ? new Response("busy", { status: 429 }) : ok();
+    },
+    {
+      intervalMs: 0,
+      endpoints: [A, B],
+      now: c.now,
+      timeoutMs: 0,
+      sleep: async (ms) => {
+        waits.push(ms);
+        busy = false;
+      },
+    },
+  );
+  assert.equal((await body(await f(A, req("getSlot", 1)))).result, 42);
+  assert.deepEqual(waits, [4000]);
+  assert.deepEqual(hits, [A, B, A]);
+});
+test("a reply that stalls midway times out and the request moves on", async () => {
+  const hits: string[] = [];
+  const f = createRpcFetch(
+    async (url, init) => {
+      hits.push(String(url));
+      if (String(url) === B) return ok();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"jsonrpc":"2.0","res'));
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")));
+        },
+      });
+      return new Response(stream, { status: 200 });
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 30, sleep: async () => {} },
+  );
+  const [slot, sent] = await Promise.all([f(A, req("getSlot", 1)), f(A, req("sendTransaction", 2))]);
+  assert.equal((await body(slot)).result, 42);
+  assert.equal((await body(sent)).result, 42);
+  assert.deepEqual(hits, [A, B, B]);
+});
