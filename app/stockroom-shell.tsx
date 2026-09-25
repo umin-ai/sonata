@@ -57,7 +57,7 @@ const destinations = [
   ["/rewards", "Rewards", Gift],
   ["/activity", "Activity", Activity],
   ["/create", "Launch token", Plus],
-  ["/capital", "Treasury", Layers3],
+  ["/capital", "My tokens", Layers3],
   ["/ecosystem", "How it works", BookOpen],
 ] as const;
 function Navigation() {

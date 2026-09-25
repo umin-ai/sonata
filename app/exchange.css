@@ -392,3 +392,20 @@
 .sr-app .fees-withdraw{display:flex;gap:8px;flex:1;min-width:240px}
 /* The review window's headline amount: number, logo and ticker on one line. */
 .review-hero .review-amount{justify-content:flex-start;gap:6px 10px}
+/* My tokens (/capital): a summary of rows, then one compact card per token. */
+.sr-app .creator-summary{margin-bottom:20px}
+.sr-app .creator-amounts{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 12px}
+.sr-app .creator-amounts>span,.sr-app .creator-line strong{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.sr-app .creator-tokens{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));gap:16px;align-items:start}
+.sr-app .creator-token-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sr-app .creator-token-head .sr-token-name b{font-size:17px}
+.sr-app .creator-token-open{margin-left:auto;font-size:13px}
+.sr-app .creator-line{align-items:center;gap:10px}
+.sr-app .creator-line>strong{margin-left:auto;text-align:right}
+.sr-app .creator-line small{color:var(--muted-foreground);font-weight:400}
+.sr-app .creator-line-action{flex:none}
+.sr-app .creator-reserve{display:grid;gap:8px;padding-top:8px}
+.sr-app .creator-reserve>div{display:flex;gap:8px}
+.sr-app .creator-reserve input{min-width:0}
+.sr-app .creator-empty{display:grid;justify-items:start;gap:12px}
+@media(max-width:560px){.sr-app .creator-line{flex-wrap:wrap}.sr-app .creator-line>strong{flex:1;min-width:0}.sr-app .creator-line-action{flex-basis:100%}.sr-app .creator-line-action button{width:100%}.sr-app .creator-reserve>div{flex-wrap:wrap}.sr-app .creator-reserve>div>button{width:100%}}

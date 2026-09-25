@@ -176,7 +176,9 @@ export function FeesView({
               </Row>
             ))}
             <Row label="Split">Fixed at launch</Row>
-            {data?.migrated && <Row label="Creator's pool half">Creator claims it on Trade</Row>}
+            {data?.migrated && data.creatorPoolPercent > 0 && (
+              <Row label="Creator's pool share">{data.creatorPoolPercent}% · creator claims it on Trade</Row>
+            )}
           </div>
         </Card>
       </div>

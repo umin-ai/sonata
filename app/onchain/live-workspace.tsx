@@ -434,15 +434,14 @@ export function LivePortfolio() {
           </Card>
           <LiquidityPortfolio refreshToken={liquidityRefresh} />
           <Card className="sr-panel mt-6">
-            <h3>Use your creator revenue.</h3>
+            <h3>Your tokens&apos; fees</h3>
             <p className="sr-note">
-              Put your creator reserve into the ROOM / mSPY pool from the
-              Treasury page, where its trading fees compound.
+              What each token you launched has paid you, and what is waiting to claim.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button asChild variant="outline">
                 <Link href="/capital">
-                  Treasury
+                  My tokens
                   <ArrowUpRight />
                 </Link>
               </Button>

@@ -117,6 +117,9 @@ type CurveConfig = {
   poolFees: { baseFee: { cliffFeeNumerator: BN }; dynamicFee: { initialized: number } };
   migrationQuoteThreshold: BN;
   migrationFeeOption: number;
+  creatorPermanentLockedLiquidityPercentage: number;
+  creatorLiquidityPercentage: number;
+  creatorLiquidityVestingInfo: { vestingPercentage: number };
   migrationSqrtPrice: BN;
   sqrtStartPrice: BN;
   curve: { sqrtPrice: BN; liquidity: BN }[];
@@ -349,6 +352,12 @@ async function readGraduation(
     // held-back supply to Sonata's payout bot; the volatility fee is Meteora's dynamic fee.
     airdrop: config.leftoverReceiver.equals(pk(REWARDS_WALLET)),
     volatilityFee: config.poolFees.dynamicFee.initialized !== 0,
+    // The creator's share of the graduated pool's liquidity, in percent (older configs gave none),
+    // as lib/liquidity/creator-position.ts counts it.
+    creatorPoolPercent:
+      config.creatorPermanentLockedLiquidityPercentage +
+      config.creatorLiquidityPercentage +
+      config.creatorLiquidityVestingInfo.vestingPercentage,
     // The curve's trading fee in basis points (DBC fees are numerators over 1e9).
     tradingFeeBps: Number(config.poolFees.baseFee.cliffFeeNumerator.toString()) / 100_000,
   };
