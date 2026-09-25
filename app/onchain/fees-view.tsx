@@ -16,9 +16,10 @@ import {
   type Market,
   type TreasurySnapshot,
 } from "@/lib/treasury/runtime";
-import { nextRunText, sinceText } from "@/lib/treasury/payout-timing";
+import { sinceText } from "@/lib/treasury/payout-timing";
 import { formatUnits } from "@/lib/treasury/units";
 import { useLive } from "./live-session";
+import { PayoutTimer } from "./payout-timer";
 
 // What Sonata's payout bot has done for a reward token, as the indexer recorded it.
 type BotPayouts = {
@@ -168,25 +169,17 @@ export function FeesView({
             <Row label="Last collected">
               {!data ? "—" : data.lastClaimTs > 0 ? sinceText(data.lastClaimTs, data.fetchedAt) : "Not yet"}
             </Row>
-            <Row label="Auto payout">
-              {data ? `Every 15 min · next ${nextRunText(data.fetchedAt)} · nothing to claim` : "Every 15 min · nothing to claim"}
-            </Row>
             <Row label="Meteora's cut">20% of each fee</Row>
           </div>
-          {/* Optional: the bot does this every 15 minutes. It sends the pot to the split, not to whoever presses it. */}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!enabled || (ready <= 0n && waiting <= 0n) || !!poolError}
-            onClick={() => void execute(() => prepareTreasury("sync", address, market))}
-          >
-            Send payouts now (optional)
-          </Button>
-          <p className="sr-note fees-hint">
-            {reward
-              ? "Sends fees to Sonata's bot early · holders are paid on its own runs, not by this"
-              : "Sends the pot to the split early · pays only the payout wallet"}
-          </p>
+          {/* A countdown, not a claim button: Sonata's bot pays out every 15 minutes. */}
+          {data && !poolError && (
+            <PayoutTimer
+              fees={{ uncollected: ready, unallocated: waiting, lastClaimTs: data.lastClaimTs }}
+              stock={q}
+              sendDisabled={!enabled}
+              onSend={() => void execute(() => prepareTreasury("sync", address, market))}
+            />
+          )}
         </Card>
 
         <Card className="sr-panel">

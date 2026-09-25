@@ -409,3 +409,11 @@
 .sr-app .creator-reserve input{min-width:0}
 .sr-app .creator-empty{display:grid;justify-items:start;gap:12px}
 @media(max-width:560px){.sr-app .creator-line{flex-wrap:wrap}.sr-app .creator-line>strong{flex:1;min-width:0}.sr-app .creator-line-action{flex-basis:100%}.sr-app .creator-line-action button{width:100%}.sr-app .creator-reserve>div{flex-wrap:wrap}.sr-app .creator-reserve>div>button{width:100%}}
+/* Next payout countdown (Fees tab), in place of a send button. */
+.sr-app .payout-timer{display:grid;justify-items:center;gap:2px;padding:12px;border:1px solid var(--border);border-radius:10px;text-align:center}
+.sr-app .payout-timer>span{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground)}
+.sr-app .payout-timer>strong{font-size:26px;font-variant-numeric:tabular-nums;line-height:1.2}
+.sr-app .payout-timer>small{font-size:12px;color:var(--muted-foreground)}
+.sr-app .payout-timer>button{margin-top:4px;font-size:12px;background:none;border:0;cursor:pointer}
+.sr-app .creator-next{font-size:12px;color:var(--muted-foreground);white-space:nowrap}
+.sr-app .stock-floor .sr-text-link{background:none;border:0;padding:0;cursor:pointer;font:inherit}

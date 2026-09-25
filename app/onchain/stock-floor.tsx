@@ -19,7 +19,8 @@ import {
   pendingFloor,
 } from "@/lib/treasury/floor";
 import { PAYOUT_BOT_V2 } from "@/lib/features";
-import { nextRunText, sinceText } from "@/lib/treasury/payout-timing";
+import { sinceText } from "@/lib/treasury/payout-timing";
+import { usePayoutLine } from "./payout-timer";
 import { useLive } from "./live-context";
 
 // A Backed token's backing (the program's Stock Floor): its share of net trading
@@ -39,6 +40,9 @@ export function StockFloor({
 }) {
   const { address, busy, pending, execute } = useLive();
   const [amount, setAmount] = useState("");
+  const next = usePayoutLine(
+    data ? { uncollected: BigInt(data.uncollected), unallocated: BigInt(data.unallocated), lastClaimTs: data.lastClaimTs } : null,
+  );
   if (!hasFloor(market.mode) && !hasFloor(data?.mode)) return null;
   const floor = data ? BigInt(data.floor) : 0n,
     supply = data ? BigInt(data.baseSupply) : 0n;
@@ -97,27 +101,30 @@ export function StockFloor({
           <div className="sr-detail-row">
             <span>New fees</span>
             <strong>
-              {data.lastClaimTs > 0 ? `Added ${sinceText(data.lastClaimTs, data.fetchedAt)}` : "None yet"} · bot checks{" "}
-              {nextRunText(data.fetchedAt)}
+              {data.lastClaimTs > 0 ? `Added ${sinceText(data.lastClaimTs, data.fetchedAt)}` : "None yet"} · next check {next.when}
             </strong>
           </div>
         )
       ) : (
         toAdd > 0n && (
-          <div className="stock-floor-pending">
-            <span>
-              +{formatUnits(toAdd)} {quote} from new trades · the bot adds it {nextRunText(data!.fetchedAt)}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!enabled}
-              onClick={() =>
-                void execute(() => prepareTreasury("sync", address, market))
-              }
-            >
-              Add now (optional)
-            </Button>
+          <div className="sr-detail-row">
+            <span>New fees</span>
+            <strong>
+              +{formatUnits(toAdd)} {quote} · added {next.text}
+              {next.late && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    className="sr-text-link"
+                    disabled={!enabled}
+                    onClick={() => void execute(() => prepareTreasury("sync", address, market))}
+                  >
+                    bot late? add now
+                  </button>
+                </>
+              )}
+            </strong>
           </div>
         )
       )}

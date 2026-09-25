@@ -25,6 +25,7 @@ import {
   type TreasurySnapshot,
 } from "@/lib/treasury/runtime";
 import { formatUnits } from "@/lib/treasury/units";
+import { usePayoutLine } from "@/app/onchain/payout-timer";
 
 export type CreatorToken = {
   market: Market;
@@ -184,6 +185,9 @@ export function TokenCard({ token: t, viewer }: { token: CreatorToken; viewer: s
     e = t.earnings,
     m = t.market;
   const reward = isRewardMarket(m);
+  const next = usePayoutLine(
+    s ? { uncollected: BigInt(s.uncollected), unallocated: BigInt(s.unallocated), lastClaimTs: s.lastClaimTs } : null,
+  );
   const theirs = m.creator === viewer,
     mine = theirs && m.creator === address;
   return (
@@ -230,11 +234,14 @@ export function TokenCard({ token: t, viewer }: { token: CreatorToken; viewer: s
               </>
             }
             action={
-              e.waiting > 0n && (
+              e.waiting > 0n &&
+              (next.late ? (
                 <Button size="sm" variant="outline" disabled={!enabled} onClick={() => void execute(() => prepareTreasury("sync", address, m))}>
-                  Send now
+                  Bot late? Send now
                 </Button>
-              )
+              ) : (
+                <small className="creator-next">Paid out {next.text}</small>
+              ))
             }
           />
           {s.migrated && theirs && s.creatorPoolPercent > 0 && (
