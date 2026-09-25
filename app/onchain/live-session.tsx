@@ -500,20 +500,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             <>
               {review.redeem && (
                 <div className="review-facts">
-                  <div className="sr-detail-row">
-                    <span>You burn</span>
-                    <strong>
-                      {formatUnits(review.redeem.burn, 6)}{" "}
-                      <TokenName symbol={review.redeem.baseSymbol} />
-                    </strong>
-                  </div>
-                  <div className="sr-detail-row">
-                    <span>You receive</span>
-                    <strong>
-                      {formatUnits(review.redeem.payout)}{" "}
-                      <TokenName symbol={quoteSymbol} />
-                    </strong>
-                  </div>
+                  <Fact label="You burn" value={<Amount atoms={review.redeem.burn} decimals={6} symbol={review.redeem.baseSymbol} />} />
+                  <Fact label="You receive" value={<Amount atoms={review.redeem.payout} decimals={8} symbol={quoteSymbol} />} />
+                  <Fact label="Your share" value="Backing × tokens burned ÷ total supply" />
+                  <Fact label="Other holders" value="Their share per token stays the same" />
                 </div>
               )}
               {!review.liquidity &&
@@ -662,7 +652,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   <Fact label="Your wallet" value="No tokens move · network fee only" />
                 </div>
               )}
-              {!review.liquidity && !review.graduation && !review.payout && (
+              {!review.liquidity && !review.graduation && !review.payout && !review.redeem && (
               <p className="sr-note">
                 {review.rewards
                   ? "Only the named recipient can claim each fixed allocation, once. This is funded mock stock, not a promised investment return."
