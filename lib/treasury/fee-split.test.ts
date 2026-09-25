@@ -69,15 +69,23 @@ test("pressing collect is not a claim: a Standard token pays only its payout wal
 
 test("Backed holders get no payout, only a bigger backing", () => {
   assert.equal(yourShare(ctx({ mode: "standardFloor", held: 1n })).yours, true);
-  assert.equal(yourShare(ctx({ mode: "standardFloor" })).yours, false);
+  assert.equal(yourShare(ctx({ mode: "standardFloor" })).text, "None · hold the token to own part of the backing");
+});
+
+test("a creator paid into another wallet is told where their share goes", () => {
+  const r = yourShare(ctx({ wallet: "Creator", payoutOwner: "Payout1234567" }));
+  assert.equal(r.text, "50% to your payout wallet Payo…4567");
+  assert.equal(r.yours, true);
 });
 
 test("holder modules: at least 0.01% of the supply, creator left out", () => {
   const r = { reward: true, payoutOwner: "Bot" };
-  assert.equal(yourShare(ctx({ ...r, held: 100n })).text, "As a holder, by your share of tokens");
+  assert.equal(yourShare(ctx({ ...r, held: 100n })).text, "As a holder (top 200), by your share of tokens");
+  assert.equal(yourShare(ctx({ ...r, held: 100n, canReceive: false, stock: "mQQQ" })).text, "None · the bot pays only wallets with a mQQQ account");
+  assert.equal(yourShare(ctx({ ...r, feeModel: "lpFarm", wallet: "Creator", held: 500n, lpPhase: true })).text, "None · the creator's wallet is left out");
   assert.equal(yourShare(ctx({ ...r, held: 99n })).text, "None · you hold under 0.01% of the supply");
   assert.equal(yourShare(ctx({ ...r, wallet: "Creator", held: 500n })).yours, false);
-  assert.equal(yourShare(ctx({ ...r, feeModel: "diamond", held: 500n })).text, "As a holder, weighted by how long you've held");
+  assert.equal(yourShare(ctx({ ...r, feeModel: "diamond", held: 500n })).text, "As a holder (top 200), weighted by how long you've held");
   assert.equal(yourShare(ctx({ ...r, feeModel: "lpFarm", held: 500n, lpPhase: true })).text, "Only as a liquidity provider in the pool");
   assert.equal(yourShare(ctx({ ...r, feeModel: "buyback", held: 500n })).yours, false);
   assert.equal(yourShare(ctx({ ...r, feeModel: "split", splitRecipients: [{ wallet: "Me", weight: 1 }, { wallet: "X", weight: 3 }] })).text, "13% · via Sonata's bot");

@@ -84,13 +84,16 @@ export function FeesView({
   quote: q,
   feeModel: profileModel,
   held,
+  hasQuote,
 }: {
   market: Market;
   data: TreasurySnapshot | null;
   quote: string;
   feeModel?: string;
-  /** The connected wallet's balance of the token, in base atoms. */
+  /** The connected wallet's balance of the token, in base atoms (undefined while it loads). */
   held?: string;
+  /** Whether the connected wallet has a token account for the stock. */
+  hasQuote?: boolean;
 }) {
   const { address, busy, pending, revision, execute } = useLive();
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -107,8 +110,10 @@ export function FeesView({
   const ready = data ? BigInt(data.uncollected) : 0n,
     waiting = data ? BigInt(data.unallocated) : 0n;
   // Collecting pays the split, never whoever presses the button: say who this wallet is in it.
+  // Computed only once its inputs have loaded, so nobody is told "None" while balances are read.
+  const inputsReady = held !== undefined && (!reward || model !== "split" || !!bot);
   const mine =
-    address && data
+    address && data && inputsReady
       ? yourShare({
           wallet: address,
           creator: market.creator,
@@ -118,10 +123,21 @@ export function FeesView({
           feeModel: model,
           held: BigInt(held ?? "0"),
           supply: BigInt(data.baseSupply),
-          lpPhase: bot?.status === "lps" || data.migrated,
+          lpPhase: bot?.status === "lps",
           splitRecipients: bot?.recipients,
+          canReceive: hasQuote,
+          stock: q,
         })
       : null;
+  // After graduation the creator also earns on their own locked pool share, claimed on Trade.
+  const creatorPool = !!data?.migrated && (data?.creatorPoolPercent ?? 0) > 0 && address === market.creator;
+  const shareText = !address
+    ? "Connect a wallet to see"
+    : !mine
+      ? "Checking…"
+      : creatorPool
+        ? `${mine.yours ? mine.text : "None from these fees"} · plus your ${data!.creatorPoolPercent}% pool share, claim on Trade`
+        : mine.text;
 
   return (
     <>
@@ -137,7 +153,7 @@ export function FeesView({
                   ? "Meteora pool · Sonata's locked half"
                   : `Bonding curve · ${Number((data.tradingFeeBps / 100).toFixed(2))}% fee`}
             </Row>
-            <Row label="Your share">{mine ? mine.text : "Connect a wallet to see"}</Row>
+            <Row label="Your share">{shareText}</Row>
             <Row label="Waiting to pay out" tone={poolError ? "warn" : undefined}>
               {poolError ? "Can't read the pool right now" : <Stock atoms={data?.uncollected} quote={q} />}
             </Row>
@@ -146,10 +162,10 @@ export function FeesView({
                 <Stock atoms={waiting} quote={q} />
               </Row>
             )}
-            <Row label="Paid out so far">
+            <Row label="Collected so far">
               <Stock atoms={data?.claimed} quote={q} />
             </Row>
-            <Row label="Last paid out">
+            <Row label="Last collected">
               {!data ? "—" : data.lastClaimTs > 0 ? sinceText(data.lastClaimTs, data.fetchedAt) : "Not yet"}
             </Row>
             <Row label="Auto payout">
@@ -166,7 +182,11 @@ export function FeesView({
           >
             Send payouts now (optional)
           </Button>
-          <p className="sr-note fees-hint">Sends the pot to the split early · pays you only if you&apos;re in it</p>
+          <p className="sr-note fees-hint">
+            {reward
+              ? "Sends fees to Sonata's bot early · holders are paid on its own runs, not by this"
+              : "Sends the pot to the split early · pays only the payout wallet"}
+          </p>
         </Card>
 
         <Card className="sr-panel">

@@ -282,7 +282,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       {walletError && <p className="swap-hint" data-tone="error">{walletError}</p>}
       </div></div>}
       {/* What this market has earned, where it goes and what is held: rows, one Collect button. */}
-      {view === "fees" && <FeesView market={market} data={data} quote={q} feeModel={tokenProfile?.feeModel} held={balances?.base} />}
+      {view === "fees" && <FeesView market={market} data={data} quote={q} feeModel={tokenProfile?.feeModel} held={balances?.base} hasQuote={balances?.hasQuote} />}
       {view === "history" && <Card className="sr-panel">
         <div className="sr-section-top">
           <div>

@@ -79,26 +79,36 @@ export type ShareContext = {
   lpPhase?: boolean;
   /** Split module: the creator's chosen wallets and their weights. */
   splitRecipients?: { wallet: string; weight: number }[];
+  /** Whether the wallet has a token account for the stock: the bot pays holders only into an existing one. */
+  canReceive?: boolean;
+  /** The stock's symbol, for the text. */
+  stock?: string;
 };
 
 /**
  * Whether the connected wallet gets anything from this token's fees, and how,
  * in a few words: collecting fees (by anyone) never pays the person who
- * presses the button, only the shares below. Mirrors the payout bot's rules:
- * holder modules pay holders of at least 0.01% of the supply, the creator's
- * own wallet is left out, and LP Farm pays liquidity providers after graduation.
+ * presses the button, only the shares below. Follows the payout bot's rules
+ * (indexer/modules/holders.mjs, lp-farm.mjs): holder modules pay up to 200
+ * holders of at least 0.01% of the supply who have an account for the stock,
+ * the creator's own wallet is left out, and LP Farm pays liquidity providers
+ * once the bot has switched to them. The balance is one token account's, and
+ * the bot sums all of a wallet's accounts, so this can understate a share.
  */
 export function yourShare(c: ShareContext): { text: string; yours: boolean } {
   const shares = feeSplit(c.mode, { reward: c.reward, feeModel: c.feeModel });
   const pct = (to: FeeShare["to"]) => shares.find((s) => s.to === to)?.percent ?? 0;
   const none = (why: string) => ({ text: `None · ${why}`, yours: false });
+  const backed = c.mode === "floor" || c.mode === "standardFloor";
   if (!c.reward) {
     const parts = [];
     if (c.payoutOwner === c.wallet) parts.push(`${pct("creator")}% to your wallet`);
+    else if (c.creator === c.wallet)
+      parts.push(`${pct("creator")}% to your payout wallet ${c.payoutOwner.slice(0, 4)}…${c.payoutOwner.slice(-4)}`);
     if (c.creator === c.wallet && c.mode === "duet") parts.push(`${pct("reserve")}% to your reserve`);
     if (parts.length) return { text: parts.join(" · "), yours: true };
-    if ((c.mode === "floor" || c.mode === "standardFloor") && c.held > 0n)
-      return { text: "No payout · it adds to the backing under your tokens", yours: true };
+    if (backed && c.held > 0n) return { text: "No payout · it adds to the backing under your tokens", yours: true };
+    if (backed) return none("hold the token to own part of the backing");
     return none("this token pays its creator, not holders");
   }
   const model = c.feeModel ?? "holders";
@@ -115,12 +125,16 @@ export function yourShare(c: ShareContext): { text: string; yours: boolean } {
     return creatorOut
       ? none("the creator is left out")
       : { text: "Only if you're a top 3 net buyer this round", yours: false };
-  if (model === "lpFarm" && c.lpPhase) return { text: "Only as a liquidity provider in the pool", yours: false };
   if (creatorOut) return none("the creator's wallet is left out");
+  if (model === "lpFarm" && c.lpPhase) return { text: "Only as a liquidity provider in the pool", yours: false };
   if (c.held <= 0n) return none("hold the token to earn");
   if (c.supply > 0n && c.held * 10_000n < c.supply) return none("you hold under 0.01% of the supply");
+  if (c.canReceive === false) return none(`the bot pays only wallets with a ${c.stock ?? "stock"} account`);
   return {
-    text: model === "diamond" ? "As a holder, weighted by how long you've held" : "As a holder, by your share of tokens",
+    text:
+      model === "diamond"
+        ? "As a holder (top 200), weighted by how long you've held"
+        : "As a holder (top 200), by your share of tokens",
     yours: true,
   };
 }

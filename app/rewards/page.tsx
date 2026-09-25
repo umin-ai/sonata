@@ -344,7 +344,7 @@ function YourRewards({ overview, refresh }: { overview?: Overview; refresh: stri
           ) : !wallet.payouts || !overview ? (
             <p className="sr-note">Reading your payouts…</p>
           ) : !wallet.payouts.length ? (
-            <p className="sr-note">Nothing paid to this wallet yet. Hold a Reward token and the bot pays you every 15 minutes.</p>
+            <p className="sr-note">Nothing paid to this wallet yet. Reward tokens pay holders of at least 0.01% of the supply (not the token&apos;s creator) every 15 minutes.</p>
           ) : (
             <>
               {!!totals.length && (
@@ -490,7 +490,7 @@ export default function RewardsPage() {
         <div>
           <span className="sr-eyebrow">SONATA / REWARDS</span>
           <h1>Rewards</h1>
-          <p>Hold tokens, earn stocks. Sonata&apos;s payout bot pays every 15 minutes, in the stock each token trades against.</p>
+          <p>Hold Reward tokens, earn stocks. Sonata&apos;s payout bot pays every 15 minutes, in the stock each token trades against.</p>
         </div>
         <Button variant="outline" disabled={loading} onClick={() => setNonce((n) => n + 1)}>
           <RefreshCw className={loading ? "animate-spin" : ""} />
