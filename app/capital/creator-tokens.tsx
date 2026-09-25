@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { findCreatorPosition, prepareCreatorClaim, type CreatorPositionRead } from "@/lib/liquidity/creator-position";
 import { prepareReserveDeployment } from "@/lib/liquidity/runtime";
 import { tokenEarnings, type TokenEarnings } from "@/lib/treasury/creator-earnings";
-import { BOT_SHARE_LABEL } from "@/lib/treasury/fee-split";
+import { BOT_SHARE_LABEL, launchedAs } from "@/lib/treasury/fee-split";
 import { formatProgress } from "@/lib/treasury/graduation";
 import { REWARDS_MINT, quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import {
@@ -142,17 +142,7 @@ export function useCreatorTokens(address: string) {
 
 // The token's type, as chosen at launch.
 function typeLabel(t: CreatorToken) {
-  const mode = t.state?.mode ?? t.market.mode;
-  if (isRewardMarket(t.market)) return `Reward · ${BOT_SHARE_LABEL[t.market.feeModel ?? ""] ?? "Holder rewards"}`;
-  return mode === "standardFloor"
-    ? "Backed"
-    : mode === "standard"
-      ? "Standard"
-      : mode === "refrain"
-        ? "Keep all (older)"
-        : mode === "duet"
-          ? "Reserve (older)"
-          : "Backed (older)";
+  return launchedAs(t.state?.mode ?? t.market.mode ?? "standard", isRewardMarket(t.market), t.market.feeModel);
 }
 
 function Line({ label, value, action }: { label: string; value: ReactNode; action?: ReactNode }) {
@@ -210,7 +200,7 @@ export function TokenCard({ token: t, viewer }: { token: CreatorToken; viewer: s
         <Line label="Status" value={t.error ?? "Reading…"} />
       ) : (
         <div>
-          <Line label="Type" value={typeLabel(t)} />
+          <Line label="Launched as" value={typeLabel(t)} />
           <Line
             label="Your share"
             value={

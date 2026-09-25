@@ -179,7 +179,7 @@ export function StockroomShell({
       ? "Market detail"
       : path === "/create"
         ? "Launch token"
-        : (destinations.find(([url]) => url === path)?.[1] ?? "Workspace");
+        : (destinations.find(([url]) => url === path)?.[1] ?? "Markets");
   return (
     <div className="sr-app" data-demo-ready={ready ? "true" : "false"}>
       <SidebarProvider open={true} style={{ "--sidebar-width": "14rem" } as React.CSSProperties}>

@@ -90,3 +90,13 @@ test("holder modules: at least 0.01% of the supply, creator left out", () => {
   assert.equal(yourShare(ctx({ ...r, feeModel: "buyback", held: 500n })).yours, false);
   assert.equal(yourShare(ctx({ ...r, feeModel: "split", splitRecipients: [{ wallet: "Me", weight: 1 }, { wallet: "X", weight: 3 }] })).text, "13% · via Sonata's bot");
 });
+
+import { launchedAs } from "./fee-split.ts";
+test("launchedAs names the launch choice", () => {
+  assert.equal(launchedAs("standard", true, "holders"), "Reward token · Holder rewards");
+  assert.equal(launchedAs("standard", true), "Reward token · Holder rewards");
+  assert.equal(launchedAs("standard", true, "buyback"), "Standard token · fee module: Buyback & burn");
+  assert.equal(launchedAs("standard", false, "standard"), "Standard token · creator keeps the share");
+  assert.equal(launchedAs("standardFloor", false, "backed"), "Backed token");
+  assert.equal(launchedAs("duet", false), "Reserve (older demo)");
+});

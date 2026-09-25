@@ -6,7 +6,7 @@ import { TokenName } from "@/app/token-identity";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { feeSplit, redeemed, yourShare, BOT_SHARE_LABEL } from "@/lib/treasury/fee-split";
+import { feeSplit, launchedAs, redeemed, yourShare, BOT_SHARE_LABEL } from "@/lib/treasury/fee-split";
 import { REWARDS_MINT } from "@/lib/treasury/quote-assets";
 import {
   explorer,
@@ -147,6 +147,7 @@ export function FeesView({
           <span className="sr-eyebrow">FEES</span>
           <h3>Trading fees</h3>
           <div>
+            <Row label="Launched as">{launchedAs(mode, reward, reward ? model : (profileModel ?? market.feeModel))}</Row>
             <Row label="Earned in">
               {!data
                 ? "—"

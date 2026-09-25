@@ -138,3 +138,37 @@ export function yourShare(c: ShareContext): { text: string; yours: boolean } {
     yours: true,
   };
 }
+
+// Fee module names as the launch page shows them.
+export const MODULE_NAME: Record<string, string> = {
+  holders: "Holder rewards",
+  buyback: "Buyback & burn",
+  topBuyers: "Top Buyer Bounty",
+  lpFarm: "LP Farm",
+  split: "Split",
+  diamond: "Diamond Hands",
+};
+
+/**
+ * What the token was launched as, in the launch page's words: a Reward token
+ * (holders paid), a Standard token (the creator keeps its share, or sends it
+ * to a fee module), a Backed token, or one of the older demo modes.
+ */
+export function launchedAs(mode: TreasuryMode, reward: boolean, feeModel?: string) {
+  if (reward)
+    return !feeModel || feeModel === "holders"
+      ? "Reward token · Holder rewards"
+      : `Standard token · fee module: ${MODULE_NAME[feeModel] ?? feeModel}`;
+  switch (mode) {
+    case "standard":
+      return "Standard token · creator keeps the share";
+    case "standardFloor":
+      return "Backed token";
+    case "refrain":
+      return "Keep all (older demo)";
+    case "duet":
+      return "Reserve (older demo)";
+    case "floor":
+      return "Backed (older demo)";
+  }
+}
