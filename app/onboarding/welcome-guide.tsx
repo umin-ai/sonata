@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeftRight, Coins, Compass, Rocket, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, Coins, Compass, Map as MapIcon, Rocket, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { BrandMark } from "@/app/stockroom-brand";
@@ -16,7 +16,7 @@ export const GUIDES = {
     sub: "Here's what you can do",
     steps: [
       { icon: Compass, title: "Pick a market", line: "Every token trades against a stock" },
-      { icon: ArrowLeftRight, title: "Buy or sell", line: "Pay with mSPY, mQQQ and more" },
+      { icon: ArrowLeftRight, title: "Buy or sell", line: "Pay with SPYx, NVDAx and more" },
       { icon: Coins, title: "Earn in stock", line: "Fees paid out every 15 min" },
       { icon: Rocket, title: "Launch your own", line: "Name, ticker, stock. Go" },
     ],
@@ -48,34 +48,43 @@ function StepBody({ step, n }: { step: Step; n: number }) {
 }
 
 /**
- * A welcome guide for a page: shown once per browser (remembered in
- * localStorage; ?guide=1 shows it again), closed with OK!.
+ * A page's welcome guide, opened from a "Quick tour" button (never on its
+ * own; ?guide=1 opens it on load, for demos) and closed with OK!. The button
+ * shows a dot until the guide has been seen once in this browser.
  */
 export function WelcomeGuide({ page }: { page: GuidePage }) {
   const force = useSearchParams().get("guide") === "1";
   const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState(true);
   useEffect(() => {
-    let seen = false;
-    try {
-      seen = localStorage.getItem(seenKey(page)) === "1";
-    } catch {
-      // No storage (private window): show it, and it stays closed for this visit once dismissed.
-    }
-    if (seen && !force) return;
-    const timer = setTimeout(() => setOpen(true), 350);
+    const timer = setTimeout(() => {
+      try {
+        setSeen(localStorage.getItem(seenKey(page)) === "1");
+      } catch {
+        // No storage (private window): no dot.
+      }
+      if (force) setOpen(true);
+    }, 0);
     return () => clearTimeout(timer);
   }, [page, force]);
-  const close = () => {
-    setOpen(false);
+  const show = () => {
+    setOpen(true);
+    setSeen(true);
     try {
       localStorage.setItem(seenKey(page), "1");
     } catch {
-      // Not remembered; it shows again next visit.
+      // Not remembered; the dot shows again next visit.
     }
   };
   const g = GUIDES[page];
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && close()}>
+    <>
+    <button type="button" className="guide-launch" onClick={show} aria-label="Quick tour of this page">
+      <MapIcon size={16} aria-hidden />
+      Quick tour
+      {!seen && <i className="guide-dot" aria-hidden />}
+    </button>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="guide-dialog sm:max-w-[640px]">
         <DialogTitle className="guide-title">{g.title}</DialogTitle>
         <DialogDescription className="guide-sub">{g.sub}</DialogDescription>
@@ -115,9 +124,10 @@ export function WelcomeGuide({ page }: { page: GuidePage }) {
 
         <div className="guide-foot">
           <small>Solana Devnet · test tokens, no value</small>
-          <Button onClick={close}>OK!</Button>
+          <Button onClick={() => setOpen(false)}>OK!</Button>
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
