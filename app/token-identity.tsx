@@ -66,7 +66,7 @@ export function TokenName({
 }) {
   const logo =
     symbol === "ROOM"
-      ? "/favicon.svg"
+      ? "/token-logos/ROOM.svg"
       : stockLogos[symbol]
         ? `/token-logos/${stockLogos[symbol]}.png`
         : remoteLogos[symbol];
