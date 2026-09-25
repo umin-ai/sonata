@@ -142,7 +142,7 @@ export function FeesView({
               {!data ? "—" : data.lastClaimTs > 0 ? since(data.lastClaimTs, data.fetchedAt) : "Not yet"}
             </Row>
             <Row label="Auto payout">{data ? `Every 15 min · next ${nextRun(data.fetchedAt)}` : "Every 15 min"}</Row>
-            <Row label="Meteora keeps">20% of each fee</Row>
+            <Row label="Meteora's cut">20% of each fee</Row>
           </div>
           <Button
             disabled={!enabled || (ready <= 0n && waiting <= 0n) || !!poolError}
@@ -176,7 +176,7 @@ export function FeesView({
               </Row>
             ))}
             <Row label="Split">Fixed at launch</Row>
-            {data?.migrated && <Row label="Creator's pool half">Claimed by the creator</Row>}
+            {data?.migrated && <Row label="Creator's pool half">Creator claims it on Trade</Row>}
           </div>
         </Card>
       </div>

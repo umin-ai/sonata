@@ -102,7 +102,7 @@ const SHAPES: [CurveShape, string, string][] = [
   ["whaleWall", "Whale wall", "Big early buys barely move it, then it sprints; the thinnest pool."],
 ];
 
-// Per $1,000 traded: Meteora keeps 20% of the fee. Of the rest, half goes to the
+// Per $1,000 traded: Meteora takes 20% of the fee (a fifth of it back to Sonata as referrer on site swaps). Of the rest, half goes to the
 // creator and half to Sonata; with the Stock Floor, the creator's half is split
 // with the floor.
 export function perThousand(feeBps: number, floor: boolean) {
@@ -780,7 +780,7 @@ export function LiveLaunch() {
           ))}
         </div>
         <p className="sr-note">
-          On every buy and sell: 40% to your fee model, 40% to Sonata, 20% to Meteora. No transfer tax. After
+          On every buy and sell: 40% to your fee model, 40% to Sonata, 20% to Meteora (on trades made here, a fifth of that comes back to Sonata as referrer; your 40% never changes). No transfer tax. After
           graduation: a 1% pool fee, a little more on fast moves (Meteora&apos;s own volatility fee, on every graduated
           pool), and half the locked pool is yours
           {PAYOUT_BOT_V2 ? "; the fees from Sonata's half are split like the fees above" : ""}.

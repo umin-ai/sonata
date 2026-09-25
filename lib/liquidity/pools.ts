@@ -988,7 +988,15 @@ export async function preparePoolSwap(
     amountIn: new L.BN(raw.toString()),
     minimumAmountOut: new L.BN(q.minimum.toString()),
     ...tokenAccounts(s),
-    referralTokenAccount: null,
+    // Sonata as referrer (runtime.ts sonataReferral). Graduated pools collect fees in
+    // the stock (token B); a pool that takes a buy's fee in the token gets none.
+    referralTokenAccount: L.cp.getFeeMode(
+      s.collectFeeMode,
+      side === "buy" ? L.cp.TradeDirection.BtoA : L.cp.TradeDirection.AtoB,
+      true,
+    ).feesOnTokenA
+      ? null
+      : await L.runtime.sonataReferral(s.tokenBMint),
     poolState: s,
   });
   tx.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));

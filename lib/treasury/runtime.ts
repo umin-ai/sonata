@@ -29,7 +29,8 @@ import { standardConfigProblem, type StandardConfigFields } from "./standard";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { buyOut, graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl, type FeeModel } from "../token-profile";
-// Of the net fees the treasury claims (80% of the trading fee; Meteora keeps 20%):
+// Of the net fees the treasury claims (80% of the trading fee; Meteora takes 20%, and
+// pays a fifth of that to Sonata as referrer on swaps this site builds):
 // "standard": 50% to the creator's payout wallet, 50% to Sonata. New launches.
 // "standardFloor": 25% creator, 25% Stock Floor, 50% Sonata. New launches with a floor.
 // "refrain": 100% to the payout wallet.
@@ -524,6 +525,29 @@ function vaultAdmin() {
     });
   return adminCache;
 }
+// Meteora pays a swap's referrer 20% of its protocol fee (4% of the whole fee),
+// in the stock, out of Meteora's own cut: the trader and the fee split are
+// unchanged. Swaps built on this site name Sonata's platform wallet (the Vault
+// admin) as referrer, through its token account for the stock, which also takes
+// Sonata's share of distributions. Meteora requires that account to exist and
+// hold that stock, or the whole swap fails, so anything else means no referrer.
+const referrals = new Map<string, PublicKey>();
+export async function sonataReferral(quoteMint: PublicKey): Promise<PublicKey | null> {
+  const hit = referrals.get(quoteMint.toBase58());
+  if (hit) return hit;
+  try {
+    const account = getAssociatedTokenAddressSync(quoteMint, await vaultAdmin(), false, TOKEN_2022_PROGRAM_ID);
+    const info = await connection.getAccountInfo(account, "confirmed");
+    if (!info?.owner.equals(TOKEN_2022_PROGRAM_ID)) return null;
+    const token = unpackAccount(account, info, TOKEN_2022_PROGRAM_ID);
+    if (!token.mint.equals(quoteMint) || token.isFrozen) return null;
+    // Only a usable account is remembered, so one created later is picked up.
+    referrals.set(quoteMint.toBase58(), account);
+    return account;
+  } catch {
+    return null;
+  }
+}
 export async function prepareTreasury(
   action: TreasuryAction,
   wallet: string,
@@ -926,7 +950,11 @@ async function curveQuote(side: TradeSide, raw: bigint, market: Market) {
     mode,
     out: BigInt(quote.outputAmount.toString()),
     minimum,
-    fee: BigInt(quote.tradingFee.toString()) + BigInt(quote.protocolFee.toString()),
+    // The whole fee the trader pays, however Meteora splits its own cut with a referrer.
+    fee:
+      BigInt(quote.tradingFee.toString()) +
+      BigInt(quote.protocolFee.toString()) +
+      BigInt(quote.referralFee?.toString() ?? "0"),
     /** The input actually used, fee included: less than `raw` when a buy completes the curve. */
     used: BigInt(quote.includedFeeInputAmount.toString()),
     // DBC fees are numerators over 1e9.
@@ -966,7 +994,8 @@ export async function prepareTrade(
     owner,
     pool: pk(market.pool),
     swapBaseForQuote: side === "sell",
-    referralTokenAccount: null,
+    // Sonata's collect mode is the stock (standard.ts), so buys and sells both pay it in the stock.
+    referralTokenAccount: await sonataReferral(pk(market.quoteMint)),
     swapMode: quote.mode,
     amountIn: new BN(raw.toString()),
     minimumAmountOut: new BN(quote.minimum.toString()),
@@ -1319,7 +1348,7 @@ export async function prepareLaunch(
   const devBuyAtoms =
     curve.devBuy && curve.devBuy > 0 ? BigInt(Math.round(curve.devBuy * 10 ** asset.decimals)) : 0n;
   let firstBuyParam:
-    | { buyer: PublicKey; buyAmount: BN; minimumAmountOut: BN; referralTokenAccount: null }
+    | { buyer: PublicKey; buyAmount: BN; minimumAmountOut: BN; referralTokenAccount: PublicKey | null }
     | undefined;
   let devBuy: PreparedTreasury["devBuy"];
   if (devBuyAtoms > 0n) {
@@ -1346,7 +1375,7 @@ export async function prepareLaunch(
       buyAmount: new BigNumber(devBuyAtoms.toString()),
       // Nothing trades before this buy, so the quote is exact; 0.5% covers rounding.
       minimumAmountOut: new BigNumber(((quote.out * 995n) / 1000n).toString()),
-      referralTokenAccount: null,
+      referralTokenAccount: await sonataReferral(quoteMint),
     };
     devBuy = { quoteAmount: String(curve.devBuy), quote: asset.symbol, tokens: quote.out.toString(), percent };
   }
