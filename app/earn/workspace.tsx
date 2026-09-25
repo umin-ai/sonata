@@ -373,7 +373,7 @@ function PositionItem({ pool, position: p }: { pool: GraduatedPool; position: Po
       )}
       {pool.lpFeePercent > 0 && (
       <div className="sr-detail-row">
-        <span>Unclaimed fees</span>
+        <span>Unclaimed stock fees</span>
         <strong>
           {hasFees ? (
             <>
@@ -577,8 +577,8 @@ function PoolDetail({
 
 type Network = "mainnet" | "devnet";
 const NETWORKS = [
-  ["mainnet", "Mainnet"],
   ["devnet", "Devnet (our demo)"],
+  ["mainnet", "Mainnet"],
 ] as const;
 
 export function LiquidityWorkspace() {
@@ -587,18 +587,18 @@ export function LiquidityWorkspace() {
   const positions = usePositions(address, list);
   const params = useSearchParams();
   const wanted = params.get("pool");
-  // A link to one of Sonata's own pools (?pool=), or ?net=devnet, opens on Devnet.
+  // Opens on Devnet, where Sonata's own pools are; ?net=mainnet opens the live Mainnet list.
   const [network, setNetwork] = useState<Network>(() =>
-    wanted || params.get("net") === "devnet" ? "devnet" : "mainnet",
+    !wanted && params.get("net") === "mainnet" ? "mainnet" : "devnet",
   );
   const mainnet = useMainnetPools(network === "mainnet");
   // The tab is kept in the address, so a reload or a shared link opens the same one.
   function pickNetwork(next: Network) {
     setNetwork(next);
     const url = new URL(window.location.href);
-    if (next === "devnet") url.searchParams.set("net", "devnet");
+    if (next === "devnet") url.searchParams.delete("net");
     else {
-      url.searchParams.delete("net");
+      url.searchParams.set("net", "mainnet");
       url.searchParams.delete("pool");
     }
     window.history.replaceState(window.history.state, "", url);

@@ -88,7 +88,7 @@ export function CreatorPosition({
         pool&apos;s trading fees forever
       </span>
       <div className="sr-detail-row">
-        <span>Unclaimed fees</span>
+        <span>Unclaimed stock fees</span>
         <strong>
           {formatUnits(b, market.quoteDecimals)} <TokenName symbol={quote} />
           {a > 0n && (
