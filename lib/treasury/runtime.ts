@@ -208,6 +208,13 @@ export async function readTreasury(market: Market = exportsMarket) {
     custody.amount < unallocated + available
   )
     throw Error("Treasury accounting does not reconcile.");
+  const graduation = await readGraduation(pool, config, market, baseSupply);
+  const poolFees =
+    pool.isMigrated !== 0 && graduation.dammPool
+      ? await readPoolFees(market, graduation.dammPool).catch((e) => ({
+          error: e instanceof Error ? e.message : "Pool fees unavailable",
+        }))
+      : null;
   return {
     slot: result.context.slot,
     fetchedAt: Date.now(),
@@ -228,9 +235,59 @@ export async function readTreasury(market: Market = exportsMarket) {
     // in standardFloor is counted as retained and withdrawn at once).
     floor: hasFloor(mode) ? available.toString() : "0",
     baseSupply: baseSupply.toString(),
-    ...(await readGraduation(pool, config, market, baseSupply)),
+    ...graduation,
+    // After graduation the curve earns nothing more; Sonata's locked half of
+    // the pool earns the fees instead, and "uncollected" is what it holds now.
+    ...(poolFees && "quote" in poolFees ? { uncollected: poolFees.quote } : {}),
+    poolFees,
   };
 }
+// The Sonata Vault's locked position in each graduated DAMM v2 pool. Its
+// address never changes, so the Vault's position NFTs are listed once per
+// session; each read then fetches only the pool and the position.
+const vaultPositions = new Map<string, Promise<{ position: PublicKey; positionNftAccount: PublicKey } | null>>();
+/**
+ * What claim_graduated needs for a graduated market, and the fees Sonata's
+ * locked position has earned but not yet moved into the treasury (quote and
+ * base atoms; the pool collects its fees in the stock, so base stays 0).
+ */
+async function readPoolFees(market: Market, dammPool: string) {
+  const cp = await import("@meteora-ag/cp-amm-sdk");
+  const amm = new cp.CpAmm(connection);
+  let found = vaultPositions.get(dammPool);
+  if (!found) {
+    found = amm.getPositionsByUser(pk(market.vault)).then((list) => {
+      const inPool = list.filter((p) => p.positionState.pool.toBase58() === dammPool);
+      inPool.sort((a, b) => b.positionState.permanentLockedLiquidity.cmp(a.positionState.permanentLockedLiquidity));
+      return inPool[0] ? { position: inPool[0].position, positionNftAccount: inPool[0].positionNftAccount } : null;
+    });
+    vaultPositions.set(dammPool, found);
+  }
+  const at = await found.catch(() => null);
+  if (!at) {
+    vaultPositions.delete(dammPool);
+    throw Error("Sonata's locked position in the pool was not found");
+  }
+  const [state, position] = await Promise.all([
+    amm.fetchPoolState(pk(dammPool)),
+    amm.fetchPositionState(at.position),
+  ]);
+  if (state.tokenAMint.toBase58() !== market.baseMint || state.tokenBMint.toBase58() !== market.quoteMint)
+    throw Error("The graduated pool does not hold this market's tokens");
+  if (!position.pool.equals(pk(dammPool))) throw Error("Sonata's position is not in this pool");
+  const fees = cp.getUnClaimLpFee(state, position);
+  return {
+    dammPool,
+    position: at.position.toBase58(),
+    positionNftAccount: at.positionNftAccount.toBase58(),
+    tokenAVault: state.tokenAVault.toBase58(),
+    tokenBVault: state.tokenBVault.toBase58(),
+    quote: fees.feeTokenB.toString(),
+    base: fees.feeTokenA.toString(),
+  };
+}
+const DAMM_POOL_AUTHORITY = "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC";
+const DAMM_V2_PROGRAM_ID = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG";
 const FEE_DENOMINATOR = 1_000_000_000n;
 function withFee(remaining: bigint, config: CurveConfig) {
   if (remaining <= 0n) return 0n;
@@ -404,6 +461,8 @@ export type PreparedTreasury = {
   redeem?: { burn: string; payout: string; baseSymbol: string };
   /** A graduation: the curve fees collected first, in the stock's atoms. */
   graduation?: { fees: string };
+  /** A collect-and-pay-out: stock atoms collected now, those already in the treasury, and where from. */
+  payout?: { collect: string; waiting: string; source: "curve" | "pool" };
   rewards?: {
     description: string;
     allocations: { recipient: string; amount: string }[];
@@ -554,15 +613,68 @@ export async function prepareTreasury(
     recipient = market.payoutOwner;
     tx.add(await distributeIx());
   } else if (action === "sync") {
-    // Collect and split in one signature, so new fees reach the floor at once.
-    // Both instructions are permissionless; the caller only pays the network fee.
-    const uncollected = state.migrated ? 0n : BigInt(state.uncollected);
-    if (uncollected <= 0n && BigInt(state.unallocated) <= 0n)
-      throw Error("No new trading fees to add to the backing yet.");
-    raw = (uncollected + BigInt(state.unallocated)).toString();
+    // Collect and pay out in one signature: new fees from the curve (or, after
+    // graduation, from Sonata's locked half of the pool) into the treasury, then
+    // split by the market's mode. Both steps are permissionless; the caller
+    // only pays the network fee.
+    const pool = state.poolFees && "quote" in state.poolFees ? state.poolFees : null;
+    if (state.migrated && !pool)
+      throw Error(`Can't read the pool's fees: ${state.poolFees && "error" in state.poolFees ? state.poolFees.error : "pool not found"}.`);
+    const uncollected = BigInt(state.uncollected),
+      waiting = BigInt(state.unallocated);
+    if (uncollected <= 0n && waiting <= 0n)
+      throw Error("No new trading fees to collect yet.");
+    raw = (uncollected + waiting).toString();
     recipient = market.treasury;
-    if (uncollected > 0n) tx.add(await claimIx());
+    if (uncollected > 0n && pool) {
+      // claim_graduated pays any base-token fees into the treasury's base account.
+      const treasuryBase = pk(market.treasuryBase);
+      if (!(await connection.getAccountInfo(treasuryBase, "confirmed")))
+        tx.add(
+          createAssociatedTokenAccountIdempotentInstruction(
+            owner,
+            treasuryBase,
+            pk(market.treasury),
+            pk(market.baseMint),
+            TOKEN_PROGRAM_ID,
+          ),
+        );
+      tx.add(
+        await program.methods
+          .claimGraduated()
+          .accountsPartial({
+            vault: pk(market.vault),
+            treasury: pk(market.treasury),
+            dammPoolAuthority: pk(DAMM_POOL_AUTHORITY),
+            dammPool: pk(pool.dammPool),
+            position: pk(pool.position),
+            treasuryBase,
+            treasuryQuote: pk(market.treasuryQuote),
+            tokenAVault: pk(pool.tokenAVault),
+            tokenBVault: pk(pool.tokenBVault),
+            baseMint: pk(market.baseMint),
+            quoteMint: pk(market.quoteMint),
+            positionNftAccount: pk(pool.positionNftAccount),
+            tokenBaseProgram: TOKEN_PROGRAM_ID,
+            tokenQuoteProgram: TOKEN_2022_PROGRAM_ID,
+            dammEventAuthority: PublicKey.findProgramAddressSync(
+              [Buffer.from("__event_authority")],
+              pk(DAMM_V2_PROGRAM_ID),
+            )[0],
+          })
+          .instruction(),
+      );
+    } else if (uncollected > 0n) tx.add(await claimIx());
     tx.add(await distributeIx());
+    return {
+      ...(await finalizeTransaction(tx, action, wallet, raw, recipient)),
+      market,
+      payout: {
+        collect: uncollected.toString(),
+        waiting: waiting.toString(),
+        source: pool ? ("pool" as const) : ("curve" as const),
+      },
+    };
   }
   if (action === "redeem") {
     if (!hasFloor(state.mode))

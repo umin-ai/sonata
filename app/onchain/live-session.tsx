@@ -60,10 +60,11 @@ const names = {
   collect: "Collect trading fees",
   allocate: "Allocate collected fees",
   redeem: "Burn tokens for stock",
-  sync: "Add new fees to the backing",
+  sync: "Collect and pay out fees",
 };
 import { LiveContext, useLive, type Pending } from "./live-context";
 import { signedChange } from "@/lib/treasury/signed-check";
+import { feeSplit } from "@/lib/treasury/fee-split";
 export { useLive } from "./live-context";
 // An amount in a review window: the number, then the token's logo and ticker,
 // kept together on one line and grouped by thousands (177,316,147.761803).
@@ -631,7 +632,30 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   <Fact label="Trading" value="Moves to the pool; the curve closes" />
                 </div>
               )}
-              {!review.liquidity && !review.graduation && (
+              {review.payout && review.market && (
+                <div className="review-facts">
+                  {review.payout.collect !== "0" && (
+                    <Fact
+                      label={review.payout.source === "pool" ? "Collects from the pool" : "Collects from the curve"}
+                      value={<Amount atoms={review.payout.collect} decimals={review.market.quoteDecimals} symbol={quoteSymbol} />}
+                    />
+                  )}
+                  {review.payout.waiting !== "0" && (
+                    <Fact
+                      label="Already collected"
+                      value={<Amount atoms={review.payout.waiting} decimals={review.market.quoteDecimals} symbol={quoteSymbol} />}
+                    />
+                  )}
+                  {feeSplit(review.market.mode ?? "standard", {
+                    reward: isRewardMarket(review.market),
+                    feeModel: review.market.feeModel,
+                  }).map((s) => (
+                    <Fact key={s.to} label={`${s.percent}% to`} value={s.to === "bot" ? `${s.label} · via Sonata's bot` : s.label} />
+                  ))}
+                  <Fact label="Who can do this" value="Anyone · you pay only the network fee" />
+                </div>
+              )}
+              {!review.liquidity && !review.graduation && !review.payout && (
               <p className="sr-note">
                 {review.rewards
                   ? "Only the named recipient can claim each fixed allocation, once. This is funded mock stock, not a promised investment return."
