@@ -17,7 +17,7 @@ export const GUIDES = {
     steps: [
       { icon: Compass, title: "Pick a market", line: "Every token trades against a stock" },
       { icon: ArrowLeftRight, title: "Buy or sell", line: "Pay with SPYx, NVDAx and more" },
-      { icon: Coins, title: "Earn in stock", line: "Fees paid out every 15 min" },
+      { icon: Coins, title: "Earn in stock", line: "Creators, holders or LPs, by token type" },
       { icon: Rocket, title: "Launch your own", line: "Name, ticker, stock. Go" },
     ],
   },
