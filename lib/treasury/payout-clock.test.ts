@@ -25,4 +25,6 @@ test("late only when due fees outlast a full cycle, outside a run", () => {
   assert.equal(nextPayout({ ...fees, lastClaimTs: at(7, 30) / 1000, now: at(8, 10) }).late, true);
   assert.equal(nextPayout({ ...fees, lastClaimTs: at(7, 30) / 1000, now: at(8, 1) }).late, false);
   assert.equal(nextPayout({ uncollected: 5n, unallocated: 0n, lastClaimTs: 0, now: at(8, 10) }).late, false);
+  // A new market that has never been collected is not overdue.
+  assert.equal(nextPayout({ ...fees, lastClaimTs: 0, now: at(8, 10) }).late, false);
 });

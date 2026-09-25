@@ -43,7 +43,9 @@ export function nextPayout({
 }) {
   const due = uncollected >= BOT_MIN_ATOMS || unallocated > 0n;
   const kind = due ? "pays" : uncollected > 0n ? "waits" : "none";
-  // Due fees still there more than a full cycle after the last collection.
-  const late = due && now - lastClaimTs * 1000 > QUARTER_MS + PASS_MS && payoutClock(now).state === "waiting";
+  // Due fees still there more than a full cycle after the last collection. A market
+  // never collected yet (lastClaimTs 0) is not late: its fees may have just arrived.
+  const late =
+    due && lastClaimTs > 0 && now - lastClaimTs * 1000 > QUARTER_MS + PASS_MS && payoutClock(now).state === "waiting";
   return { kind, late } as const;
 }
