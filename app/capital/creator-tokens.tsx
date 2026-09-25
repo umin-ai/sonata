@@ -232,7 +232,7 @@ export function TokenCard({ token: t, viewer }: { token: CreatorToken; viewer: s
             action={
               e.waiting > 0n && (
                 <Button size="sm" variant="outline" disabled={!enabled} onClick={() => void execute(() => prepareTreasury("sync", address, m))}>
-                  Collect
+                  Send now
                 </Button>
               )
             }

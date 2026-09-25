@@ -6,7 +6,7 @@ import { TokenName } from "@/app/token-identity";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { feeSplit, redeemed, BOT_SHARE_LABEL } from "@/lib/treasury/fee-split";
+import { feeSplit, redeemed, yourShare, BOT_SHARE_LABEL } from "@/lib/treasury/fee-split";
 import { REWARDS_MINT } from "@/lib/treasury/quote-assets";
 import {
   explorer,
@@ -83,11 +83,14 @@ export function FeesView({
   data,
   quote: q,
   feeModel: profileModel,
+  held,
 }: {
   market: Market;
   data: TreasurySnapshot | null;
   quote: string;
   feeModel?: string;
+  /** The connected wallet's balance of the token, in base atoms. */
+  held?: string;
 }) {
   const { address, busy, pending, revision, execute } = useLive();
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -103,6 +106,22 @@ export function FeesView({
   const poolError = data?.poolFees && "error" in data.poolFees ? data.poolFees.error : null;
   const ready = data ? BigInt(data.uncollected) : 0n,
     waiting = data ? BigInt(data.unallocated) : 0n;
+  // Collecting pays the split, never whoever presses the button: say who this wallet is in it.
+  const mine =
+    address && data
+      ? yourShare({
+          wallet: address,
+          creator: market.creator,
+          payoutOwner: market.payoutOwner,
+          mode,
+          reward,
+          feeModel: model,
+          held: BigInt(held ?? "0"),
+          supply: BigInt(data.baseSupply),
+          lpPhase: bot?.status === "lps" || data.migrated,
+          splitRecipients: bot?.recipients,
+        })
+      : null;
 
   return (
     <>
@@ -118,30 +137,36 @@ export function FeesView({
                   ? "Meteora pool · Sonata's locked half"
                   : `Bonding curve · ${Number((data.tradingFeeBps / 100).toFixed(2))}% fee`}
             </Row>
-            <Row label="Ready to collect" tone={poolError ? "warn" : undefined}>
+            <Row label="Your share">{mine ? mine.text : "Connect a wallet to see"}</Row>
+            <Row label="Waiting to pay out" tone={poolError ? "warn" : undefined}>
               {poolError ? "Can't read the pool right now" : <Stock atoms={data?.uncollected} quote={q} />}
             </Row>
             {waiting > 0n && (
-              <Row label="Collected, not paid yet">
+              <Row label="In the treasury, not paid yet">
                 <Stock atoms={waiting} quote={q} />
               </Row>
             )}
-            <Row label="Collected so far">
+            <Row label="Paid out so far">
               <Stock atoms={data?.claimed} quote={q} />
             </Row>
-            <Row label="Last collected">
+            <Row label="Last paid out">
               {!data ? "—" : data.lastClaimTs > 0 ? sinceText(data.lastClaimTs, data.fetchedAt) : "Not yet"}
             </Row>
-            <Row label="Auto payout">{data ? `Every 15 min · next ${nextRunText(data.fetchedAt)}` : "Every 15 min"}</Row>
+            <Row label="Auto payout">
+              {data ? `Every 15 min · next ${nextRunText(data.fetchedAt)} · nothing to claim` : "Every 15 min · nothing to claim"}
+            </Row>
             <Row label="Meteora's cut">20% of each fee</Row>
           </div>
+          {/* Optional: the bot does this every 15 minutes. It sends the pot to the split, not to whoever presses it. */}
           <Button
+            variant="outline"
+            size="sm"
             disabled={!enabled || (ready <= 0n && waiting <= 0n) || !!poolError}
             onClick={() => void execute(() => prepareTreasury("sync", address, market))}
           >
-            Collect &amp; pay out now
+            Send payouts now (optional)
           </Button>
-          <p className="sr-note fees-hint">Anyone can run it · you pay only the network fee</p>
+          <p className="sr-note fees-hint">Sends the pot to the split early · pays you only if you&apos;re in it</p>
         </Card>
 
         <Card className="sr-panel">

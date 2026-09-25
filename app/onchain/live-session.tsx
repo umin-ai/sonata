@@ -60,7 +60,7 @@ const names = {
   collect: "Collect trading fees",
   allocate: "Allocate collected fees",
   redeem: "Burn tokens for stock",
-  sync: "Collect and pay out fees",
+  sync: "Send payouts now",
 };
 import { LiveContext, useLive, type Pending } from "./live-context";
 import { signedChange } from "@/lib/treasury/signed-check";
@@ -647,9 +647,16 @@ export function LiveProvider({ children }: { children: ReactNode }) {
                   }).map((s) => (
                     <Fact key={s.to} label={`${s.percent}% to`} value={s.to === "bot" ? `${s.label} · via Sonata's bot` : s.label} />
                   ))}
-                  <Fact label="Who can do this" value="Anyone" />
-                  {/* Wallets warn "no balance changes" here: nothing moves to or from the signer. */}
-                  <Fact label="Your wallet" value="No tokens move · network fee only" />
+                  {/* Wallets warn "no balance changes" when the signer is not in the split. */}
+                  <Fact
+                    label="You receive"
+                    value={
+                      review.market.payoutOwner === review.wallet
+                        ? "Your payout share, as the payout wallet"
+                        : "Nothing · you pay only the network fee"
+                    }
+                  />
+                  <Fact label="Optional" value="Sonata's bot sends it every 15 min anyway" />
                 </div>
               )}
               {!review.liquidity && !review.graduation && !review.payout && !review.redeem && (

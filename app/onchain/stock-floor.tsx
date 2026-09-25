@@ -106,8 +106,7 @@ export function StockFloor({
         toAdd > 0n && (
           <div className="stock-floor-pending">
             <span>
-              +{formatUnits(toAdd)} {quote} from new trades is ready to add · or the bot adds it{" "}
-              {nextRunText(data!.fetchedAt)}
+              +{formatUnits(toAdd)} {quote} from new trades · the bot adds it {nextRunText(data!.fetchedAt)}
             </span>
             <Button
               size="sm"
@@ -117,7 +116,7 @@ export function StockFloor({
                 void execute(() => prepareTreasury("sync", address, market))
               }
             >
-              Add to backing
+              Add now (optional)
             </Button>
           </div>
         )
