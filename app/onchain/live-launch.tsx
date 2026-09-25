@@ -617,7 +617,9 @@ export function LiveLaunch() {
               key={a.symbol}
               aria-pressed={settings.quote === a.symbol}
               title={a.symbol === "mANTHROPIC" ? "Pre-IPO Anthropic, priced from PreStocks on Solana" : undefined}
-              onClick={() => setSettings((s) => ({ ...s, quote: a.symbol, pricing: undefined }))}
+              // Re-picking the chosen stock keeps its dollar pricing: the price effect only
+              // re-runs when the stock changes, so clearing it here would fall back to stock-token targets.
+              onClick={() => setSettings((s) => (s.quote === a.symbol ? s : { ...s, quote: a.symbol, pricing: undefined }))}
             >
               <TokenName symbol={a.symbol} size={20} />
               <span>{a.name}</span>
