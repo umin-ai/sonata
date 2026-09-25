@@ -243,7 +243,7 @@
 .sr-app .pool-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:12px;margin:0 0 24px}
 .sr-app .pool-card{display:flex;flex-direction:column;min-width:0;border:1px solid var(--border);border-radius:14px;background:var(--card)}
 .sr-app .pool-card[data-selected=true]{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary)}
-.sr-app .pool-card-select{display:grid;gap:10px;min-width:0;padding:14px 14px 10px;border:0;border-radius:14px 14px 0 0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.sr-app .pool-card-select{display:grid;align-content:start;flex:1;gap:10px;min-width:0;padding:14px 14px 10px;border:0;border-radius:14px 14px 0 0;background:transparent;color:inherit;text-align:left;cursor:pointer}
 .sr-app .pool-card-select:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
 .sr-app .pool-pair{display:flex;align-items:center;gap:8px;min-width:0;font-weight:600}
 .sr-app .pool-pair>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
