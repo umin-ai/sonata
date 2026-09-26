@@ -1040,7 +1040,7 @@ const isMain = (() => {
  * they cannot load (e.g. Node without --experimental-strip-types); the caller
  * then runs without live push.
  */
-async function startLivePush({ reader, conn: pollConn }) {
+export async function startLivePush({ reader, conn: pollConn }) {
   if (!process.features?.typescript) throw Error("Node runs without TypeScript support (start it with --experimental-strip-types)");
   const { register } = await import("node:module");
   register(new URL("../scripts/node-hooks.mjs", import.meta.url));
