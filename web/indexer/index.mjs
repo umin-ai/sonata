@@ -1082,7 +1082,7 @@ const isMain = (() => {
  * they cannot load (e.g. Node without --experimental-strip-types); the caller
  * then runs without live push.
  */
-export async function startLivePush({ reader, conn: pollConn, readConn = pollConn, fallback = null, fallbackBudget = null }) {
+export async function startLivePush({ reader, conn: pollConn, readConn = pollConn, fallback = null, fallbackBudget = null, pollMs }) {
   if (!process.features?.typescript) throw Error("Node runs without TypeScript support (start it with --experimental-strip-types)");
   const { register } = await import("node:module");
   register(new URL("../scripts/node-hooks.mjs", import.meta.url));
@@ -1099,6 +1099,7 @@ export async function startLivePush({ reader, conn: pollConn, readConn = pollCon
     readConn,
     fallback,
     fallbackBudget,
+    ...(pollMs ? { pollMs } : {}),
     programId,
     fetchProfile: (uri) => fetchProfileBody(uri, AbortSignal.timeout(2_000)),
   });

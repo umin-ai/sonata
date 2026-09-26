@@ -291,7 +291,7 @@ export function livePush({
     }
   }
 
-  // ---- The 1 s poll -------------------------------------------------------------
+  // ---- The poll -------------------------------------------------------------
 
   async function checkSignatures() {
     const list = await conn.getSignaturesForAddress(program, { limit: 5 }, "confirmed");
