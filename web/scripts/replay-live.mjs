@@ -25,6 +25,7 @@ import { marketAccountsReader } from "../indexer/modules/market-accounts.mjs";
 import { marketStore } from "../indexer/modules/market-store.mjs";
 import { livePush } from "../indexer/modules/live.mjs";
 import { streamServer } from "../indexer/modules/stream.mjs";
+import { PRIORITY, rpcLimiter, rpcMethod } from "../indexer/modules/rpc-limiter.mjs";
 import { snapshotFromAccounts } from "../lib/treasury/snapshot-decode.ts";
 
 const arg = (name, dflt) => {
@@ -115,7 +116,13 @@ const rpc = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32016, message: "Minimum context slot has not been reached" } }));
   if (method === "getGenesisHash") return answer(fixture.genesis);
   if (method === "getProgramAccounts") {
-    const value = treasuries.map((pubkey) => ({ pubkey, account: toRpc(accounts.get(pubkey)) }));
+    const slice = config.dataSlice;
+    const value = treasuries.map((pubkey) => {
+      const a = toRpc(accounts.get(pubkey));
+      if (!slice) return { pubkey, account: a };
+      const d = Buffer.from(a.data[0], "base64").subarray(slice.offset, slice.offset + slice.length);
+      return { pubkey, account: { ...a, data: [d.toString("base64"), "base64"] } };
+    });
     return answer(config.withContext ? { context: { slot }, value } : value);
   }
   if (method === "getMultipleAccounts") {
@@ -136,11 +143,20 @@ await new Promise((r) => rpc.listen(0, "127.0.0.1", r));
 const RPC_URL = `http://127.0.0.1:${rpc.address().port}`;
 
 // ---- The indexer's live push, as indexer/index.mjs wires it ---------------------
-const timed = (ms) =>
-  new Connection(RPC_URL, { commitment: "confirmed", disableRetryOnRateLimit: true, fetch: (i, init) => fetch(i, { ...init, signal: AbortSignal.timeout(ms) }) });
+// Every call through one request budget, each part at its priority.
+const limiter = rpcLimiter();
+const timed = (ms, priority = PRIORITY.background) =>
+  new Connection(RPC_URL, {
+    commitment: "confirmed",
+    disableRetryOnRateLimit: true,
+    fetch: async (i, init) => {
+      await limiter.acquire(rpcMethod(init?.body), priority);
+      return fetch(i, { ...init, signal: AbortSignal.timeout(ms) });
+    },
+  });
 let push = null;
 const reader = marketAccountsReader({
-  conn: timed(4_000),
+  conn: timed(4_000, PRIORITY.reader),
   programId: PROGRAM,
   discriminator: idl.accounts.find((a) => a.name === "Treasury").discriminator,
   quoteMints: new Set(json("../lib/treasury/quote-assets.json").assets.map((a) => a.mint)),
@@ -148,7 +164,14 @@ const reader = marketAccountsReader({
   onRead: (read) => push?.onRead(read),
 });
 const store = marketStore({ decode: snapshotFromAccounts, programId: PROGRAM, log: () => {} });
-push = livePush({ store, reader, conn: timed(2_500), programId: PROGRAM, log: (...a) => console.error("live:", ...a) });
+push = livePush({
+  store,
+  reader,
+  conn: timed(2_500, PRIORITY.poll),
+  readConn: timed(2_500, PRIORITY.live),
+  programId: PROGRAM,
+  log: (...a) => console.error("live:", ...a),
+});
 const stream = streamServer({ store, log: () => {} });
 await reader.tick();
 setInterval(reader.tick, 10_000).unref();
@@ -246,6 +269,7 @@ line("trade -> market page update", results.tradeMarket);
 line("trade -> market list update", results.tradeList);
 console.log("RPC calls:", Object.fromEntries(rpcCalls));
 console.log("health:", JSON.stringify(push.health().pollMs), JSON.stringify(stream.health()));
+console.log("request budget:", JSON.stringify(limiter.health()));
 if (!SERVE) {
   await push.stop();
   stream.close();
