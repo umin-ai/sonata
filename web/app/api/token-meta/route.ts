@@ -1,14 +1,16 @@
 import { clientKey, createRateLimit } from "@/lib/server/rate-limit";
-import { fetchProfileBody, ProfileError } from "@/lib/server/token-meta";
+import { createProfileCache, ProfileError } from "@/lib/server/token-meta";
 
 // Serves a token's profile from its metadata URI through Sonata's own origin,
 // so the page does not depend on a cross-site fetch that browsers or content
 // blockers may refuse. Only Sonata's CloudFront and Irys URIs are fetched
 // (isProfileUrl), the JSON is size-capped, and only fields that pass
 // parseProfile are returned (lib/server/token-meta.ts). Files are
-// content-addressed, so they cache long.
+// content-addressed, so they cache long, in browsers and in this process.
 export const dynamic = "force-dynamic";
 const allow = createRateLimit({ perKey: 300, total: 5_000, windowMs: 60_000 });
+// Kept in memory: every open page asks for a new market's profile at once.
+const profileBody = createProfileCache();
 
 export async function GET(request: Request) {
   const noStore = { "Cache-Control": "no-store" };
@@ -16,7 +18,7 @@ export async function GET(request: Request) {
     return Response.json({ error: "Too many requests." }, { status: 429, headers: noStore });
   const uri = new URL(request.url).searchParams.get("uri") ?? "";
   try {
-    const body = await fetchProfileBody(uri);
+    const body = await profileBody(uri);
     return Response.json(body, {
       headers: { "Cache-Control": "public, max-age=86400" },
     });

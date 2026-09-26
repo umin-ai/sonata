@@ -50,3 +50,36 @@ export async function fetchProfileBody(uri: string, signal?: AbortSignal): Promi
     ...(p.feeModel ? { sonata: { feeModel: p.feeModel, ...(p.split ? { split: p.split } : {}) } } : {}),
   };
 }
+
+/** Profiles kept in memory: files are content-addressed, so a body read once stays right. */
+export const PROFILE_CACHE_SIZE = 1_000;
+/** A profile that could not be read is not asked for again for this long. */
+export const PROFILE_FAILURE_MS = 60_000;
+
+/**
+ * `read` (fetchProfileBody) behind a per-process memory: bodies are kept (the
+ * oldest dropped past PROFILE_CACHE_SIZE) and failures for a minute, so many
+ * visitors opening a new market at once cost one fetch each while the first
+ * is out, and none after. Only plain values are kept, never a promise: the
+ * Workers runtime does not let one request wait on another's fetch.
+ */
+export function createProfileCache(read: (uri: string) => Promise<ProfileBody> = fetchProfileBody, now = () => Date.now()) {
+  const kept = new Map<string, { body: ProfileBody } | { error: ProfileError; at: number }>();
+  return async function cachedProfileBody(uri: string): Promise<ProfileBody> {
+    const hit = kept.get(uri);
+    if (hit && "body" in hit) return hit.body;
+    if (hit && now() - hit.at < PROFILE_FAILURE_MS && now() >= hit.at) throw hit.error;
+    try {
+      const body = await read(uri);
+      kept.delete(uri);
+      kept.set(uri, { body });
+      if (kept.size > PROFILE_CACHE_SIZE) kept.delete(kept.keys().next().value!);
+      return body;
+    } catch (e) {
+      const error = e instanceof ProfileError ? e : new ProfileError("Profile unavailable.", 502);
+      // A location that is never served is not remembered (it costs no fetch).
+      if (error.status !== 400) kept.set(uri, { error, at: now() });
+      throw error;
+    }
+  };
+}
