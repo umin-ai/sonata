@@ -17,13 +17,13 @@ import { formatProgress } from "@/lib/treasury/graduation";
 import { REWARDS_MINT, quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import {
   connection,
-  discoverMarkets,
   isRewardMarket,
   prepareTreasury,
   readTreasury,
   type Market,
   type TreasurySnapshot,
 } from "@/lib/treasury/runtime";
+import { listMarkets } from "@/app/onchain/markets-client";
 import { formatUnits } from "@/lib/treasury/units";
 import { usePayoutLine } from "@/app/onchain/payout-timer";
 
@@ -90,10 +90,12 @@ export function useCreatorTokens(address: string) {
   const [tick, setTick] = useState(0);
   const key = address ? `${address}:${revision}:${tick}` : "";
   const [read, setRead] = useState<{ key: string; tokens: CreatorToken[]; done: boolean; error?: string } | null>(null);
+  // The list from the server's snapshot on the first read; from the chain after a transaction or a refresh.
+  const fresh = revision > 0 || tick > 0;
   useEffect(() => {
     if (!key || !address) return;
     let active = true;
-    discoverMarkets()
+    listMarkets({ fresh })
       .then((all) => all.filter((m) => m.creator === address || m.payoutOwner === address))
       .then((mine) => {
         if (!active) return;
@@ -127,7 +129,7 @@ export function useCreatorTokens(address: string) {
     return () => {
       active = false;
     };
-  }, [key, address]);
+  }, [key, address, fresh]);
   const same = read?.key.startsWith(`${address}:`) ? read : null;
   return {
     tokens: same?.tokens ?? [],

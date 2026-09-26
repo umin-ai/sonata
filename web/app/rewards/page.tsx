@@ -14,7 +14,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  discoverMarkets,
   explorer,
   hasFloor,
   isRewardMarket,
@@ -22,6 +21,7 @@ import {
   type Market,
   type MarketFacts,
 } from "@/lib/treasury/runtime";
+import { listMarkets } from "@/app/onchain/markets-client";
 import { formatUnits } from "@/lib/treasury/units";
 import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 import { AIRDROP_PERCENT } from "@/lib/treasury/dbc-preview";
@@ -58,13 +58,15 @@ const NONE: Market[] = [];
 type Overview = { markets: Market[]; facts: Map<string, MarketFacts>; factsError?: string };
 
 // Every market with its backing and launch extras. The last read stays on
-// screen while a refresh loads.
+// screen while a refresh loads. The list comes from the server's snapshot on
+// the first read, from the chain after a transaction or a refresh (`key` is
+// "revision:nonce", both 0 at first).
 function useOverview(key: string) {
   const [read, setRead] = useState<{ key: string; data?: Overview; error?: string } | null>(null);
   useEffect(() => {
     let active = true;
     (async (): Promise<Overview> => {
-      const markets = await discoverMarkets();
+      const markets = await listMarkets({ fresh: key !== "0:0" });
       try {
         return { markets, facts: await readMarketFacts(markets, { configs: PAYOUT_BOT_V2 }) };
       } catch (e) {

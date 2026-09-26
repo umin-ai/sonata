@@ -15,13 +15,13 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  discoverMarkets,
   explorer,
   meteoraPool,
   isRewardMarket,
   readTradingWallet,
   type Market,
 } from "@/lib/treasury/runtime";
+import { listMarkets } from "@/app/onchain/markets-client";
 import { formatUnits, parseUnits } from "@/lib/treasury/units";
 import {
   depositLimits,
@@ -51,7 +51,8 @@ const isLpFarm = (m: Market, feeModel?: string) =>
   isRewardMarket(m) && (feeModel ?? m.feeModel) === "lpFarm";
 
 // Every graduated pool, re-read after each confirmed transaction or on Refresh.
-// The last list stays on screen while a refresh loads.
+// The last list stays on screen while a refresh loads. The markets come from
+// the server's snapshot on the first read, from the chain after that.
 function usePoolList() {
   const { revision } = useLive();
   const [nonce, setNonce] = useState(0);
@@ -59,7 +60,7 @@ function usePoolList() {
   const [read, setRead] = useState<{ key: string; list?: PoolList; error?: string } | null>(null);
   useEffect(() => {
     let active = true;
-    discoverMarkets()
+    listMarkets({ fresh: key !== "0:0" })
       .then(listGraduatedPools)
       .then(
         (list) => active && setRead({ key, list }),
