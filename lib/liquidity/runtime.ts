@@ -1,4 +1,4 @@
-import "../stockroom/polyfills.mjs";
+import "../polyfills.mjs";
 import { Buffer } from "buffer";
 import { PublicKey, Keypair, ComputeBudgetProgram } from "@solana/web3.js";
 import {

@@ -315,11 +315,6 @@ body:has(.sr-app) [data-slot="tabs-trigger"][data-state="active"] {
 .sr-app :is(.text-lime-300, .text-lime-400) {
   color: #39774e;
 }
-.sr-app .sr-warning {
-  background: #efe5cd;
-  color: #795a29 !important;
-  border-color: #d9c9a5;
-}
 .sr-app .sr-note {
   font-size: 13px !important;
   color: #617063;
@@ -331,22 +326,6 @@ body:has(.sr-app) [data-slot="tabs-trigger"][data-state="active"] {
 .sr-app .sr-detail-row strong {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-}
-.sr-app .sr-amount-box {
-  background: #e4ebde;
-  box-shadow: var(--nm-inset);
-  border-color: #d5dece;
-}
-.sr-app .sr-amount-box input {
-  box-shadow: none;
-  background: transparent;
-}
-.sr-app .sr-next-action,
-.sr-app .sx-feature-banner {
-  background: #e3eadc;
-  border-color: #d4dfca;
-  box-shadow: var(--nm-inset);
-  border-radius: 20px;
 }
 .sr-app #signing-wallet {
   box-shadow: none;
@@ -998,9 +977,6 @@ body:has(.sr-app) [data-slot="tabs-trigger"][data-state="active"] {
   .sr-app .sr-token-name {
     gap: 5px;
   }
-  .sr-app .sr-position-strip {
-    grid-template-columns: 1fr;
-  }
   .sr-detail-row > strong {
     max-width: 65%;
   }
@@ -1231,5 +1207,3 @@ body:has(.sr-app) .nm-wallet-picker {
   font-weight: 700;
   font-size: inherit;
 }
-
-.sr-market-data-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-top:20px}.sr-market-data-grid>div{padding:18px;border:1px solid var(--border);border-radius:16px;min-width:0}.sr-market-data-grid span,.sr-market-data-grid small{display:block;font-size:13px;line-height:1.5}.sr-market-data-grid strong{display:block;font-size:26px;line-height:1.4;margin:8px 0;overflow-wrap:anywhere}@media(max-width:900px){.sr-market-data-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){.sr-market-data-grid{grid-template-columns:1fr}}

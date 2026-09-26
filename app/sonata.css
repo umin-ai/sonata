@@ -156,9 +156,6 @@ body:has(.sr-app) :is(a,button,input,textarea):focus-visible {outline:2px solid 
 /* Replace legacy graphite overrides, retaining signed-value semantics. */
 :root{--change-positive:#187344;--change-negative:#b93646;--change-neutral:#6b627b}
 :root.dark{--change-positive:#65dfaa;--change-negative:#ff8996;--change-neutral:#afb1ba}
-body .sr-change-positive{color:var(--change-positive)!important}
-body .sr-change-negative{color:var(--change-negative)!important}
-body .sr-change-neutral{color:var(--change-neutral)!important}
 .sr-app [data-collapsible=icon] .sx-wordmark{display:none}
 .sr-app [data-collapsible=icon] [data-slot=sidebar-group-label]{display:none}
 .sr-app .nm-market-search svg{top:9px;left:11px;color:var(--muted-foreground)}
@@ -174,8 +171,6 @@ body .sr-change-neutral{color:var(--change-neutral)!important}
 .sr-app .sr-note,body:has(.sr-app) [data-slot=dialog-description],.sr-app [data-slot=table-head]{color:var(--muted-foreground)}
 .sr-app .sr-detail-row,.sr-app [data-slot=table-row]{border-color:var(--border)}
 .sr-app .sr-amount-box,.sr-app .sr-next-action,.sr-app .sx-feature-banner,.sr-app #signing-wallet{background:var(--secondary);border-color:var(--border);box-shadow:none}
-.sr-app .sr-warning{background:color-mix(in srgb,#d9a747 14%,var(--card));color:var(--foreground)!important;border-color:var(--border)}
-.sr-app .sr-lime,.sr-app .text-lime-300,.sr-app .text-lime-400{color:var(--change-positive)}
 .sr-app .sr-negative{color:var(--change-negative)}
 body:has(.sr-app) [data-slot=tabs-list]{background:var(--secondary);box-shadow:none}
 body:has(.sr-app) [data-slot=tabs-trigger]{color:var(--muted-foreground);font-family:inherit}

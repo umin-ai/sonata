@@ -11,7 +11,7 @@
 // Top-level imports stay node-loadable (no JSON, no extensionless relative
 // imports) so stockroom-protocol/scripts/verify-creator-position.mjs can run
 // this exact code against Devnet. The app runtime is imported lazily.
-import "../stockroom/polyfills.mjs";
+import "../polyfills.mjs";
 import {
   ComputeBudgetProgram,
   PublicKey,

@@ -1,7 +1,7 @@
 "use client";
 // First: token-profile-view reaches SPL Token (through lib/split-rules.mjs),
 // which needs Buffer while its module loads.
-import "@/lib/stockroom/polyfills.mjs";
+import "@/lib/polyfills.mjs";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Gift, RefreshCw, ShieldCheck } from "lucide-react";
 import Link from "@/app/plain-link";
