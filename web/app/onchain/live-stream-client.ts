@@ -52,7 +52,14 @@ export type LiveStreamEnv = {
   hidden?: () => boolean;
   onVisibility?: (fn: () => void) => () => void;
 };
-export type LiveStreamOptions = { scope: "list" | "market"; pool?: string; since: StreamPosition | null; url?: string };
+export type LiveStreamOptions = {
+  scope: "list" | "market";
+  pool?: string;
+  since: StreamPosition | null;
+  url?: string;
+  /** Log each event and how long after the indexer wrote it it arrived (?liveDebug=1). */
+  debug?: boolean;
+};
 export type LiveHandlers = {
   market: (ev: MarketEvent) => void;
   removed: (ev: RemovedEvent) => void;
@@ -91,7 +98,9 @@ export function createLiveStream(options: LiveStreamOptions, env: LiveStreamEnv 
     attempt = 0,
     failingSince: number | null = null,
     lastEventAt = 0,
-    resync = 0;
+    resync = 0,
+    // The indexer's clock minus ours, from hello (for ?liveDebug=1's timings).
+    skew = 0;
   let reconnectTimer: unknown = null,
     watchdogTimer: unknown = null,
     hiddenTimer: unknown = null,
@@ -185,6 +194,11 @@ export function createLiveStream(options: LiveStreamOptions, env: LiveStreamEnv 
     if (e.lastEventId) lastId = e.lastEventId;
     const data = parse(e);
     if (!data || typeof data !== "object") return;
+    if (options.debug) {
+      if (type === "hello" && typeof data.serverTime === "number") skew = data.serverTime - env.now();
+      const lag = typeof data.t === "number" ? ` ${Math.round(env.now() + skew - data.t)} ms after the indexer wrote it` : "";
+      console.debug(`[live] ${type}${data.pool ? ` ${data.pool}` : ""}${data.kind ? ` ${data.kind}` : ""}${lag}`);
+    }
     switch (type) {
       case "hello":
         if (data.v !== STREAM_VERSION) {

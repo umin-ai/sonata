@@ -15,9 +15,14 @@ export const LiveStreamProvider = LiveStreamContext.Provider;
 /** The page's stream, or null on pages without one. */
 export const useLiveStream = () => useContext(LiveStreamContext);
 
-/** This page's stream: made once per mount, opened after mount, closed on unmount. */
+/** This page's stream: made once per mount, opened after mount, closed on unmount. ?liveDebug=1 logs its events. */
 export function useLiveStreamInstance(options: LiveStreamOptions) {
-  const [store] = useState(() => createLiveStream(options));
+  const [store] = useState(() =>
+    createLiveStream({
+      ...options,
+      debug: typeof window !== "undefined" && new URLSearchParams(window.location.search).has("liveDebug"),
+    }),
+  );
   useEffect(() => {
     store.start();
     return () => store.stop();
