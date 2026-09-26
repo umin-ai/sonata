@@ -7,9 +7,15 @@
 //   SNAPSHOT_NUMBERS_MAX_AGE_MS or when a live read fails.
 // - Numbers pushed by the live stream (or polled while it is down) are the
 //   same kind of display-only numbers: they become `snap` when they are newer
-//   (by slot) than both the live read and the numbers shown, and are shown
-//   over the live read until they are a minute old. After a failed live read
-//   nothing pushed is shown until a live read succeeds again.
+//   (by version: the newest slot of their accounts) than both the live read
+//   and the numbers shown, and are shown over the live read. While the stream
+//   is live they do not age (it pushes every change, so silence means no
+//   change); once it stops they age from then, and while it is down the
+//   market's numbers are polled instead. After a failed live read nothing
+//   pushed is shown until a live read succeeds again.
+// - Numbers are never replaced by older ones: when numbers newer than the
+//   live read reach their age, they stay until a new live read (which the
+//   page starts then) replaces them.
 // - Only the live read (`live`), which passed readTreasury's binding check
 //   against the chain, enables anything that trades or moves funds.
 import type { TreasurySnapshot } from "@/lib/treasury/runtime";
@@ -19,9 +25,13 @@ export type PanelData = {
   live: TreasurySnapshot | null;
   snap: CardData | null;
   error: string;
-  /** The pushed numbers' version (newest slot of their accounts); absent for the server snapshot's. */
+  /** The numbers' version (the newest slot of their accounts), when known. */
   snapVersion?: number;
-  /** When `snap` expires, in ms on the page's clock (performance.now()). */
+  /**
+   * When `snap` expires, in ms on the page's clock (performance.now()):
+   * Infinity while the live stream is live; absent when it does not expire
+   * (numbers newer than the live read, kept until a live read replaces them).
+   */
   snapUntil?: number;
 };
 export type PanelAction =
@@ -33,20 +43,35 @@ export type PanelAction =
   | { type: "complete"; value: TreasurySnapshot }
   /** The live read failed: nothing stays on screen as if it were current. */
   | { type: "failed"; error: string }
-  /** Numbers pushed by the live stream (display only), dated by their version, shown until `until`. */
+  /** Numbers pushed by the live stream (display only), dated by their version, shown until `until` (Infinity: while the stream is live). */
   | { type: "pushed"; value: CardData; version: number; until: number }
-  /** The snapshot's numbers reached their maximum age (`at`: now, on the page's clock; without it, unconditionally). */
+  /** The live stream stopped: numbers it pushed start to age, and expire at `until`. */
+  | { type: "renew"; until: number }
+  /** The numbers reached their maximum age (`at`: now, on the page's clock; without it, unconditionally). */
   | { type: "expired"; at?: number };
 
-export function panelInit(snap: CardData | null, until?: number): PanelData {
-  return { live: null, snap, error: "", ...(snap && until !== undefined ? { snapUntil: until } : {}) };
+/** The page's first state: the server snapshot's numbers (or a pushed entry's), expiring at `until`, dated by `version`. */
+export function panelInit(snap: CardData | null, until?: number, version?: number): PanelData {
+  return {
+    live: null,
+    snap,
+    error: "",
+    ...(snap && until !== undefined ? { snapUntil: until } : {}),
+    ...(snap && version !== undefined ? { snapVersion: version } : {}),
+  };
 }
 
-// Pushed numbers newer than a live read stay over it; anything else is replaced by it.
+/** Whether the numbers shown are newer than the live read: they then stay when they expire, until a new live read. */
+export const newerThanLive = (state: Pick<PanelData, "live" | "snap" | "snapVersion">) =>
+  !!state.live && !!state.snap && state.snapVersion !== undefined && state.snapVersion > state.live.slot;
+
+/** Whether `snapUntil` is a moment to expire at (not Infinity: the stream is live; not absent: kept). */
+export const expiresAt = (state: Pick<PanelData, "snap" | "snapUntil">) =>
+  state.snap && state.snapUntil !== undefined && Number.isFinite(state.snapUntil) ? state.snapUntil : null;
+
+// Numbers newer than a live read stay over it; anything else is replaced by it.
 const afterLive = (state: PanelData, live: TreasurySnapshot): Partial<PanelData> =>
-  state.snap && state.snapVersion !== undefined && state.snapVersion > live.slot
-    ? {}
-    : { snap: null, snapVersion: undefined, snapUntil: undefined };
+  newerThanLive({ ...state, live }) ? {} : { snap: null, snapVersion: undefined, snapUntil: undefined };
 
 export function panelReducer(state: PanelData, action: PanelAction): PanelData {
   switch (action.type) {
@@ -64,10 +89,16 @@ export function panelReducer(state: PanelData, action: PanelAction): PanelData {
       if (action.version <= (state.live?.slot ?? -1)) return state;
       if (state.snap && state.snapVersion !== undefined && action.version < state.snapVersion) return state;
       return { ...state, snap: action.value, snapVersion: action.version, snapUntil: action.until };
-    case "expired":
+    case "renew":
+      return state.snap && state.snapUntil === Infinity ? { ...state, snapUntil: action.until } : state;
+    case "expired": {
       if (!state.snap) return state;
-      if (action.at !== undefined && state.snapUntil !== undefined && action.at < state.snapUntil) return state;
+      const at = expiresAt(state);
+      if (action.at !== undefined && (at === null || action.at < at)) return state;
+      // Newer than the live read: kept (the page reads again) rather than going back to older numbers.
+      if (newerThanLive(state)) return state.snapUntil === undefined ? state : { ...state, snapUntil: undefined };
       return { ...state, snap: null, snapVersion: undefined, snapUntil: undefined };
+    }
   }
 }
 
@@ -92,7 +123,7 @@ export function panelState({
 }) {
   const feesReady = !!live && (!live.migrated || !live.dammPool || live.poolFees !== null);
   const fees: TreasurySnapshot | CardData | null = live ? (feesReady ? live : null) : hydrated && snap && !snap.migrated ? snap : null;
-  const newer = !!live && !!snap && snapVersion !== undefined && snapVersion > live.slot;
+  const newer = newerThanLive({ live, snap, snapVersion });
   const shown: TreasurySnapshot | CardData | null = newer
     ? { ...snap!, poolFees: live!.poolFees, uncollected: live!.migrated ? live!.uncollected : snap!.uncollected }
     : (live ?? snap);

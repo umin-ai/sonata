@@ -24,9 +24,11 @@ import {
 } from "@/lib/treasury/runtime";
 import {
   SNAPSHOT_NUMBERS_MAX_AGE_MS,
+  versionOf,
   type CardData,
   type MarketIdentity,
   type MarketPageSnapshot,
+  type SnapshotEntry,
   type StreamPosition,
 } from "@/lib/treasury/market-snapshot";
 import { SnapshotProvider } from "./snapshot-context";
@@ -143,6 +145,7 @@ export function LiveMarket({
           selected={seeded}
           initialData={initial.ageMs <= SNAPSHOT_NUMBERS_MAX_AGE_MS ? initial.entry.data : null}
           initialDeadline={snapshotDeadline(initial.ageMs, SNAPSHOT_NUMBERS_MAX_AGE_MS)}
+          initialVersion={versionOf(initial.entry)}
         />
       </SnapshotProvider>
     </LiveStreamProvider>
@@ -151,28 +154,32 @@ export function LiveMarket({
 // A market the server's snapshot does not have (launched moments ago, or not a
 // Sonata market): found on the chain first, or brought by the live stream the
 // moment it is listed (its entry, rebuilt with marketFromIdentity and verified
-// by the page's own live read like any other). Once found it is kept, so a
-// later transaction does not look it up again; until then, one does.
+// by the page's own live read like any other), whichever comes first; the
+// other is then not used, so the page reads the market once. Once found it is
+// kept, so a later transaction does not look it up again; until then, one does.
 function DiscoveredMarket({ pool }: { pool: string }) {
   const { revision } = useLive();
   const [found, setFound] = useState<{ market: Market | null; error: string } | null>(null);
-  const [pushed, setPushed] = useState<{ market: Market; data: CardData | null; until: number } | null>(null);
+  const [pushed, setPushed] = useState<{ market: Market; data: CardData | null; until: number; version: number } | null>(null);
   const stream = useLiveStream();
-  const take = (identity: MarketIdentity, data: CardData | null) => {
-    if (pushed) return;
+  const take = (entry: SnapshotEntry) => {
+    if (pushed || found?.market) return;
     try {
-      setPushed({ market: marketFromIdentity(identity), data, until: performance.now() + SNAPSHOT_NUMBERS_MAX_AGE_MS });
+      // While the stream is live its numbers do not age (panel-state.ts).
+      const until = stream?.status === "live" ? Infinity : performance.now() + SNAPSHOT_NUMBERS_MAX_AGE_MS;
+      setPushed({ market: marketFromIdentity(entry.market), data: entry.data, until, version: versionOf(entry) });
     } catch {
       /* Not a market this build can show: the chain lookup decides. */
     }
   };
   useLiveEvent(stream, "market", (ev) => {
-    if (ev.pool === pool && ev.kind === "added") take(ev.entry.market, ev.entry.data);
+    if (ev.pool === pool && ev.kind === "added") take({ ...ev.entry, version: ev.version });
   });
   useLiveEvent(stream, "snapshot", (s) => {
-    if (s.scope === "market" && s.entry?.market.pool === pool) take(s.entry.market, s.entry.data);
+    if (s.scope === "market" && s.entry?.market.pool === pool) take(s.entry);
   });
-  const known = !!found?.market;
+  // The stream brought it: no chain lookup (the page's live read verifies it).
+  const known = !!found?.market || !!pushed;
   useEffect(() => {
     if (known) return;
     let active = true;
@@ -184,8 +191,11 @@ function DiscoveredMarket({ pool }: { pool: string }) {
       active = false;
     };
   }, [pool, revision, known]);
+  if (pushed)
+    return (
+      <OnchainTreasury key={pool} selected={pushed.market} initialData={pushed.data} initialDeadline={pushed.until} initialVersion={pushed.version} />
+    );
   if (found?.market) return <OnchainTreasury key={pool} selected={found.market} />;
-  if (pushed) return <OnchainTreasury key={pool} selected={pushed.market} initialData={pushed.data} initialDeadline={pushed.until} />;
   return (
     <>
       <Heading
