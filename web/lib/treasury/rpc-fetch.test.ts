@@ -415,20 +415,24 @@ test("a first endpoint that times out or fails to connect after the hedge went o
 test("a hedge's error answer does not beat the first endpoint, and is used only if that one fails", async () => {
   // A JSON-RPC error with HTTP 200 (as a provider's plan restriction comes through the relay), or an HTTP error.
   for (const status of [200, 403])
-    for (const first of ["answers", "500", "throw"]) {
+    for (const first of ["answers", "500", "throw", "throws before the error answer"]) {
       const c = clock(), h = hedges(), store = memory(), hits: string[] = [];
+      const early = first === "throws before the error answer";
       const f = createRpcFetch(
         (url) => {
           hits.push(String(url));
-          if (String(url) === B)
-            return Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "Method not found" } }, { status }));
+          if (String(url) === B) {
+            const refusal = Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "Method not found" } }, { status });
+            return new Promise((resolve) => setTimeout(() => resolve(refusal), early ? 10 : 0));
+          }
           h.fireSoon();
-          // A settles only after the hedge's error answer is in.
+          // A settles after the hedge's error answer is in, or, in the last case, just after the hedge went out.
           return new Promise((resolve, reject) =>
             setTimeout(() => {
-              if (first === "throw") reject(new TypeError("Failed to fetch"));
-              else resolve(first === "500" ? new Response("oops", { status: 500 }) : ok());
-            }, 10),
+              if (first === "answers") resolve(ok());
+              else if (first === "500") resolve(new Response("oops", { status: 500 }));
+              else reject(new TypeError("Failed to fetch"));
+            }, early ? 0 : 10),
           );
         },
         { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer, storage: store },
@@ -566,6 +570,43 @@ test("the retry round is hedged too", async () => {
   await f(A, req("getAccountInfo", 2, ["y"]));
   assert.equal(hits[4], B);
 });
+test("in the last round the endpoint and its hedge get the full timeout, not the shorter probe", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const c = clock(), h = hedges(), hits: string[] = [], aborted: string[] = [];
+    let round = 1;
+    const f = createRpcFetch(
+      (url, init) => {
+        hits.push(String(url));
+        if (round === 1) return Promise.resolve(new Response("busy", { status: 429 }));
+        if (String(url) === A) h.fireSoon();
+        init?.signal?.addEventListener("abort", () => aborted.push(String(url)));
+        return silent(init);
+      },
+      {
+        intervalMs: 0,
+        endpoints: [A, B],
+        now: c.now,
+        hedgeTimer: h.hedgeTimer,
+        sleep: async () => {
+          round = 2;
+        },
+      },
+    );
+    const pending = f(A, req("getAccountInfo", 1, ["x"]));
+    for (let i = 0; i < 50 && hits.length < 4; i++) await tick();
+    assert.deepEqual(hits, [A, B, A, B]);
+    // Both have a strike from the first round; the probe would end them at 4 s.
+    mock.timers.tick(4_000);
+    await tick();
+    assert.deepEqual(aborted, []);
+    mock.timers.tick(8_000);
+    await assert.rejects(pending, { message: RPC_BUSY });
+    assert.deepEqual(aborted, [A, B]);
+  } finally {
+    mock.timers.reset();
+  }
+});
 test("when the quiet endpoint and its hedge both fail, the request moves on as before", async () => {
   const C = "https://c.example";
   const run = async (endpoints: string[]) => {
@@ -642,6 +683,29 @@ test("a refusal ends another endpoint's 10-minute rest, and that one is asked be
     await f(A, req("getAccountInfo", 2, ["y"]));
     assert.equal(hits.at(-1), A);
   }
+});
+test("a quick refusal does not shorten a 10-minute rest that is still running", async () => {
+  const c = clock(), hits: string[] = [];
+  const store = memory({ [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 } });
+  let down = true;
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      if (String(url) === A) return new Response("busy", { status: 429 });
+      if (down) throw new TypeError("Failed to fetch");
+      return ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: store },
+  );
+  // B cannot be reached, so the retry round asks A while it rests.
+  await assert.rejects(f(A, req("getSlot", 1)), { message: RPC_BUSY });
+  assert.deepEqual(hits, [B, B, A]);
+  // Past the 30 s that A's second strike alone would give, reads still go to B.
+  down = false;
+  c.advance(31_000);
+  await f(A, req("getSlot", 2));
+  assert.deepEqual(hits, [B, B, A, B]);
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() - 31_000 + 10 * MINUTE, strikes: 2 } });
 });
 test("a hedge goes out without waiting for the pacing interval, and what follows is paced from it", async () => {
   const c = clock(), h = hedges(), hits: string[] = [], waits: number[] = [];
@@ -877,5 +941,37 @@ test("without a window, localStorage is left alone", async () => {
     assert.equal(touched, false);
   } finally {
     delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+});
+test("in a browser the rests go to localStorage by default, and storage: null keeps none", async () => {
+  const c = clock(), store = memory(), hits: string[] = [];
+  const g = globalThis as { window?: unknown; localStorage?: unknown };
+  let touched = false;
+  g.window = {};
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      touched = true;
+      return store;
+    },
+  });
+  try {
+    const base = async (url: RequestInfo | URL) => {
+      hits.push(String(url));
+      return String(url) === A ? new Response("busy", { status: 429 }) : ok();
+    };
+    const options = { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {} };
+    await createRpcFetch(base, options)(A, req("getSlot", 1));
+    assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 15_000, strikes: 1 } });
+    // The next page load goes straight to B.
+    await createRpcFetch(base, options)(A, req("getSlot", 2));
+    assert.deepEqual(hits, [A, B, B]);
+    touched = false;
+    await createRpcFetch(base, { ...options, storage: null })(A, req("getSlot", 3));
+    assert.deepEqual(hits, [A, B, B, A, B], "a client that keeps nothing starts with A");
+    assert.equal(touched, false);
+  } finally {
+    delete g.window;
+    delete g.localStorage;
   }
 });
