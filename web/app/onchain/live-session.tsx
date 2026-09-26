@@ -356,8 +356,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         // Confirm by polling signature status (and block height for expiry)
         // through the app's RPC layer, which fails over between endpoints. A
         // websocket subscription would depend on the public endpoint alone.
-        // check() throws if the transaction failed onchain or expired.
-        while (!(await check(submitted))) await new Promise((r) => setTimeout(r, 1500));
+        // check() throws if the transaction failed onchain or expired. Every
+        // 0.4 s: a launch waits for each of its steps in turn, and a new market
+        // is listed only once its last step lands.
+        while (!(await check(submitted))) await new Promise((r) => setTimeout(r, 400));
       }
     } catch (e) {
       setReview(null);
