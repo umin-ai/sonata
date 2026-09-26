@@ -1,7 +1,7 @@
 "use client";
 import { MeteoraLabel } from "@/app/protocol-identity";
 import { TokenName } from "@/app/token-identity";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "@/app/plain-link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,7 +36,7 @@ import { AIRDROP_PERCENT } from "@/lib/treasury/dbc-preview";
 import { StockFloor } from "./stock-floor";
 import { CreatorPosition } from "./creator-position";
 import { PriceChart, RecentTrades } from "./market-activity";
-import { GraduatedSwap } from "./graduated-swap";
+import { GraduatedSwap, prefetchGraduatedPool } from "./graduated-swap";
 import { SwapPanel } from "./swap-panel";
 import { FeesView } from "./fees-view";
 import { WalletConnectButton } from "./wallet-connect";
@@ -133,6 +133,8 @@ export function OnchainTreasury({
       ReturnType<typeof readTradingWallet>
     > | null>(null),
     [refreshTick, setRefreshTick] = useState(0);
+  // Whether a live read has been shown on this page (the first one prefetches the trade panel's pool).
+  const shownLive = useRef(false);
   const refresh = useCallback(async () => {
     setError("");
     try {
@@ -140,12 +142,17 @@ export function OnchainTreasury({
       const verified = await readTreasuryVerified(market);
       setSnap(null);
       if (!verified.migrated || !verified.dammPool) {
+        shownLive.current = true;
         setData(verified);
         return;
       }
       // A graduated market's pool fees take a few more reads. The first time,
-      // the verified read shows meanwhile; later, the last full read stays.
+      // the verified read shows meanwhile, and the trade panel's pool read goes
+      // first so trading is not held up by them; later, the last full read stays.
       setData((last) => last ?? verified);
+      const first = !shownLive.current;
+      shownLive.current = true;
+      if (first) await prefetchGraduatedPool(market);
       setData(await withPoolFees(market, verified));
     } catch (e) {
       setData(null);
