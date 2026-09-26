@@ -13,12 +13,14 @@
 // live), then live push's reads and trade path, then the 10 s accounts read,
 // then the sync loop and everything else in the background.
 //
-// Defaults: 6 a second and 3 per method (at most 66 and 33 in any 10 s),
-// which leaves the crank its share. INDEXER_RPC_PER_SECOND and
-// INDEXER_RPC_PER_METHOD_PER_SECOND override them (a paid SOLANA_RPC_URL can
-// take more).
-export const RPC_PER_SECOND = 6;
-export const RPC_PER_METHOD_PER_SECOND = 3;
+// Defaults: 4 a second and 1 per method. Measured from the server on 26
+// September, public Devnet answered 429 to about 40% of the live poll at 2 or
+// 1.5 per method a second and to under 1% at 1, so it allows this address
+// about 10 calls per method per 10 s, not the published 40.
+// INDEXER_RPC_PER_SECOND and INDEXER_RPC_PER_METHOD_PER_SECOND override them
+// (a paid SOLANA_RPC_URL can take more).
+export const RPC_PER_SECOND = 4;
+export const RPC_PER_METHOD_PER_SECOND = 1;
 /** Lower goes first. */
 export const PRIORITY = { poll: 0, live: 1, reader: 2, background: 3 };
 

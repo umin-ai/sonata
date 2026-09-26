@@ -1194,10 +1194,13 @@ if (isMain) {
   if ((await conn.getGenesisHash()) !== DEVNET_GENESIS) throw Error("Not Devnet.");
   if (process.env.LIVE_PUSH === "1") {
     try {
-      // The 1 s poll gives up on a call after 2.5 s: the next poll is a second away. It goes
-      // first in the request budget; live push's other reads come next.
+      // The poll runs every LIVE_POLL_MS (2 s by default: at public Devnet's measured
+      // 1 call per method a second it uses half, which leaves the rest for trades; a
+      // paid RPC can poll every second). It gives up on a call after 2.5 s, goes first
+      // in the request budget, and live push's other reads come next.
       live = await startLivePush({
         reader: accounts,
+        pollMs: envNumber("LIVE_POLL_MS", 2_000),
         conn: mainConnection(2_500, PRIORITY.poll),
         readConn: mainConnection(2_500, PRIORITY.live),
         fallback: fallbackUrl ? timedConnection(fallbackUrl, 2_500) : null,
