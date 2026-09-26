@@ -103,14 +103,33 @@ export function newestFirst<T extends { market: { pool: string }; launchedAt?: n
 }
 
 /**
- * `next` in the order already shown: markets from `previous` keep their
- * place, and new ones follow in `next`'s order. Markets gone from `next` go.
+ * `next` merged into the list shown, for every source that refreshes a list
+ * (the live stream's snapshot, /api/markets, the browser's own read): a market
+ * in both keeps its place and takes whichever entry is newer by versionOf (the
+ * one shown on a tie), so numbers never go back; a market only in `next` is
+ * placed by newestFirst; a market missing from `next` stays (a read that lags
+ * or fails never removes a card). At most `max` markets, the oldest dropped.
+ * Returns `shown` itself when nothing changed.
  */
-export function stableOrder<T extends { market: { pool: string } }>(previous: readonly T[] | undefined, next: T[]) {
-  if (!previous?.length) return next;
-  const rank = new Map(previous.map((e, i) => [e.market.pool, i]));
-  return next
-    .map((e, i) => ({ e, key: rank.get(e.market.pool) ?? previous.length + i }))
-    .sort((a, b) => a.key - b.key)
-    .map(({ e }) => e);
+export function mergeList<T extends SnapshotEntry>(shown: readonly T[], next: readonly T[], max = MAX_LISTED_MARKETS): T[] {
+  const incoming = new Map(next.map((e) => [e.market.pool, e]));
+  let changed = false;
+  const out = shown.map((e) => {
+    const n = incoming.get(e.market.pool);
+    if (!n) return e;
+    incoming.delete(e.market.pool);
+    if (versionOf(n) <= versionOf(e)) return e;
+    changed = true;
+    return n;
+  });
+  for (const e of incoming.values()) {
+    changed = true;
+    const at = out.findIndex((x) => newestFirst(e, x) < 0);
+    out.splice(at < 0 ? out.length : at, 0, e);
+  }
+  if (out.length > max) {
+    out.length = max;
+    changed = true;
+  }
+  return changed ? out : (shown as T[]);
 }

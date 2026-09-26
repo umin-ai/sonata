@@ -6,7 +6,7 @@ import fixtureJson from "../treasury/fixtures/devnet-markets.json" with { type: 
 import type { Fixture } from "../treasury/fixtures/fake-rpc.ts";
 import { setConfigByte } from "../treasury/fixtures/config-bytes.ts";
 import { identityOf, type Market } from "../treasury/runtime.ts";
-import { stableOrder, type ProfileBody, type RawStats } from "../treasury/market-snapshot.ts";
+import type { ProfileBody, RawStats } from "../treasury/market-snapshot.ts";
 import { marketAccountsReader } from "../../indexer/modules/market-accounts.mjs";
 import {
   ACCOUNTS_RETRY_MS,
@@ -119,13 +119,6 @@ test("a treasury account owned by another program is skipped, however well its b
   const snapshot = snapshotFromAccounts(raw);
   assert.equal(snapshot.entries.some((e) => e.market.pool === room.pool), false);
   assert.deepEqual(snapshot.skipped, [{ pool: room.treasury, reason: "Treasury account is not owned by the Sonata program." }]);
-});
-
-test("stableOrder keeps the order shown and appends new markets", () => {
-  const e = (pool: string) => ({ market: { pool } });
-  assert.deepEqual(stableOrder([e("b"), e("a")], [e("a"), e("c"), e("b")]).map((x) => x.market.pool), ["b", "a", "c"]);
-  assert.deepEqual(stableOrder(undefined, [e("a")]).map((x) => x.market.pool), ["a"]);
-  assert.deepEqual(stableOrder([e("gone"), e("a")], [e("a")]).map((x) => x.market.pool), ["a"]);
 });
 
 test("requestLocale takes the first supported Accept-Language tag, else en-US", () => {

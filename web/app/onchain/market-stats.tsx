@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 import { formatUnits } from "@/lib/treasury/units";
 import { change24h, fetchStats, type PoolStats } from "@/lib/market-data";
 import { useNumberLocale, useSnapshotStats } from "./snapshot-context";
+import { useLivePoolStats } from "./live-stream";
 
 // 24h volume, trades and change for a market card, in its own module so the
-// market list does not load the chart library. All cards share one request,
-// refreshed at most every 20 seconds.
+// market list does not load the chart library. On a page with a live stream
+// they come pushed (a new market's with it); otherwise all cards share one
+// request, refreshed at most every 20 seconds.
 const QUOTE_DECIMALS = 8;
 let statsCache: { at: number; promise: ReturnType<typeof fetchStats> } | null = null;
 function sharedStats() {
@@ -21,11 +23,13 @@ function sharedStats() {
 }
 
 export function MarketStats({ pool, quote }: { pool: string; quote: string }) {
-  // The server's snapshot carries the stats of the markets it listed: nothing to
-  // fetch for those. A market it does not cover (listed after the page was
-  // rendered, or no stats in the snapshot) loads them as before.
+  // The server's snapshot carries the stats of the markets it listed, and the
+  // live stream those of every market it has sent: nothing to fetch for those.
+  // A market neither covers (no stream, listed after the page was rendered, or
+  // no stats in the snapshot) loads them as before.
+  const pushed = useLivePoolStats(pool);
   const seeded = useSnapshotStats(pool);
-  const covered = seeded !== undefined;
+  const covered = pushed !== undefined || seeded !== undefined;
   const [fetched, setStats] = useState<PoolStats | null | undefined>(undefined);
   useEffect(() => {
     if (covered) return;
@@ -43,7 +47,7 @@ export function MarketStats({ pool, quote }: { pool: string; quote: string }) {
   }, [pool, covered]);
   // Formatted as the server did until hydration, so the first render matches its HTML.
   const locale = useNumberLocale();
-  const stats = covered ? seeded : fetched;
+  const stats = pushed !== undefined ? pushed : covered ? seeded : fetched;
   if (!stats) return null;
   const change = change24h(stats);
   const volume = Number(formatUnits(stats.volume24h, QUOTE_DECIMALS));
