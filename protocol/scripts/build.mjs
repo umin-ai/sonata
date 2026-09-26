@@ -41,12 +41,7 @@ mkdirSync("sdk/idl", { recursive: true });
 mkdirSync("target/types", { recursive: true });
 mkdirSync("artifacts", { recursive: true });
 const binaries = {};
-for (const name of [
-  "stockroom_credit",
-  "demo_oracle",
-  "stockroom_treasury",
-  "stockroom_rewards",
-]) {
+for (const name of ["stockroom_treasury", "stockroom_rewards"]) {
   run([
     "idl",
     "build",
@@ -72,12 +67,6 @@ const sourceFiles = [
   "Cargo.lock",
   "Anchor.toml",
   "rust-toolchain.toml",
-  "crates/credit-math/Cargo.toml",
-  "crates/credit-math/src/lib.rs",
-  "programs/demo-oracle/Cargo.toml",
-  "programs/demo-oracle/src/lib.rs",
-  "programs/stockroom-credit/Cargo.toml",
-  "programs/stockroom-credit/src/lib.rs",
   "programs/stockroom-treasury/Cargo.toml",
   "programs/stockroom-treasury/src/lib.rs",
   "programs/stockroom-rewards/Cargo.toml",

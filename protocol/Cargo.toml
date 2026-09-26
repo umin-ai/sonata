@@ -1,5 +1,5 @@
 [workspace]
-members = ["programs/*", "crates/*"]
+members = ["programs/*"]
 resolver = "2"
 
 [workspace.package]
@@ -10,7 +10,6 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 anchor-lang = "=1.0.2"
 anchor-spl = { version = "=1.0.2", default-features = false, features = ["token", "token_2022", "associated_token", "token_2022_extensions"] }
-credit-math = { path = "crates/credit-math" }
 
 [profile.dev]
 debug = 0

@@ -1,6 +1,0 @@
-(node:40090) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
-(Use `node --trace-warnings ...` to show where the warning was created)
-Fund proportional holder round Hi2xFBMB4Qy4oL15ub3Das6WW9LhsDqhMbMfrNDpFDEGwRynFbKyKjMxHhExedrxZAbrihTsULsYookKdEb3qMh
-Deliver holder payout 2buXzVaGPKotxi458fr1jR8s68kLd8jHUoygGmuRsk22c8RnSADqsf6R8B5t9ZM278SdXTgi5qWMHhCKfCLaAc9p
-Deliver holder payout eK9kCH56CCCaPyZKqEKzbH7yxDgpFtb8DUQdwKQWGWzmhugWVmApgJkUijWx4nZQWN8koQDqXHLV9gkNWLzbxDF
-Deliver holder payout 27itSvkZMiA6Yavjc2beun1W82jNWFwKSVKyh3N96PMTTBD9fxkXqFAYKfygw5xQBd7XdB4pudvh5RoCBC5Stc6r

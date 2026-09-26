@@ -1,5 +1,6 @@
 {
   "network": "devnet",
+  "deploySignature": "3W7K9rUp5gtUjU6Lr9VnkyR6gnAJDJUkrdsGtpXLTCT1esChsoyU37dUtY9XRTZDQDPd4zNThYCesStZ6d9q2NZp",
   "verifiedAt": "2026-09-17T22:25:23.612Z",
   "tests": "9/9 SBF tests passed",
   "proof": {
