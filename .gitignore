@@ -10,4 +10,4 @@
 
 # Optional local Anchor/Agave toolchain that protocol/scripts/build.mjs looks
 # for at ../.tools/stockroom (the repository root).
-/.tools/
+/.tools
