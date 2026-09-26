@@ -1,0 +1,29 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-23T13:10:00.000Z",
+  "intent": "Full launch-to-burn run through the Sonata app (local development server) after the S3, indexer and end-to-end fixes: a dollar-priced mQQQ launch at 3% with Stock Floor on and a token profile stored on S3 behind CloudFront, then a buy, Add to floor and a burn, all built by the app and signed by its in-browser Devnet test wallet.",
+  "wallet": "CQbcYspb3iDF96Ykfru7QY89QTuYXD9mkpxymLMdXrc2",
+  "pool": "fbAaZr9zJAFARc8cLyEvhi5kyJyrP1A969Nmh618f3y",
+  "baseMint": "HJY4KxLBM4AK6YWAPFzEfr9jhZweQbbp9ZcDbBxhupbt",
+  "profile": {
+    "uri": "https://d3lwm4c3ge2mv2.cloudfront.net/tokens/5bafeeaefe7a1f1bae09c7d30ffd0a249901ca2495458667ba935fa43e86905a.json",
+    "image": "https://d3lwm4c3ge2mv2.cloudfront.net/tokens/237c9ec84dfff2b32c37e153984bfd222721288f213607d7c78e6b32dab1f54b.webp",
+    "note": "Each file's name is the SHA-256 of its bytes."
+  },
+  "observed": {
+    "graduatesAt": "$25,000 = 33.536659 mQQQ at $745.45 (QQQx on Solana)",
+    "buy": "0.2 mQQQ -> 28,280,664.790191 E2E",
+    "marketCapAfterBuy": "7.019 mQQQ (indexer chart)",
+    "floorAfterAddToFloor": "0.0024 mQQQ",
+    "burn": "10,000,000 E2E -> 0.000024 mQQQ (0.0024 x 10,000,000 / 1,000,000,000)",
+    "floorAfterBurn": "0.002376 mQQQ"
+  },
+  "traces": [
+    { "label": "Fund the test wallet (scripts/fund-devnet-wallet.mjs)", "signature": "2n8j56Ug8NopNjT2cdRig9HQPXP2jCqRhMhRq8PjNZLRnJXDEkQfs6rma5uv1C6u1BRnrmZ9EwtdS1gVt2M1E4dt" },
+    { "label": "App: create config and pool, profile URI in metadata", "signature": "2k28idtGLc1XRxqK1EfHLffymeCEfSo9o3hFzqceZXKsVJrWSF1ccgZAeaTgUTUcVwPGuHCXDcXjm4JcL6i4fNjE" },
+    { "label": "App: activate treasury in Stock Floor mode", "signature": "K9CmGeKnzgdNdhnf3eGiugAwuvD8zh2ZmdrLp2dWEj96DJoW6tmbJPoZEKriZyEhdfRsiTp2X3w8cgRJvc5jpXj" },
+    { "label": "App: buy with 0.2 mQQQ", "signature": "4otZcnSxABGQT7ombQTRKwC1kJCozvPsmAT5UdHSdhKwRjZ844oFjfjApoMDhuufJJKLbdkLBkEk97fwwQp4Uwbr" },
+    { "label": "App: Add to floor (claim and split)", "signature": "VUPrxGTkfi6o95ZYTMwHURguYLCX9E1p6jUvrWk3FdkVp2wj8eAAgHgWgzNjdZGXZEbvNZNsgZYo2MsofhKhmcC" },
+    { "label": "App: burn 10,000,000 E2E for stock", "signature": "36PUBiv7Xp754guRFt1U87Jr5EqTfPfBnKGpWoXE6DvSN4NNLXPsQurtBhX7UXwPVypNFFHDFRsvAAHk9rPVQic5" }
+  ]
+}

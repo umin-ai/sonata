@@ -1,0 +1,19 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-22T22:03:55.629Z",
+  "intent": "Trade on the DAMM v2 pool produced by graduation.",
+  "dammPool": "2w3DJLxuRaDe75wV3wzdvGg5gdopoMFm7hQ1uhe7MSyq",
+  "amountIn": "1000000",
+  "received": "548790242161",
+  "minimumOut": "546046290950",
+  "checks": {
+    "receivedAtLeastQuotedMinimum": true,
+    "poolQuoteVaultGrewByInput": true
+  },
+  "traces": [
+    {
+      "label": "Buy on graduated pool",
+      "signature": "A9LYT61xXTYbGAtRbBeVhNkxNYrm7uVA3kbwmEuGC6soDPtMTNJfBFU9MFTbMH9yaWanx8CCpCfCw4Pj1cenjNj"
+    }
+  ]
+}

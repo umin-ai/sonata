@@ -1,0 +1,75 @@
+{
+  "network": "devnet",
+  "startedAt": "2026-09-17T20:06:02.086Z",
+  "nonce": "1789675562087",
+  "receipts": [
+    {
+      "label": "fund-reserve-rewards",
+      "signature": "2d5jPstaBQyMGzhohJdkKahJ4VJT5jwFVVon5YqYXDy3jnihU5MHv1J9rxzB1YkW7caNYf4yQkSyeBzMhtSHVPKN",
+      "signer": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+      "blockhash": "FFNPq6HzFk5kdRsLoHFTu9m8NAzKc2PqvTuhVTvcUTKw",
+      "lastValidBlockHeight": 487261959
+    },
+    {
+      "label": "alice-claims",
+      "signature": "5Wu5ZFj1e5PqjUNadF3xvsy3yew68wk9ktaqgkrBNjyMV4WVK4GZd8LdX9Xd5Xsh1ALjPcPiY2Dna4kUbLygqAqz",
+      "signer": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+      "blockhash": "8MyYGwzWgbdoHoamh29wRmNE58aq9C24us2dCcxPTNRP",
+      "lastValidBlockHeight": 487261977
+    },
+    {
+      "label": "bob-claims",
+      "signature": "65M1VBkwQRAGL84xRtEZPt4YSZ9QwPNxMoKZoHgn3rt2D4Z2FpifJt27SCybEgYUQGowHHupvWenmpqNLZXnwxDU",
+      "signer": "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT",
+      "blockhash": "2fz3wELyfTC3wyavA7pENqM3ZDUuCu6XfprTFecv3k54",
+      "lastValidBlockHeight": 487261995
+    }
+  ],
+  "checks": {
+    "wrongRecipient": {
+      "error": {
+        "InstructionError": [
+          0,
+          {
+            "Custom": 6005
+          }
+        ]
+      },
+      "logs": [
+        "Program log: AnchorError thrown in programs/stockroom-rewards/src/lib.rs:112. Error Code: WrongRecipient. Error Number: 6005. Error Message: Only the allocated recipient can claim.",
+        "Program 6u1nXj1iXNxCGThKetW45MSpXeEdn5GFw6NaZa4Mpn1L failed: custom program error: 0x1775"
+      ]
+    },
+    "doubleClaim": {
+      "error": {
+        "InstructionError": [
+          0,
+          {
+            "Custom": 6006
+          }
+        ]
+      },
+      "logs": [
+        "Program log: AnchorError thrown in programs/stockroom-rewards/src/lib.rs:118. Error Code: AlreadyClaimed. Error Number: 6006. Error Message: This allocation has already been claimed.",
+        "Program 6u1nXj1iXNxCGThKetW45MSpXeEdn5GFw6NaZa4Mpn1L failed: custom program error: 0x1776"
+      ]
+    },
+    "exactReserveFundingAndClaims": true
+  },
+  "campaign": "6Wb8XctDQdbNpeg6HicEeseKi2LoPtZsWKuQqHeGuv7j",
+  "treasury": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+  "creator": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+  "recipients": [
+    "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+    "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT"
+  ],
+  "before": {
+    "withdrawn": "100000",
+    "creatorBalance": "98900798017",
+    "treasuryBalance": "220400",
+    "alice": "985303",
+    "bob": "1470607"
+  },
+  "complete": true,
+  "finishedAt": "2026-09-17T20:06:15.798Z"
+}

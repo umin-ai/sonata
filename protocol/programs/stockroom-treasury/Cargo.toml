@@ -1,0 +1,23 @@
+[package]
+name = "stockroom-treasury"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+description = "Stockroom: creator reserves funded by Meteora DBC partner fees"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "stockroom_treasury"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+anchor-lang.workspace = true
+anchor-spl.workspace = true
+dynamic-bonding-curve = { git = "https://github.com/MeteoraAg/dynamic-bonding-curve", rev = "f552f20aa3c1c7631427c3827aeea7c58b902813", features = ["cpi"] }

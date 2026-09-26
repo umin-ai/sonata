@@ -1,0 +1,47 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-22T21:55:45.730Z",
+  "intent": "Full fee path on a per-launch 3% pool: buy, claim via vault-PDA CPI, 50/50 allocation, creator withdrawal.",
+  "pool": "EhFL2cKonHPERgLNPQReqUtJKHGhdJMaTrm7ZG3je6vY",
+  "config": "2jpLkQ21ViZtx9ccfG9NJrgKhg45iVPFz8jiQ9dms4Zb",
+  "treasury": "5uNMGvBv5roC8wFFdRT51c91Tko7DJAzGheAcE5tiYTJ",
+  "amounts": {
+    "buyAtoms": "5000000",
+    "totalFee": "150000",
+    "meteoraProtocolFee": "30000",
+    "partnerFee": "120000",
+    "claimed": "120000",
+    "paidOut": "60000",
+    "retained": "60000",
+    "withdrawn": "30000"
+  },
+  "checks": {
+    "feeIsThreePercentOfInput": true,
+    "meteoraTakesTwentyPercent": true,
+    "partnerFeeAccruedOnPool": true,
+    "claimMatchesAccruedPartnerFee": true,
+    "custodyReceivedClaim": true,
+    "splitIsFiftyFifty": true,
+    "payoutOwnerReceivedHalf": true,
+    "creatorReceivedWithdrawal": true,
+    "treasuryLedgerRecordsWithdrawal": true
+  },
+  "traces": [
+    {
+      "label": "Buy 0.05 mSPY through the 3% curve",
+      "signature": "5pVHQqdsqBdrFvCMrkYngrVi3GS8iQtEfHjDDfgGhrLgKXsZGSGQL2xQqAcbicjYAoNX5HD6txCsFFahynuTt2ek"
+    },
+    {
+      "label": "Claim partner fees into treasury custody",
+      "signature": "56h8GCW527wH1o9b3uj8439ViMiemiv2iDv5dWip8YQL4Fq61nqGfKkSNq6GDRyJEjFCf9b5r6Cerywb6DwaBUV6"
+    },
+    {
+      "label": "Allocate 50% payout / 50% retained",
+      "signature": "2aDSaWaEdJGBfRMjLLSPgxePY53drcdKzyayirGYPBwXEd9MFaaTdmmHPRFysD2GWMYqmYSUaXdn2LKWjx7gPH7C"
+    },
+    {
+      "label": "Creator withdraws half of the retained share",
+      "signature": "KSxQrpaTejzuQhe1MxefwrFNbs7B7uEpwbPHmX6AiVrfU6679gpNsPzNPUnCdSor7QXW9gkjesuKNouXVn6Ln6f"
+    }
+  ]
+}

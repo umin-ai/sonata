@@ -1,0 +1,316 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-24T09:57:42.546Z",
+  "complete": true,
+  "intent": "Creators keep earning after graduation: a 50/50 partner/creator locked-liquidity split gives the pool creator a permanently locked DAMM v2 position whose trading fees the creator claims.",
+  "settings": {
+    "initialMarketCap": 2,
+    "migrationMarketCap": 4,
+    "feeBps": 125,
+    "quote": "mQQQ",
+    "quoteMint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+    "mode": "refrain",
+    "liquidityDistribution": {
+      "partnerPermanentLockedLiquidityPercentage": 50,
+      "partnerLiquidityPercentage": 0,
+      "creatorPermanentLockedLiquidityPercentage": 50,
+      "creatorLiquidityPercentage": 0
+    },
+    "tradeIn": "10000000"
+  },
+  "creator": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+  "vault": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+  "traces": [
+    {
+      "label": "Create 50/50 config and pool",
+      "signature": "5nem3KasgEEWdVXfrpJ8Y9VUdebS5k1wdBFJqGKBJLxsLahUUxvTq3oMYvxS2dPEf8FhrTd4eZPxXJm9ZL57SK5K"
+    },
+    {
+      "label": "Register treasury (Refrain)",
+      "signature": "3vasar53wLy7q7MyZqMrcAcEYz6fdU2JCci9skRBKitXmCD8A5sWDAjgfzP867pYvCVG3W8eNA4SzkSx44DHzcBh"
+    },
+    {
+      "label": "Complete the curve (PartialFill buy)",
+      "signature": "3SHoPYRNSHyJqbYcmvmfZLhgy8GhN5UME8iTHV5Ytz3YtJ3HvMAWRvoB3PQvJ91JiEDwuN58h7MZ54J5hC8papvv"
+    },
+    {
+      "label": "Claim partner fees before migration",
+      "signature": "AKiRDHfDAe9swwUmnLAgUGQyNfrTE9o5y1TaquX72WA8Eo7Vafgsaa9kcQDtDygVFJSiW6jj96BZ8VtA6beYRVi"
+    },
+    {
+      "label": "Allocate collected fees (Refrain: all to payout)",
+      "signature": "5zLiambXVr978pT7daEBAdhqyAJXX3AqCMmKHiFYZUjxJQMRVLSiZ2qzKLYtMxDDW7z5EDWLbccgweWy8vweE2qj"
+    },
+    {
+      "label": "Migrate to DAMM v2",
+      "signature": "35hhv7CZKUFbDMmd74ZxvK9r6eqPkNK9hAhX2N7eai9GDVpvJiqz6PY6xuKLVrRtrLEcGXwnRw7rSMztPEujasLh"
+    },
+    {
+      "label": "Buy on the graduated DAMM v2 pool (0.1 mQQQ)",
+      "signature": "PLzSSGCuRGB379T4ATFmsDAUAPJRS3ChUCUoGz7NzjWcdsA4erdvAhFzWGbQ5HvTLYXdKb9JrMy4m5DWsgbdReX"
+    },
+    {
+      "label": "Creator claims position fees (app claim builder)",
+      "signature": "54VLGGUZoYkSwRGp4ZFmsd65FBMjhJ79cgfTv6mzRGMj7jtGUiWn5JWXipywt2fU5sjySdYMboaUPMvKKYejx6UU"
+    }
+  ],
+  "steps": {
+    "fill": {
+      "quoteReserve": "165685424",
+      "progress": 2
+    },
+    "collect": {
+      "claimed": "1677828",
+      "paidOut": "1677828"
+    },
+    "migrated": {
+      "dammPoolLiquidity": "4822860871832551968702748650164",
+      "positions": [
+        {
+          "nftMint": "7uBWdPVfBVNxjAraY1RKELEUswhtzujmngyZ4rXsgojC",
+          "position": "4LYyntR93ASEy3ZmU6pSkpxUe8p7y8Y97pd5EqRgjmt4",
+          "exists": true,
+          "pool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+          "nftAccount": "55NSnHZoscKhs6SSSsyNrrhAmHLug6D4z8vwrjZMbEFB",
+          "owner": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+          "nftAmount": "1",
+          "unlockedLiquidity": "0",
+          "vestedLiquidity": "0",
+          "permanentLockedLiquidity": "2411430435916275984351374325082",
+          "unclaimedA": "0",
+          "unclaimedB": "0",
+          "claimedA": "0",
+          "claimedB": "0"
+        },
+        {
+          "nftMint": "FXZi78dWVWxLxJjHxj2hBHU53hCjDRMRw7G1pNfeWnyi",
+          "position": "ATm1A1st2vYAceSnPaTSat7DEpHWNmgRKDmgHBCTi7Lo",
+          "exists": true,
+          "pool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+          "nftAccount": "GQSQraR7bfeoWvbQW8mTmtBj9GdgcwAx5yc4naFTG198",
+          "owner": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+          "nftAmount": "1",
+          "unlockedLiquidity": "0",
+          "vestedLiquidity": "0",
+          "permanentLockedLiquidity": "2411430435916275984351374325082",
+          "unclaimedA": "0",
+          "unclaimedB": "0",
+          "claimedA": "0",
+          "claimedB": "0"
+        }
+      ]
+    },
+    "trade": {
+      "amountIn": "10000000",
+      "quotedTradingFee": "80000",
+      "quotedProtocolFee": "20000",
+      "lpFeeB": "80000",
+      "positions": [
+        {
+          "nftMint": "7uBWdPVfBVNxjAraY1RKELEUswhtzujmngyZ4rXsgojC",
+          "position": "4LYyntR93ASEy3ZmU6pSkpxUe8p7y8Y97pd5EqRgjmt4",
+          "exists": true,
+          "pool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+          "nftAccount": "55NSnHZoscKhs6SSSsyNrrhAmHLug6D4z8vwrjZMbEFB",
+          "owner": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+          "nftAmount": "1",
+          "unlockedLiquidity": "0",
+          "vestedLiquidity": "0",
+          "permanentLockedLiquidity": "2411430435916275984351374325082",
+          "unclaimedA": "0",
+          "unclaimedB": "39999",
+          "claimedA": "0",
+          "claimedB": "0"
+        },
+        {
+          "nftMint": "FXZi78dWVWxLxJjHxj2hBHU53hCjDRMRw7G1pNfeWnyi",
+          "position": "ATm1A1st2vYAceSnPaTSat7DEpHWNmgRKDmgHBCTi7Lo",
+          "exists": true,
+          "pool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+          "nftAccount": "GQSQraR7bfeoWvbQW8mTmtBj9GdgcwAx5yc4naFTG198",
+          "owner": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+          "nftAmount": "1",
+          "unlockedLiquidity": "0",
+          "vestedLiquidity": "0",
+          "permanentLockedLiquidity": "2411430435916275984351374325082",
+          "unclaimedA": "0",
+          "unclaimedB": "39999",
+          "claimedA": "0",
+          "claimedB": "0"
+        }
+      ]
+    },
+    "claim": {
+      "description": "Claim 0.00039999 mQQQ of trading fees earned by your permanently locked DAMM v2 position. The liquidity stays locked; fees go to your own token accounts, created if missing.",
+      "instructions": [
+        "ComputeBudget111111111111111111111111111111",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"
+      ],
+      "libReadBefore": {
+        "slot": 503412802,
+        "readAt": 1790243911283,
+        "dbcPool": "51fyqN7fdXAdRMagYya92cQ7caSP5FUDJpQvaefKrecR",
+        "dammPool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+        "owner": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+        "creatorPercent": 50,
+        "creatorLockedPercent": 50,
+        "tokenAMint": "FW79M7iwThNrrrLdJ541bqt6eggCdeW8MWbkcWQsSBm3",
+        "tokenBMint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+        "tokenAVault": "DUjf7AMtr5kSJiAa97UDU2Zumzr6pEguPKCzDnk2n7DF",
+        "tokenBVault": "TsFE56fQ4U8orCyM8szJeUzmR9Hh93ybU7QQjAoJdSg",
+        "tokenAProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "tokenBProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "poolLiquidity": "4822860871832551968702748650164",
+        "position": {
+          "address": "4LYyntR93ASEy3ZmU6pSkpxUe8p7y8Y97pd5EqRgjmt4",
+          "nftMint": "7uBWdPVfBVNxjAraY1RKELEUswhtzujmngyZ4rXsgojC",
+          "nftAccount": "55NSnHZoscKhs6SSSsyNrrhAmHLug6D4z8vwrjZMbEFB",
+          "liquidity": "2411430435916275984351374325082",
+          "permanentLockedLiquidity": "2411430435916275984351374325082",
+          "unlockedLiquidity": "0",
+          "vestedLiquidity": "0",
+          "lockedBps": 10000,
+          "poolShareBps": 5000,
+          "feeShareBps": 4000,
+          "unclaimedA": "0",
+          "unclaimedB": "39999",
+          "claimedA": "0",
+          "claimedB": "0"
+        }
+      },
+      "libReadAfter": {
+        "slot": 503412838,
+        "readAt": 1790243917135,
+        "dbcPool": "51fyqN7fdXAdRMagYya92cQ7caSP5FUDJpQvaefKrecR",
+        "dammPool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+        "owner": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+        "creatorPercent": 50,
+        "creatorLockedPercent": 50,
+        "tokenAMint": "FW79M7iwThNrrrLdJ541bqt6eggCdeW8MWbkcWQsSBm3",
+        "tokenBMint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+        "tokenAVault": "DUjf7AMtr5kSJiAa97UDU2Zumzr6pEguPKCzDnk2n7DF",
+        "tokenBVault": "TsFE56fQ4U8orCyM8szJeUzmR9Hh93ybU7QQjAoJdSg",
+        "tokenAProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "tokenBProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "poolLiquidity": "4822860871832551968702748650164",
+        "position": {
+          "address": "4LYyntR93ASEy3ZmU6pSkpxUe8p7y8Y97pd5EqRgjmt4",
+          "nftMint": "7uBWdPVfBVNxjAraY1RKELEUswhtzujmngyZ4rXsgojC",
+          "nftAccount": "55NSnHZoscKhs6SSSsyNrrhAmHLug6D4z8vwrjZMbEFB",
+          "liquidity": "2411430435916275984351374325082",
+          "permanentLockedLiquidity": "2411430435916275984351374325082",
+          "unlockedLiquidity": "0",
+          "vestedLiquidity": "0",
+          "lockedBps": 10000,
+          "poolShareBps": 5000,
+          "feeShareBps": 4000,
+          "unclaimedA": "0",
+          "unclaimedB": "0",
+          "claimedA": "0",
+          "claimedB": "39999"
+        }
+      },
+      "creatorBalancesBefore": {
+        "base": "609137959176953",
+        "quote": "997866359120"
+      },
+      "creatorBalancesAfter": {
+        "base": "609137959176953",
+        "quote": "997866399119"
+      },
+      "poolQuoteVaultBefore": "175354054",
+      "poolQuoteVaultAfter": "175314055"
+    }
+  },
+  "config": "Bvdjyp4t7Z3jpYkMrRvj8cQcArthBhvwDT52222JAAnR",
+  "pool": "51fyqN7fdXAdRMagYya92cQ7caSP5FUDJpQvaefKrecR",
+  "baseMint": "FW79M7iwThNrrrLdJ541bqt6eggCdeW8MWbkcWQsSBm3",
+  "quoteMint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+  "treasury": "2jE9caVRCDGr8sfHXbb5yZpV3FFGvFV8zp1j3WCWFNDz",
+  "expectedThreshold": "165685424",
+  "dammConfig": "Hv8Lmzmnju6m7kcokVKvwqz7QPmdX9XfKjJsXz8RXcjp",
+  "dammPool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+  "onchainThreshold": "165685424",
+  "nftMints": [
+    "7uBWdPVfBVNxjAraY1RKELEUswhtzujmngyZ4rXsgojC",
+    "FXZi78dWVWxLxJjHxj2hBHU53hCjDRMRw7G1pNfeWnyi"
+  ],
+  "finalRead": {
+    "dammPoolLiquidity": "4822860871832551968702748650164",
+    "positions": [
+      {
+        "nftMint": "7uBWdPVfBVNxjAraY1RKELEUswhtzujmngyZ4rXsgojC",
+        "position": "4LYyntR93ASEy3ZmU6pSkpxUe8p7y8Y97pd5EqRgjmt4",
+        "exists": true,
+        "pool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+        "nftAccount": "55NSnHZoscKhs6SSSsyNrrhAmHLug6D4z8vwrjZMbEFB",
+        "owner": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+        "nftAmount": "1",
+        "unlockedLiquidity": "0",
+        "vestedLiquidity": "0",
+        "permanentLockedLiquidity": "2411430435916275984351374325082",
+        "unclaimedA": "0",
+        "unclaimedB": "0",
+        "claimedA": "0",
+        "claimedB": "39999"
+      },
+      {
+        "nftMint": "FXZi78dWVWxLxJjHxj2hBHU53hCjDRMRw7G1pNfeWnyi",
+        "position": "ATm1A1st2vYAceSnPaTSat7DEpHWNmgRKDmgHBCTi7Lo",
+        "exists": true,
+        "pool": "3Ye4dSicqEiceZeHFvcbKTMSiiti7nJtf7o2PNeeaaXV",
+        "nftAccount": "GQSQraR7bfeoWvbQW8mTmtBj9GdgcwAx5yc4naFTG198",
+        "owner": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+        "nftAmount": "1",
+        "unlockedLiquidity": "0",
+        "vestedLiquidity": "0",
+        "permanentLockedLiquidity": "2411430435916275984351374325082",
+        "unclaimedA": "0",
+        "unclaimedB": "39999",
+        "claimedA": "0",
+        "claimedB": "0"
+      }
+    ],
+    "allPositionsByPool": [
+      "4LYyntR93ASEy3ZmU6pSkpxUe8p7y8Y97pd5EqRgjmt4",
+      "ATm1A1st2vYAceSnPaTSat7DEpHWNmgRKDmgHBCTi7Lo"
+    ],
+    "creatorShareBps": 5000,
+    "creatorFeeShareBps": 4000,
+    "creatorUnlockedDust": "0",
+    "dustWithdrawQuote": {
+      "outA": "0",
+      "outB": "0"
+    },
+    "expectedCreatorFee": "40000",
+    "claimed": {
+      "quote": "39999",
+      "base": "0"
+    }
+  },
+  "checks": {
+    "configSplitIs5050": true,
+    "feeClaimerIsVault": true,
+    "tradingFeeIsChosenRate": true,
+    "thresholdMatchesPreview": true,
+    "curveCompletedAndMigrated": true,
+    "dammPoolCreated": true,
+    "poolHasExactlyTwoPositions": true,
+    "creatorPositionOwnedByCreator": true,
+    "vaultPositionOwnedByVault": true,
+    "creatorPositionPermanentlyLocked": true,
+    "vaultPositionFullyPermanentlyLocked": true,
+    "creatorHoldsHalfOfPoolLiquidity": true,
+    "appLibFindsCreatorPosition": true,
+    "feesAccruedToCreatorPosition": true,
+    "feesAccruedToVaultPosition": true,
+    "claimMovedFeesToCreatorAccounts": true,
+    "positionRecordsTheClaim": true,
+    "nothingLeftToClaim": true,
+    "liquidityStillLockedAfterClaim": true,
+    "flagshipUntouched": true
+  },
+  "completedAt": "2026-09-24T09:58:45.288Z"
+}
