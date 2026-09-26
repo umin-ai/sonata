@@ -122,6 +122,11 @@ sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='sonata'" | 
 # App: clone or fast-forward, install, build.
 if [ -d $APP_DIR/.git ]; then sudo -u sonata git -C $APP_DIR pull --ff-only
 else sudo -u sonata git clone "$REPO" $APP_DIR; fi
+# The branch it pulls must already have the app in web/ (the monorepo layout).
+if [ ! -f "$WEB_DIR/package.json" ]; then
+  echo "$APP_DIR has no web/package.json after the pull: the branch it pulls (main of $REPO) does not have the app in web/ yet. Merge and push that first, then re-run setup.sh." >&2
+  exit 1
+fi
 sudo -u sonata bash -c "cd $WEB_DIR && npm ci --no-audit --no-fund && npm run build"
 
 # Server-only settings for the Workers runtime; rebuilt with every deploy.
@@ -168,11 +173,13 @@ caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
 
 # Before the repository became a monorepo the app was built at the root of
-# $APP_DIR, and git leaves those untracked build folders behind when it moves
-# the app into web/. Once the app has been built in web/ and the services run
-# from there, remove them. Only when web/ is the app and the root is not.
+# $APP_DIR, and git leaves that build's untracked output behind when it moves
+# the app into web/ (the new root .gitignore no longer hides it). Once the app
+# has been built in web/ and the services run from there, remove it. Only when
+# web/ is the app and the root is not.
 if [ -f "$WEB_DIR/package.json" ] && [ ! -f "$APP_DIR/package.json" ]; then
-  rm -rf -- "$APP_DIR/node_modules" "$APP_DIR/dist"
+  rm -rf -- "$APP_DIR/node_modules" "$APP_DIR/dist" "$APP_DIR/.next" "$APP_DIR/.wrangler" \
+    "$APP_DIR/next-env.d.ts" "$APP_DIR/tsconfig.tsbuildinfo"
 fi
 if grep -qsx 'CRANK_DRY_RUN=1' $HOME_DIR/crank.env; then
   echo "CRANK_DRY_RUN=1 is set in $HOME_DIR/crank.env: crank passes only simulate and send nothing."

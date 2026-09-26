@@ -47,18 +47,30 @@ static IP (and update the A record) before relying on them long term.
 ### Moving an existing instance to the monorepo layout
 
 An instance set up before the app moved into `web/` has the app at the root
-of `/opt/sonata/app`, with untracked `node_modules/` and `dist/` there. Run
-the new `setup.sh` once, as in step 2 (copy the new `web/deploy/lightsail`
-first; the old `setup.sh` builds at the root and would stop with the timer
-held). It fast-forwards the checkout (the monorepo history descends from
-the old `main`, and no new tracked path collides with those untracked
-folders), builds in `web/`, installs the service files with
-`WorkingDirectory=/opt/sonata/app/web`, restarts the app and the indexer,
-and only then removes the old root `node_modules/` and `dist/` (only when
-`web/package.json` exists and the root has no `package.json`; re-running it
-is harmless). Until that restart the running app keeps serving the old root
-build; if it stopped in between, systemd could not start it again from the
-old paths until `setup.sh` installs the new service file.
+of `/opt/sonata/app`, with that build's untracked output there
+(`node_modules/`, `dist/`, `.next/`, `.wrangler/` and `next-env.d.ts`). To
+move it:
+
+1. Merge the monorepo into `main` and push it to `umin-ai/sonata`:
+   `setup.sh` deploys whatever the checkout's `main` is. Run before that
+   push, it pulls nothing new and stops with "has no web/package.json after
+   the pull", with the timer held (no payout passes) and the old app and
+   indexer still running; re-run it after the push.
+2. Run the new `setup.sh` once, as in step 2 of
+   [Deploy or update](#deploy-or-update) (copy the new
+   `web/deploy/lightsail` first; the old `setup.sh` builds at the root and
+   would stop with the timer held). It fast-forwards the checkout (the
+   monorepo history descends from the old `main`, and no new tracked path
+   collides with those untracked files), builds in `web/`, installs the
+   service files with `WorkingDirectory=/opt/sonata/app/web`, restarts the
+   app and the indexer, and only then removes the old root `node_modules/`,
+   `dist/`, `.next/`, `.wrangler/`, `next-env.d.ts` and
+   `tsconfig.tsbuildinfo` (only when `web/package.json` exists and the root
+   has no `package.json`; re-running it is harmless).
+
+Until that restart the running app keeps serving the old root build; if it
+stopped in between, systemd could not start it again from the old paths
+until `setup.sh` installs the new service file.
 
 ## Creator payout crank
 
