@@ -29,11 +29,14 @@ import { useLive } from "./live-context";
 // cards show it as an icon instead (market-badges.tsx).
 export function StockFloor({
   data,
+  verified = true,
   market,
   quote,
   held,
 }: {
   data: TreasurySnapshot | null;
+  /** False while `data` is the server snapshot's (display only): nothing can be sent until the live read. */
+  verified?: boolean;
   market: Market;
   quote: string;
   held?: string;
@@ -58,7 +61,7 @@ export function StockFloor({
   // (readTreasury), which Collect & pay out adds the same way.
   const mode = (data?.mode ?? market.mode) === "standardFloor" ? "standardFloor" : "floor";
   const toAdd = data ? pendingFloor(BigInt(data.uncollected), BigInt(data.unallocated), mode) : 0n;
-  const enabled = !!address && !busy && !pending && !!data;
+  const enabled = !!address && !busy && !pending && !!data && verified;
   return (
     <div className="stock-floor">
       <div className="stock-floor-head">

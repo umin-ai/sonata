@@ -29,7 +29,8 @@ export function MarketBadges({
   feeModel,
   quote,
 }: {
-  market: Market;
+  /** Only what identifies the market's kind (a full Market, or a snapshot's identity). */
+  market: Pick<Market, "mode" | "payoutOwner" | "feeModel">;
   data: BadgeData | null;
   feeModel?: string;
   quote: string;

@@ -39,7 +39,11 @@ export async function fetchTrades(pool: string, limit = 20, signal?: AbortSignal
 }
 
 export async function fetchStats(signal?: AbortSignal) {
-  const d = await get<{ supply: number; pools: Raw[] }>("stats", signal);
+  return parseStats(await get<{ supply: number; pools: Raw[] }>("stats", signal));
+}
+
+/** The indexer's /stats answer as a map by pool (the server's market snapshot carries it as it is). */
+export function parseStats(d: { supply: number; pools: Raw[] }) {
   const pools = new Map<string, PoolStats>();
   for (const p of d.pools)
     pools.set(String(p.pool), {

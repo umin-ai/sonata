@@ -1,36 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { explorer, type TreasurySnapshot } from "@/lib/treasury/runtime";
 import { formatProgress, type Heat } from "@/lib/treasury/graduation";
 import { formatUnits } from "@/lib/treasury/units";
-
-// USD per quote stock token, shared by every bar on the page and refetched at
-// most once a minute. Null when the stock has no usable price.
-const prices = new Map<string, { at: number; promise: Promise<number | null> }>();
-function usdPrice(symbol: string) {
-  const hit = prices.get(symbol);
-  if (hit && Date.now() - hit.at < 60_000) return hit.promise;
-  const promise = fetch(`/api/stock-price?symbol=${encodeURIComponent(symbol)}`)
-    .then((r) => (r.ok ? (r.json() as Promise<{ price?: unknown; error?: string }>) : null))
-    .then((d) => (typeof d?.price === "number" && d.price > 0 && !d.error ? d.price : null))
-    .catch(() => null);
-  prices.set(symbol, { at: Date.now(), promise });
-  return promise;
-}
-function useUsdPrice(symbol: string) {
-  const [price, setPrice] = useState<{ symbol: string; value: number | null } | null>(null);
-  useEffect(() => {
-    let active = true;
-    void usdPrice(symbol).then((value) => {
-      if (active) setPrice({ symbol, value });
-    });
-    return () => {
-      active = false;
-    };
-  }, [symbol]);
-  return price?.symbol === symbol ? price.value : null;
-}
+import { useUsdPrice } from "./usd-price";
 
 // A stock amount from atoms, short: 1.79, 3.48, 0.0123.
 const stock = (atoms: string | bigint) => {

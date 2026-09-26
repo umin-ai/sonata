@@ -1,8 +1,7 @@
 "use client";
 import { TokenName, TokenPair } from "@/app/token-identity";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/app/plain-link";
-import { useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -29,14 +28,25 @@ import {
 import {
   hasFloor,
   discoverMarkets,
-  readTreasury,
-  readTradingWallet,
+  marketFromIdentity,
+  readWalletBalances,
   connection,
   market as original,
   explorer,
   type Market,
-  type TreasurySnapshot,
 } from "@/lib/treasury/runtime";
+import {
+  SNAPSHOT_CHAIN_AFTER_MS,
+  SNAPSHOT_FRESH_MS,
+  SNAPSHOT_NUMBERS_MAX_AGE_MS,
+  stableOrder,
+  type HomeSnapshot,
+  type MarketIdentity,
+  type MarketPageSnapshot,
+  type SnapshotEntry,
+} from "@/lib/treasury/market-snapshot";
+import { fetchSnapshot, listFromSnapshot, readLive, type MarketList } from "./markets-client";
+import { SnapshotProvider } from "./snapshot-context";
 import { PublicKey } from "@solana/web3.js";
 import { formatUnits } from "@/lib/treasury/units";
 import { LiveWallet, useLive } from "./live-session";
@@ -51,27 +61,71 @@ import {
 import { TokenImage, useTokenProfile } from "@/app/token-profile-view";
 import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
-const href = (m: Market) => `/onchain?pool=${m.pool}`;
-function useMarkets() {
+const href = (m: Pick<Market, "pool">) => `/onchain?pool=${m.pool}`;
+const message = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
+// Registered markets exist but none could be verified: an error, not "Make the first move".
+const NOTHING_VERIFIED = "No registered market could be verified right now.";
+/**
+ * The market list and every card's numbers. With the server's snapshot
+ * (`initial`) the list is complete from the first render and nothing is read
+ * on mount unless it is stale: 15 s to 60 s old, a quiet /api/markets; older,
+ * a quiet chain read. Without it, /api/markets (4 s limit), else the chain,
+ * behind today's skeletons. After a confirmed transaction the browser reads
+ * the chain quietly; Refresh reads the chain (else the server) with the spinner.
+ * A quiet read that fails keeps the list shown.
+ */
+function useMarkets(initial?: HomeSnapshot | null) {
   const { revision } = useLive();
-  const [markets, setMarkets] = useState<Market[]>([]),
-    [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setMarkets(await discoverMarkets());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Markets unavailable");
-    } finally {
-      setLoading(false);
+  const [list, setList] = useState<SnapshotEntry[]>(() => initial?.entries ?? []);
+  const [error, setError] = useState(() =>
+    initial && !initial.entries.length && initial.skipped.length ? NOTHING_VERIFIED : "",
+  );
+  // Visible loads in flight (the first one without a snapshot, and Refresh clicks).
+  const [visible, setVisible] = useState(() => (initial ? 0 : 1));
+  const latest = useRef(0);
+  const load = useCallback(async (sources: (() => Promise<MarketList>)[], shown: boolean) => {
+    const id = ++latest.current;
+    let result: MarketList | null = null,
+      failure: unknown = null;
+    for (const source of sources) {
+      try {
+        result = await source();
+        break;
+      } catch (e) {
+        failure = e;
+      }
     }
+    if (id === latest.current) {
+      if (result) {
+        const next = result;
+        setList((shownList) => stableOrder(shownList, next.entries));
+        setError(!next.entries.length && next.skipped ? NOTHING_VERIFIED : "");
+      } else if (shown) setError(message(failure, "Markets unavailable"));
+    }
+    if (shown) setVisible((n) => Math.max(0, n - 1));
   }, []);
+  const fromServer = useCallback(
+    (timeoutMs?: number) => async () => listFromSnapshot(await fetchSnapshot(timeoutMs)),
+    [],
+  );
   useEffect(() => {
-    void refresh();
-  }, [refresh, revision]);
-  return { markets, error, loading, refresh };
+    if (!initial) {
+      void load([fromServer(4_000), readLive], true);
+      return;
+    }
+    const age = initial.ageMs + performance.now();
+    if (age > SNAPSHOT_CHAIN_AFTER_MS) void load([readLive], false);
+    else if (age > SNAPSHOT_FRESH_MS) void load([fromServer()], false);
+  }, [initial, load, fromServer]);
+  useEffect(() => {
+    if (revision) void load([readLive], false);
+  }, [revision, load]);
+  const refresh = useCallback(() => {
+    setVisible((n) => n + 1);
+    setError("");
+    void load([readLive, fromServer()], true);
+  }, [load, fromServer]);
+  return { list, error, loading: visible > 0, refresh };
 }
 function Heading({
   title,
@@ -118,15 +172,15 @@ function Address({ value }: { value: string }) {
     </a>
   );
 }
-export function LiveDirectory() {
-  const { markets, error, loading, refresh } = useMarkets();
+export function LiveDirectory({ initial = null }: { initial?: HomeSnapshot | null }) {
+  const { list, error, loading, refresh } = useMarkets(initial);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"all" | "floor">("all");
-  const filtered = markets.filter((m) =>
+  const filtered = list.filter(({ market: m }) =>
     `${m.symbol} ${m.name} ${quoteSymbolOf(m.quoteMint)}`.toLowerCase().includes(query.toLowerCase()) && (category === "all" || hasFloor(m.mode)),
   );
   return (
-    <>
+    <SnapshotProvider profiles={initial?.profiles} prices={initial?.prices} stats={initial?.stats} locale={initial?.locale}>
       <div className="sonata-welcome"><div><span className="sonata-kicker">SONATA / DISCOVER</span><h1>The marketplace<span>.</span></h1></div></div>
       <div className="sonata-lobby sonata-command-lobby">
         <section className="sonata-command-banner" aria-labelledby="sonata-feature-title">
@@ -172,7 +226,7 @@ export function LiveDirectory() {
         </div>
         <div className="nm-market-toolbar">
           <div className="sonata-market-tabs" aria-label="Filter markets">
-            <button type="button" aria-pressed={category === "all"} onClick={() => setCategory("all")}>All markets <span>{loading ? "…" : markets.length}</span></button>
+            <button type="button" aria-pressed={category === "all"} onClick={() => setCategory("all")}>All markets <span>{loading ? "…" : list.length}</span></button>
             <button type="button" aria-pressed={category === "floor"} onClick={() => setCategory("floor")}><ShieldCheck size={14} /> Backed</button>
           </div>
           <div className="nm-market-search">
@@ -195,7 +249,7 @@ export function LiveDirectory() {
               <span className="sonata-launch-action">CHOOSE YOUR STOCK PAIR <ArrowUpRight size={16} /></span>
             </Link>
           )}
-          {loading && !markets.length
+          {loading && !list.length
             ? [1, 2, 3, 4].map((n) => (
                 <div
                   className="nm-market-skeleton"
@@ -207,7 +261,7 @@ export function LiveDirectory() {
                   <span />
                 </div>
               ))
-            : filtered.map((m) => <MarketCard key={m.pool} market={m} />)}
+            : filtered.map((entry) => <MarketCard key={entry.market.pool} market={entry.market} card={entry} />)}
         </div>
         {!loading && !error && !filtered.length && (
           <Card className="sr-panel nm-empty">
@@ -232,31 +286,16 @@ export function LiveDirectory() {
         ["mAMZN","Amazon"], ["mMETA","Meta"], ["mMCD","McDonald's"], ["mANTHROPIC","Anthropic"]
       ].map(([symbol,name]) => isDeployableQuote(symbol) ? <Link key={symbol} href={`/create?quote=${symbol}`} className="sonata-pair"><TokenName symbol={symbol} size={30}/><span>{name}</span><small>Launch <ArrowUpRight size={12} /></small></Link> : <div key={symbol} className="sonata-pair" aria-disabled="true"><TokenName symbol={symbol} size={30}/><span>{name}</span><small>Coming soon</small></div>)}</div></section>
       <p className="sonata-market-note">Community tokens are distinct from the stocks they trade against and do not convey stock ownership.</p>
-    </>
+    </SnapshotProvider>
   );
 }
 
-function MarketCard({ market: m }: { market: Market }) {
-  const [data, setData] = useState<TreasurySnapshot | null>(null),
-    [error, setError] = useState("");
+// One market's card. Its numbers come with the list (the server's snapshot or
+// the list's batched read), checked exactly as readTreasury checks them.
+function MarketCard({ market: m, card }: { market: MarketIdentity; card: Pick<SnapshotEntry, "data" | "error"> }) {
+  const data = card.data,
+    error = card.data ? "" : (card.error ?? "");
   const tokenProfile = useTokenProfile(m.uri);
-  const { revision } = useLive();
-  useEffect(() => {
-    let active = true;
-    void readTreasury(m)
-      .then((d) => {
-        if (active) {
-          setData(d);
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [m, revision]);
   return (
     <Card className="sonata-token-card" data-sonata-tone={m.baseMint.charCodeAt(0) % 3} data-heat={data?.heat}>
       {(data?.heat === "heating" || data?.heat === "fire" || data?.heat === "complete") && (
@@ -281,24 +320,71 @@ function MarketCard({ market: m }: { market: Market }) {
     </Card>
   );
 }
-export function LiveMarket() {
-  const search = useSearchParams(),
-    pool = search.get("pool") ?? original.pool;
-  const { markets, error, loading } = useMarkets();
-  const selected = markets.find((m) => m.pool === pool);
-  return selected ? (
-    <OnchainTreasury key={pool} selected={selected} />
-  ) : (
+/**
+ * One market's page (/onchain?pool=…; `pool` comes from the page, so the
+ * server and the browser pick the same branch). With the server's snapshot
+ * entry for it, the market (rebuilt from its identity) renders at once, with
+ * the snapshot's numbers until the live read verifies it. Otherwise the
+ * browser finds it on the chain first, as before.
+ */
+export function LiveMarket({ pool, initial = null }: { pool: string; initial?: MarketPageSnapshot | null }) {
+  const seeded = useMemo(() => {
+    if (!initial || initial.entry.market.pool !== pool) return null;
+    try {
+      return marketFromIdentity(initial.entry.market);
+    } catch {
+      return null;
+    }
+  }, [initial, pool]);
+  const profiles = useMemo(
+    () => (initial?.profile && seeded?.uri ? { [seeded.uri]: initial.profile } : undefined),
+    [initial, seeded],
+  );
+  const prices = useMemo(
+    () => (initial && seeded && initial.price !== undefined ? { [quoteSymbolOf(seeded.quoteMint)]: initial.price } : undefined),
+    [initial, seeded],
+  );
+  if (!initial || !seeded) return <DiscoveredMarket pool={pool} />;
+  return (
+    <SnapshotProvider profiles={profiles} prices={prices} locale={initial.locale}>
+      <OnchainTreasury
+        key={pool}
+        selected={seeded}
+        initialData={initial.ageMs <= SNAPSHOT_NUMBERS_MAX_AGE_MS ? initial.entry.data : null}
+      />
+    </SnapshotProvider>
+  );
+}
+// A market the server's snapshot does not have (launched moments ago, or not a
+// Sonata market): found on the chain first. Once found it is kept, so a later
+// transaction does not look it up again; until then, one does.
+function DiscoveredMarket({ pool }: { pool: string }) {
+  const { revision } = useLive();
+  const [found, setFound] = useState<{ market: Market | null; error: string } | null>(null);
+  const known = !!found?.market;
+  useEffect(() => {
+    if (known) return;
+    let active = true;
+    discoverMarkets().then(
+      (markets) => active && setFound({ market: markets.find((m) => m.pool === pool) ?? null, error: "" }),
+      (e) => active && setFound((last) => ({ market: last?.market ?? null, error: message(e, "Markets unavailable") })),
+    );
+    return () => {
+      active = false;
+    };
+  }, [pool, revision, known]);
+  if (found?.market) return <OnchainTreasury key={pool} selected={found.market} />;
+  return (
     <>
       <Heading
         title="Open market"
         description={
-          loading
+          !found
             ? "Verifying market registration on Solana…"
             : "This pool is not registered with the supported Sonata configuration."
         }
       />
-      <Failure text={error} />
+      <Failure text={found?.error ?? ""} />
       <Button asChild variant="outline">
         <Link href="/">Back to markets</Link>
       </Button>
@@ -309,42 +395,41 @@ export { LiveLaunch } from "./live-launch";
 export function LivePortfolio() {
   const { address, revision } = useLive();
   const [liquidityRefresh, setLiquidityRefresh] = useState(0);
-  const { markets, error, loading, refresh } = useMarkets();
-  const [positions, setPositions] = useState<
-      {
-        market: Market;
-        balance: Awaited<ReturnType<typeof readTradingWallet>>;
-        treasury: TreasurySnapshot;
-      }[]
-    >([]),
-    [failure, setFailure] = useState(""),
-    [fetching, setFetching] = useState(false);
+  const { list, error, loading, refresh } = useMarkets();
+  // The wallet's balances in every listed market in one batched read, re-read
+  // when the wallet, the set of markets or the chain (a confirmed transaction)
+  // changes, not every time the list's numbers refresh.
+  const pools = list.map((e) => e.market.pool).join(",");
+  const [listed, setListed] = useState({ pools: "", markets: [] as MarketIdentity[] });
+  if (listed.pools !== pools) setListed({ pools, markets: list.map((e) => e.market) });
+  const key = address ? `${address}|${pools}|${revision}` : "";
+  const [read, setRead] = useState<{
+    key: string;
+    balances?: Awaited<ReturnType<typeof readWalletBalances>>;
+    error?: string;
+  } | null>(null);
   useEffect(() => {
+    if (!key || !listed.markets.length) return;
     let active = true;
-    setPositions([]);
-    setFailure("");
-    if (!address) return;
-    setFetching(true);
-    void Promise.all(
-      markets.map(async (market) => ({
-        market,
-        balance: await readTradingWallet(address, market),
-        treasury: await readTreasury(market),
-      })),
-    )
-      .then((rows) => {
-        if (active) setPositions(rows);
-      })
-      .catch((e) => {
-        if (active) setFailure(e.message);
-      })
-      .finally(() => {
-        if (active) setFetching(false);
-      });
+    readWalletBalances(address, listed.markets).then(
+      (balances) => active && setRead({ key, balances }),
+      (e) => active && setRead({ key, error: message(e, "Balances unavailable") }),
+    );
     return () => {
       active = false;
     };
-  }, [address, markets, revision]);
+  }, [key, address, listed]);
+  const current = read?.key === key ? read : null;
+  const fetching = !!key && !!listed.markets.length && !current;
+  // Creator reserves come with the list's card numbers (display only).
+  const positions = current?.balances
+    ? list.flatMap(({ market, data }) => {
+        const balance = current.balances!.get(market.pool);
+        return balance ? [{ market, balance, treasury: { available: data?.available ?? "0" } }] : [];
+      })
+    : [];
+  const failure =
+    current?.error ?? list.find((e) => !e.data && e.error && e.market.creator === address)?.error ?? "";
   return (
     <>
       <Heading

@@ -1,6 +1,7 @@
 "use client";
 import { TokenFallback } from "@/app/token-identity";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSnapshotProfile } from "@/app/onchain/snapshot-context";
 import { Globe, Send } from "lucide-react";
 import {
   isProfileUrl,
@@ -27,10 +28,16 @@ export function loadProfile(uri: string) {
 }
 
 export function useTokenProfile(uri?: string) {
+  // The server's market snapshot may already carry it (the /api/token-meta body),
+  // validated here the same way, so the first render needs no fetch.
+  const seeded = useSnapshotProfile(uri);
   // Keyed by URI so a stale profile is never shown for a different token.
-  const [loaded, setLoaded] = useState<{ uri: string; profile: TokenProfile | null } | null>(null);
+  const [loaded, setLoaded] = useState<{ uri: string; profile: TokenProfile | null } | null>(() =>
+    uri && seeded && isProfileUrl(uri) ? { uri, profile: parseProfile(seeded) } : null,
+  );
+  const known = !!uri && loaded?.uri === uri;
   useEffect(() => {
-    if (!uri || !isProfileUrl(uri)) return;
+    if (!uri || !isProfileUrl(uri) || known) return;
     let active = true;
     void loadProfile(uri).then((profile) => {
       if (active) setLoaded({ uri, profile });
@@ -38,7 +45,7 @@ export function useTokenProfile(uri?: string) {
     return () => {
       active = false;
     };
-  }, [uri]);
+  }, [uri, known]);
   return loaded && loaded.uri === uri ? loaded.profile : null;
 }
 
@@ -100,9 +107,17 @@ export function TokenImage({
 }) {
   const [failed, setFailed] = useState<string | null>(null);
   const src = profile?.image;
+  const ref = useRef<HTMLImageElement>(null);
+  // An image in the server's HTML can fail before React is listening for its
+  // error: show the fallback then too.
+  useEffect(() => {
+    const img = ref.current;
+    if (src && img?.complete && img.naturalWidth === 0) setFailed(src);
+  }, [src]);
   if (!src || failed === src) return fallback ? <TokenFallback size={size} /> : null;
   return (
     <img
+      ref={ref}
       className="token-image"
       src={src}
       alt={`${symbol} logo`}

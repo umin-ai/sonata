@@ -82,6 +82,7 @@ function useBotPayouts(pool: string, active: boolean, revision: number) {
 export function FeesView({
   market,
   data,
+  verified = true,
   quote: q,
   feeModel: profileModel,
   held,
@@ -89,6 +90,8 @@ export function FeesView({
 }: {
   market: Market;
   data: TreasurySnapshot | null;
+  /** False while `data` is the server snapshot's (display only): nothing can be sent until the live read. */
+  verified?: boolean;
   quote: string;
   feeModel?: string;
   /** The connected wallet's balance of the token, in base atoms (undefined while it loads). */
@@ -106,7 +109,7 @@ export function FeesView({
     ? { paid: BigInt(data.paid), retained: BigInt(data.retained), withdrawn: BigInt(data.withdrawn) }
     : undefined;
   const shares = feeSplit(mode, { reward, feeModel: model, totals });
-  const enabled = !!address && !busy && !pending && !!data;
+  const enabled = !!address && !busy && !pending && !!data && verified;
   const poolError = data?.poolFees && "error" in data.poolFees ? data.poolFees.error : null;
   const ready = data ? BigInt(data.uncollected) : 0n,
     waiting = data ? BigInt(data.unallocated) : 0n;

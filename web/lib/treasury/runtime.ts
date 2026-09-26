@@ -1001,6 +1001,53 @@ export async function readTradingWallet(
     hasQuote: !!value[1],
   };
 }
+/**
+ * A wallet's SOL and its balances in many markets at once (the portfolio), in
+ * one getMultipleAccounts per 100 accounts instead of one call per market.
+ * Each market's entry has readTradingWallet's shape; the same checks apply.
+ */
+export async function readWalletBalances(
+  wallet: string,
+  markets: Pick<Market, "pool" | "quoteMint" | "baseMint">[],
+  conn: Connection = connection,
+) {
+  await checkNetwork(conn);
+  const owner = pk(wallet);
+  const quoteOf = (mint: string) => getAssociatedTokenAddressSync(pk(mint), owner, false, TOKEN_2022_PROGRAM_ID);
+  const baseOf = (mint: string) => getAssociatedTokenAddressSync(pk(mint), owner, false, TOKEN_PROGRAM_ID);
+  const keys = [
+    owner.toBase58(),
+    ...new Set(markets.flatMap((m) => [quoteOf(m.quoteMint).toBase58(), baseOf(m.baseMint).toBase58()])),
+  ];
+  const read = await readAccounts(conn, keys.map((k) => [k]));
+  const amount = (address: PublicKey, mint: string, tokenProgram: PublicKey) => {
+    const info = read.info(address.toBase58());
+    if (!info) return "0";
+    const account = unpackAccount(address, info, tokenProgram);
+    if (!account.owner.equals(owner) || !account.mint.equals(pk(mint)) || account.isFrozen)
+      throw Error("Unexpected wallet token account.");
+    return account.amount.toString();
+  };
+  const sol = String(read.info(owner.toBase58())?.lamports ?? 0);
+  return new Map(
+    markets.map((m) => {
+      const quote = quoteOf(m.quoteMint),
+        base = baseOf(m.baseMint);
+      return [
+        m.pool,
+        {
+          wallet,
+          slot: read.minSlot,
+          sol,
+          quote: amount(quote, m.quoteMint, TOKEN_2022_PROGRAM_ID),
+          base: amount(base, m.baseMint, TOKEN_PROGRAM_ID),
+          hasBase: !!read.info(base.toBase58()),
+          hasQuote: !!read.info(quote.toBase58()),
+        },
+      ] as const;
+    }),
+  );
+}
 // A curve trade's quote. Buys are partial fills: a buy larger than what the
 // curve still needs takes only that (fee included) and completes the curve;
 // the rest stays in the wallet. Without it, buying exactly the amount shown

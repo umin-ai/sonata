@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/table";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
 import {
-  readTreasury,
+  readTreasuryVerified,
+  withPoolFees,
   treasuryReceipts,
   market,
   explorer,
@@ -41,7 +42,9 @@ import { FeesView } from "./fees-view";
 import { WalletConnectButton } from "./wallet-connect";
 import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-view";
 import { LiveWallet, useLive } from "./live-session";
+import { useHydrated } from "./snapshot-context";
 import type { Market } from "@/lib/treasury/runtime";
+import type { CardData } from "@/lib/treasury/market-snapshot";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
 // Reward tokens: the creator's share is sent to Sonata's payout bot, which pays
 // holders pro rata. Payouts come from the trade indexer's ledger.
@@ -98,13 +101,29 @@ const sinceText = (seconds: number, now: number) => {
   const mins = Math.max(0, Math.round((now / 1000 - seconds) / 60));
   return mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
 };
-export function OnchainTreasury({ selected = market }: { selected?: Market }) {
+/**
+ * One market's page. `initialData` is the server snapshot's card numbers (at
+ * most a minute old), shown until the live read lands. Only the live read,
+ * which passes readTreasury's binding check against the chain, enables
+ * anything that trades or moves funds; if it fails, the snapshot's numbers are
+ * cleared and its error shows.
+ */
+export function OnchainTreasury({
+  selected = market,
+  initialData = null,
+}: {
+  selected?: Market;
+  initialData?: CardData | null;
+}) {
   const market = selected;
   const q = quoteSymbolOf(market.quoteMint);
   const tokenProfile = useTokenProfile(market.uri);
   const [view, setView] = useState("trade");
   const { address, busy, pending, revision, labels, execute } = useLive();
+  const hydrated = useHydrated();
+  // The live, verified read; the snapshot's numbers until it lands.
   const [data, setData] = useState<TreasurySnapshot | null>(null),
+    [snap, setSnap] = useState<CardData | null>(initialData),
     [receipts, setReceipts] = useState<
       Awaited<ReturnType<typeof treasuryReceipts>>
     >([]),
@@ -117,16 +136,38 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
   const refresh = useCallback(async () => {
     setError("");
     try {
-      setData(await readTreasury(market));
-      setReceipts(await treasuryReceipts(market));
+      // The binding check first: the page shows it as soon as it passes.
+      const verified = await readTreasuryVerified(market);
+      setSnap(null);
+      if (!verified.migrated || !verified.dammPool) {
+        setData(verified);
+        return;
+      }
+      // A graduated market's pool fees take a few more reads. The first time,
+      // the verified read shows meanwhile; later, the last full read stays.
+      setData((last) => last ?? verified);
+      setData(await withPoolFees(market, verified));
     } catch (e) {
       setData(null);
+      setSnap(null);
       setError(e instanceof Error ? e.message : "Market data unavailable");
     }
   }, [market]);
   useEffect(() => {
     void refresh();
   }, [refresh, revision]);
+  // Receipts only while the Transactions tab is open.
+  useEffect(() => {
+    if (view !== "history") return;
+    let active = true;
+    treasuryReceipts(market).then(
+      (r) => active && setReceipts(r),
+      () => {},
+    );
+    return () => {
+      active = false;
+    };
+  }, [view, market, revision, refreshTick]);
   useEffect(() => {
     let active = true;
     setWalletBalances(null);
@@ -144,6 +185,13 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
     };
   }, [address, market, revision, refreshTick]);
   const balances = walletBalances?.wallet === address ? walletBalances : null;
+  // What is shown: the live read, else the snapshot's numbers (display only).
+  const shown = data ?? snap;
+  // What the fee and backing panels get: the live read once complete (a graduated
+  // market's with its pool fees: the snapshot's "uncollected" is the curve's), else
+  // a curve market's snapshot after hydration (their countdowns use the time now).
+  const feesReady = !!data && (!data.migrated || !data.dammPool || data.poolFees !== null);
+  const fees = data ? (feesReady ? data : null) : hydrated && snap && !snap.migrated ? snap : null;
   return (
     <>
       <div className="sr-heading">
@@ -188,8 +236,8 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       {/* As on other launchpads: the chart, the market's details and its trades on the left; the swap on the right, kept in view. */}
       <div className="terminal-trade-main">
         {/* One card: the chart, then the curve's details (the pair is already in the page header). */}
-        <Card className="sr-panel terminal-chart-card terminal-market-overview"><PriceChart pool={market.pool} quote={q} revision={revision} supply={data ? Number(data.baseSupply) / 1e6 : undefined} /><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{data ? data.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={data} quote={q} />{data?.airdrop && <AirdropRow pool={market.pool} migrated={data.migrated} />}{data?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
-      {data?.migrated && (
+        <Card className="sr-panel terminal-chart-card terminal-market-overview"><PriceChart pool={market.pool} quote={q} revision={revision} supply={shown ? Number(shown.baseSupply) / 1e6 : undefined} /><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{shown ? shown.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={shown} quote={q} />{shown?.airdrop && <AirdropRow pool={market.pool} migrated={shown.migrated} />}{shown?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={fees} verified={!!data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+      {shown?.migrated && (
         <Card className="sr-panel">
           <div className="sr-section-top">
             <div>
@@ -206,18 +254,18 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
             1%, plus Meteora&apos;s volatility fee on fast moves. Trade it below
             or on Meteora, or add liquidity to its pool on the Pools page.
           </p>
-          {data.dammPool && (
+          {shown.dammPool && (
             <div className="flex flex-wrap gap-3 mt-4">
               <Button asChild>
-                <a href={meteoraPool(data.dammPool)} target="_blank" rel="noreferrer">
+                <a href={meteoraPool(shown.dammPool)} target="_blank" rel="noreferrer">
                   Trade on Meteora <ArrowUpRight />
                 </a>
               </Button>
               <Button asChild variant="outline">
-                <Link href={`/earn?net=devnet&pool=${data.dammPool}`}>Add liquidity</Link>
+                <Link href={`/earn?net=devnet&pool=${shown.dammPool}`}>Add liquidity</Link>
               </Button>
               <Button asChild variant="ghost">
-                <a href={explorer("address", data.dammPool)} target="_blank" rel="noreferrer">
+                <a href={explorer("address", shown.dammPool)} target="_blank" rel="noreferrer">
                   Explorer <ArrowUpRight />
                 </a>
               </Button>
@@ -282,7 +330,7 @@ export function OnchainTreasury({ selected = market }: { selected?: Market }) {
       {walletError && <p className="swap-hint" data-tone="error">{walletError}</p>}
       </div></div>}
       {/* What this market has earned, where it goes and what is held: rows, one Collect button. */}
-      {view === "fees" && <FeesView market={market} data={data} quote={q} feeModel={tokenProfile?.feeModel} held={balances?.base} hasQuote={balances?.hasQuote} />}
+      {view === "fees" && <FeesView market={market} data={fees} verified={!!data} quote={q} feeModel={tokenProfile?.feeModel} held={balances?.base} hasQuote={balances?.hasQuote} />}
       {view === "history" && <Card className="sr-panel">
         <div className="sr-section-top">
           <div>

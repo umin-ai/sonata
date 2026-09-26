@@ -18,6 +18,7 @@ import {
   type PoolStats,
   type Trade,
 } from "@/lib/market-data";
+import { useNumberLocale, useSnapshotStats } from "./snapshot-context";
 
 const QUOTE_DECIMALS = 8, BASE_DECIMALS = 6;
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
@@ -193,8 +194,11 @@ function sharedStats() {
 }
 
 export function MarketStats({ pool, quote }: { pool: string; quote: string }) {
-  const [stats, setStats] = useState<PoolStats | null | undefined>(undefined);
+  // The server's snapshot carries the stats when it has them: nothing to fetch.
+  const seeded = useSnapshotStats();
+  const [fetched, setStats] = useState<PoolStats | null | undefined>(undefined);
   useEffect(() => {
+    if (seeded) return;
     let active = true;
     void sharedStats()
       .then((d) => {
@@ -206,13 +210,16 @@ export function MarketStats({ pool, quote }: { pool: string; quote: string }) {
     return () => {
       active = false;
     };
-  }, [pool]);
+  }, [pool, seeded]);
+  // Formatted as the server did until hydration, so the first render matches its HTML.
+  const locale = useNumberLocale();
+  const stats = seeded ? (seeded.get(pool) ?? null) : fetched;
   if (!stats) return null;
   const change = change24h(stats);
   const volume = Number(formatUnits(stats.volume24h, QUOTE_DECIMALS));
   const volumeLabel = volume > 0 && volume < 0.0001
     ? "<0.0001"
-    : volume.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    : volume.toLocaleString(locale, { maximumFractionDigits: 4 });
   return (
     <div className="market-card-stats">
       <span>
