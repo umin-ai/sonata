@@ -1,0 +1,13 @@
+.DS_Store
+
+# Secrets never belong in this repository. web/ and protocol/ keep their own
+# .gitignore files; these patterns apply everywhere in the tree as well.
+.env
+.env.*
+!.env.example
+.keys/
+*-keypair.json
+
+# Optional local Anchor/Agave toolchain that protocol/scripts/build.mjs looks
+# for at ../.tools/stockroom (the repository root).
+/.tools/
