@@ -7,6 +7,7 @@ const { Program, BorshAccountsCoder, BN: BigNumber } =
 import {
   Connection,
   PublicKey,
+  type AccountInfo,
   Transaction,
   ComputeBudgetProgram,
   VersionedTransaction,
@@ -29,6 +30,9 @@ import { standardConfigProblem, type StandardConfigFields } from "./standard";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { buyOut, graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl, type FeeModel } from "../token-profile";
+import { MAX_ACCOUNTS_PER_CALL, accountBatches } from "./account-batches.mjs";
+/** Reader options for tests: the most accounts per getMultipleAccounts call (default 100). */
+export type ReadOptions = { maxPerCall?: number };
 // Of the net fees the treasury claims (80% of the trading fee; Meteora takes 20%, and
 // pays a fifth of that to Sonata as referrer on swaps this site builds):
 // "standard": 50% to the creator's payout wallet, 50% to Sonata. New launches.
@@ -67,32 +71,109 @@ import dbc from "./dbc-addresses.json";
 import { parseUnits } from "./units.ts";
 
 import { createRpcFetch } from "./rpc-fetch";
-// Devnet RPCs in order of preference: Solana's public endpoint, then (in the
-// browser) Sonata's relay to a dedicated provider, app/api/rpc, which keeps that
-// provider's key on the server. rpc-fetch moves a request to the next endpoint
-// when one is busy or down. Subscriptions (websockets) stay on the public endpoint.
-const DEVNET_RPCS = [
-  "https://api.devnet.solana.com",
-  ...(typeof window !== "undefined" ? [new URL("/api/rpc", window.location.origin).toString()] : []),
-];
-export const connection = new Connection(DEVNET_RPCS[0], {
+/** Solana's public Devnet endpoint. Websocket subscriptions always use it. */
+export const PUBLIC_DEVNET = "https://api.devnet.solana.com";
+/**
+ * Devnet RPCs in order of preference. In a browser (given its origin): Sonata's
+ * same-origin relay to dedicated providers first (app/api/rpc, which keeps
+ * their keys on the server and limits each visitor), then Solana's public
+ * endpoint, which can leave a busy browser's account reads unanswered without
+ * saying so. rpc-fetch moves a request on when an endpoint refuses, fails or
+ * stays quiet. Elsewhere (scripts, tests): the public endpoint only.
+ */
+export function devnetEndpoints(origin?: string) {
+  return origin ? [new URL("/api/rpc", origin).toString(), PUBLIC_DEVNET] : [PUBLIC_DEVNET];
+}
+// The first argument only sets the websocket endpoint: every HTTP call goes through rpc-fetch's endpoints.
+export const connection = new Connection(PUBLIC_DEVNET, {
   commitment: "confirmed",
   disableRetryOnRateLimit: true,
-  fetch: createRpcFetch((input, init) => globalThis.fetch(input, init), { endpoints: DEVNET_RPCS }),
+  fetch: createRpcFetch((input, init) => globalThis.fetch(input, init), {
+    endpoints: devnetEndpoints(typeof window !== "undefined" ? window.location.origin : undefined),
+  }),
 });
 const pk = (s: string) => new PublicKey(s),
   program = new Program(treasuryIdl as Idl, { connection }),
   coder = new BorshAccountsCoder(dbcIdl as Idl);
+// Address derivations are pure and each costs a hash search. Every market list
+// (the server snapshot every 10 s, the browser's reads, marketFromIdentity per
+// card) repeats the same ones for every market, so their results are kept.
+const derivations = new Map<string, PublicKey>();
+function derived(key: string, derive: () => PublicKey) {
+  let value = derivations.get(key);
+  if (!value) {
+    if (derivations.size >= 20_000) derivations.clear();
+    derivations.set(key, (value = derive()));
+  }
+  return value;
+}
+/** An associated token account, allowing an owner off the curve (a PDA), as every market account is derived. */
+const marketAta = (mint: PublicKey, owner: PublicKey, tokenProgram: PublicKey = TOKEN_PROGRAM_ID) =>
+  derived(`ata:${mint.toBase58()}:${owner.toBase58()}:${tokenProgram.toBase58()}`, () =>
+    getAssociatedTokenAddressSync(mint, owner, true, tokenProgram),
+  );
+// The treasury program bound to another connection (tests, scripts), made once per connection.
+const programs = new WeakMap<Connection, typeof program>();
+function programFor(conn: Connection) {
+  if (conn === connection) return program;
+  let p = programs.get(conn);
+  if (!p) programs.set(conn, (p = new Program(treasuryIdl as Idl, { connection: conn })));
+  return p;
+}
 const GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
-let checkedAt = 0;
-let networkCheck: Promise<void> | null = null;
-export async function checkNetwork() {
-  if (Date.now() - checkedAt <= 60000) return;
-  if (!networkCheck) networkCheck = (async () => {
-    if ((await connection.getGenesisHash()) !== GENESIS) throw Error("Devnet verification failed.");
-    checkedAt = Date.now();
-  })().finally(() => { networkCheck = null; });
-  await networkCheck;
+// The last Devnet check per connection, and the one in flight.
+const networkChecks = new WeakMap<Connection, { checkedAt: number; pending: Promise<void> | null }>();
+// The browser's last passed check is also kept for the tab (sessionStorage), for
+// the same endpoints, so a page load within the minute (every navigation is one)
+// does not repeat it. Times only; an unreadable or foreign entry counts as none.
+const NETWORK_CHECK_KEY = "sonata.devnet-check.v1";
+const checkedEndpoints = () => devnetEndpoints(window.location.origin).join(" ");
+function savedCheck(conn: Connection) {
+  if (conn !== connection || typeof window === "undefined") return 0;
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(NETWORK_CHECK_KEY) ?? "null") as {
+      at?: unknown;
+      genesis?: unknown;
+      endpoints?: unknown;
+    } | null;
+    return saved?.genesis === GENESIS && saved.endpoints === checkedEndpoints() && typeof saved.at === "number" ? saved.at : 0;
+  } catch {
+    return 0;
+  }
+}
+function saveCheck(conn: Connection, at: number) {
+  if (conn !== connection || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(NETWORK_CHECK_KEY, JSON.stringify({ at, genesis: GENESIS, endpoints: checkedEndpoints() }));
+  } catch {
+    /* Storage blocked: the check is simply made again. */
+  }
+}
+/** Throws unless the connection's endpoint is Devnet; checked at most once a minute (`maxAgeMs`). */
+export async function checkNetwork(conn: Connection = connection, maxAgeMs = 60_000) {
+  let state = networkChecks.get(conn);
+  if (!state) networkChecks.set(conn, (state = { checkedAt: savedCheck(conn), pending: null }));
+  const age = Date.now() - state.checkedAt;
+  // A check dated in the future (a clock that stepped back) does not count.
+  if (age >= 0 && age <= maxAgeMs) return;
+  const s = state;
+  s.pending ??= (async () => {
+    if ((await conn.getGenesisHash()) !== GENESIS) throw Error("Devnet verification failed.");
+    s.checkedAt = Date.now();
+    saveCheck(conn, s.checkedAt);
+  })().finally(() => {
+    s.pending = null;
+  });
+  await s.pending;
+}
+/**
+ * `read` together with the network check: both go out at once (rpc-fetch sends
+ * the check outside its queue), and the result is returned only once both
+ * have passed, so nothing read from an unverified network is ever used.
+ */
+async function checkedRead<T>(conn: Connection, read: () => Promise<T>): Promise<T> {
+  const [, value] = await Promise.all([checkNetwork(conn), read()]);
+  return value;
 }
 
 type Treasury = {
@@ -132,24 +213,29 @@ type CurveConfig = {
   sqrtStartPrice: BN;
   curve: { sqrtPrice: BN; liquidity: BN }[];
 };
-export async function readTreasury(market: Market = exportsMarket) {
+type Info = AccountInfo<Buffer> | null;
+/** The accounts readTreasury reads, in its order, in one call and so at one slot. */
+export const TREASURY_ACCOUNTS = [
+  "treasury",
+  "pool",
+  "config",
+  "treasuryQuote",
+  "payoutQuote",
+  "quoteMint",
+  "programId",
+  "baseMint",
+] as const;
+/** A graduated market's pool fees as readTreasury reports them: read, unreadable, or none (not graduated). */
+export type PoolFeesRead = Awaited<ReturnType<typeof readPoolFees>> | { error: string } | null;
+/**
+ * readTreasury's checks and numbers from accounts already read: `infos` are
+ * TREASURY_ACCOUNTS in that order, read at `slot`. The graduated pool's fees
+ * are not included (poolFees null; withPoolFees adds them). Throws when any
+ * check fails, exactly as readTreasury does. Makes no RPC call.
+ */
+export function treasuryFromAccounts(market: Market, infos: readonly Info[], slot: number) {
   validateMarketIdentity(market);
-  await checkNetwork();
-  const names = [
-    "treasury",
-    "pool",
-    "config",
-    "treasuryQuote",
-    "payoutQuote",
-    "quoteMint",
-    "programId",
-    "baseMint",
-  ] as const;
-  const result = await connection.getMultipleAccountsInfoAndContext(
-    names.map((n) => pk(market[n])),
-    "confirmed",
-  );
-  const [ta, pa, ca, tqa, pqa, qm, pr, bm] = result.value;
+  const [ta, pa, ca, tqa, pqa, qm, pr, bm] = infos;
   if (
     !ta?.owner.equals(program.programId) ||
     !pa?.owner.equals(pk(dbc.program)) ||
@@ -220,15 +306,9 @@ export async function readTreasury(market: Market = exportsMarket) {
     custody.amount < unallocated + available
   )
     throw Error("Treasury accounting does not reconcile.");
-  const graduation = await readGraduation(pool, config, market, baseSupply);
-  const poolFees =
-    pool.isMigrated !== 0 && graduation.dammPool
-      ? await readPoolFees(market, graduation.dammPool).catch((e) => ({
-          error: e instanceof Error ? e.message : "Pool fees unavailable",
-        }))
-      : null;
+  const graduation = readGraduation(pool, config, market, baseSupply);
   return {
-    slot: result.context.slot,
+    slot,
     fetchedAt: Date.now(),
     claimed: claimed.toString(),
     paid: paid.toString(),
@@ -248,11 +328,53 @@ export async function readTreasury(market: Market = exportsMarket) {
     floor: hasFloor(mode) ? available.toString() : "0",
     baseSupply: baseSupply.toString(),
     ...graduation,
-    // After graduation the curve earns nothing more; Sonata's locked half of
-    // the pool earns the fees instead, and "uncollected" is what it holds now.
+    poolFees: null as PoolFeesRead,
+  };
+}
+/** A verified read of the market without its graduated pool's fees (see treasuryFromAccounts). */
+export type TreasuryState = ReturnType<typeof treasuryFromAccounts>;
+/**
+ * The market's treasury, pool and custody, read in one call at one slot and
+ * checked against the market (the binding check every transaction relies
+ * on), without a graduated pool's fees. The market page shows this as soon as
+ * it passes and adds the fees with withPoolFees.
+ */
+export async function readTreasuryVerified(market: Market = exportsMarket, conn: Connection = connection) {
+  validateMarketIdentity(market);
+  const result = await checkedRead(conn, () =>
+    conn.getMultipleAccountsInfoAndContext(
+      TREASURY_ACCOUNTS.map((n) => pk(market[n])),
+      "confirmed",
+    ),
+  );
+  return treasuryFromAccounts(market, result.value, result.context.slot);
+}
+/**
+ * A verified read with the graduated pool's fees added, as readTreasury
+ * returns it: after graduation the curve earns nothing more; Sonata's locked
+ * half of the pool earns the fees instead, and "uncollected" is what it holds now.
+ */
+export async function withPoolFees(
+  market: Market,
+  state: TreasuryState,
+  conn: Connection = connection,
+  // Replaced only in tests.
+  readFees: typeof readPoolFees = readPoolFees,
+) {
+  const poolFees: PoolFeesRead =
+    state.migrated && state.dammPool
+      ? await readFees(market, state.dammPool, conn).catch((e) => ({
+          error: e instanceof Error ? e.message : "Pool fees unavailable",
+        }))
+      : null;
+  return {
+    ...state,
     ...(poolFees && "quote" in poolFees ? { uncollected: poolFees.quote } : {}),
     poolFees,
   };
+}
+export async function readTreasury(market: Market = exportsMarket, conn: Connection = connection) {
+  return withPoolFees(market, await readTreasuryVerified(market, conn), conn);
 }
 // The Sonata Vault's locked position in each graduated DAMM v2 pool. Its
 // address never changes, so the Vault's position NFTs are listed once per
@@ -263,9 +385,9 @@ const vaultPositions = new Map<string, Promise<{ position: PublicKey; positionNf
  * locked position has earned but not yet moved into the treasury (quote and
  * base atoms; the pool collects its fees in the stock, so base stays 0).
  */
-async function readPoolFees(market: Market, dammPool: string) {
+async function readPoolFees(market: Market, dammPool: string, conn: Connection = connection) {
   const cp = await import("@meteora-ag/cp-amm-sdk");
-  const amm = new cp.CpAmm(connection);
+  const amm = new cp.CpAmm(conn);
   let found = vaultPositions.get(dammPool);
   if (!found) {
     found = amm.getPositionsByUser(pk(market.vault)).then((list) => {
@@ -300,6 +422,34 @@ async function readPoolFees(market: Market, dammPool: string) {
 }
 const DAMM_POOL_AUTHORITY = "HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC";
 const DAMM_V2_PROGRAM_ID = "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG";
+// DBC's DAMM v2 migration configs by migration fee option (the SDK's
+// DAMM_V2_MIGRATION_FEE_ADDRESS): FixedBps25, 30, 100, 200, 400, 600, Customizable.
+const DAMM_V2_MIGRATION_CONFIGS = [
+  "7F6dnUcRuyM2TwR8myT1dYypFXpPSxqwKNSFNkxyNESd",
+  "2nHK1kju6XjphBLbNxpM5XRGFj7p9U8vvNzyZiha1z6k",
+  "Hv8Lmzmnju6m7kcokVKvwqz7QPmdX9XfKjJsXz8RXcjp",
+  "2c4cYd4reUYVRAB9kUUkrq55VPyy2FNQ3FDL4o12JXmq",
+  "AkmQWebAwFvWk55wBoCr5D62C6VVDTzi84NJuD9H7cFD",
+  "DbCRBj8McvPYHJG1ukj8RE15h2dCNUdTAESG49XpQ44u",
+  "A8gMrEPJkacWkcb3DGwtJwTe16HktSEfvwtuDh2MCtck",
+];
+/**
+ * The DAMM v2 pool DBC creates when a market graduates, as the SDK's
+ * deriveDammV2PoolAddress derives it (seeds "pool", the migration config,
+ * then the two mints, larger first), without loading the SDK. Null for a
+ * migration fee option DBC does not map to a DAMM v2 config.
+ */
+export function dammV2PoolAddress(migrationFeeOption: number, baseMint: string, quoteMint: string) {
+  const config = DAMM_V2_MIGRATION_CONFIGS[migrationFeeOption];
+  if (!config) return null;
+  const a = pk(baseMint).toBuffer(),
+    b = pk(quoteMint).toBuffer();
+  const [first, second] = Buffer.compare(a, b) === 1 ? [a, b] : [b, a];
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("pool"), pk(config).toBuffer(), first, second],
+    pk(DAMM_V2_PROGRAM_ID),
+  )[0].toBase58();
+}
 const FEE_DENOMINATOR = 1_000_000_000n;
 function withFee(remaining: bigint, config: CurveConfig) {
   if (remaining <= 0n) return 0n;
@@ -309,7 +459,7 @@ function withFee(remaining: bigint, config: CurveConfig) {
   return (remaining * FEE_DENOMINATOR + (FEE_DENOMINATOR - fee - 1n)) / (FEE_DENOMINATOR - fee) + 1n;
 }
 // Graduation state from the pool and config already fetched above: no extra RPC.
-async function readGraduation(
+function readGraduation(
   pool: Pool,
   config: CurveConfig,
   market: Market,
@@ -329,19 +479,10 @@ async function readGraduation(
     big(config.migrationSqrtPrice),
     baseSupply,
   );
-  let dammPool: string | null = null;
-  if (migrated) {
-    // DBC creates the DAMM v2 pool under the config matching the migration fee option.
-    const { deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS } =
-      await import("@meteora-ag/dynamic-bonding-curve-sdk");
-    const dammConfig = DAMM_V2_MIGRATION_FEE_ADDRESS[config.migrationFeeOption];
-    if (dammConfig)
-      dammPool = deriveDammV2PoolAddress(
-        dammConfig,
-        pk(market.baseMint),
-        pk(market.quoteMint),
-      ).toBase58();
-  }
+  // DBC creates the DAMM v2 pool under the config matching the migration fee option.
+  const dammPool = migrated
+    ? dammV2PoolAddress(config.migrationFeeOption, market.baseMint, market.quoteMint)
+    : null;
   return {
     quoteReserve: quoteReserve.toString(),
     migrationQuoteThreshold: threshold.toString(),
@@ -890,7 +1031,6 @@ export async function readTradingWallet(
   wallet: string,
   market: Market = exportsMarket,
 ) {
-  await checkNetwork();
   const owner = pk(wallet);
   const quote = getAssociatedTokenAddressSync(
     pk(market.quoteMint),
@@ -904,9 +1044,8 @@ export async function readTradingWallet(
     false,
     TOKEN_PROGRAM_ID,
   );
-  const { value, context } = await connection.getMultipleAccountsInfoAndContext(
-    [owner, quote, base],
-    "confirmed",
+  const { value, context } = await checkedRead(connection, () =>
+    connection.getMultipleAccountsInfoAndContext([owner, quote, base], "confirmed"),
   );
   const amount = (
     index: number,
@@ -933,6 +1072,53 @@ export async function readTradingWallet(
     hasBase: !!value[2],
     hasQuote: !!value[1],
   };
+}
+/**
+ * A wallet's SOL and its balances in many markets at once (the portfolio), in
+ * one getMultipleAccounts per 100 accounts instead of one call per market.
+ * Each market's entry has readTradingWallet's shape; the same checks apply.
+ */
+export async function readWalletBalances(
+  wallet: string,
+  markets: Pick<Market, "pool" | "quoteMint" | "baseMint">[],
+  conn: Connection = connection,
+  { maxPerCall }: ReadOptions = {},
+) {
+  const owner = pk(wallet);
+  const quoteOf = (mint: string) => getAssociatedTokenAddressSync(pk(mint), owner, false, TOKEN_2022_PROGRAM_ID);
+  const baseOf = (mint: string) => getAssociatedTokenAddressSync(pk(mint), owner, false, TOKEN_PROGRAM_ID);
+  const keys = [
+    owner.toBase58(),
+    ...new Set(markets.flatMap((m) => [quoteOf(m.quoteMint).toBase58(), baseOf(m.baseMint).toBase58()])),
+  ];
+  const read = await checkedRead(conn, () => readAccounts(conn, keys.map((k) => [k]), [], maxPerCall));
+  const amount = (address: PublicKey, mint: string, tokenProgram: PublicKey) => {
+    const info = read.info(address.toBase58());
+    if (!info) return "0";
+    const account = unpackAccount(address, info, tokenProgram);
+    if (!account.owner.equals(owner) || !account.mint.equals(pk(mint)) || account.isFrozen)
+      throw Error("Unexpected wallet token account.");
+    return account.amount.toString();
+  };
+  const sol = String(read.info(owner.toBase58())?.lamports ?? 0);
+  return new Map(
+    markets.map((m) => {
+      const quote = quoteOf(m.quoteMint),
+        base = baseOf(m.baseMint);
+      return [
+        m.pool,
+        {
+          wallet,
+          slot: read.minSlot,
+          sol,
+          quote: amount(quote, m.quoteMint, TOKEN_2022_PROGRAM_ID),
+          base: amount(base, m.baseMint, TOKEN_PROGRAM_ID),
+          hasBase: !!read.info(base.toBase58()),
+          hasQuote: !!read.info(quote.toBase58()),
+        },
+      ] as const;
+    }),
+  );
 }
 // A curve trade's quote. Buys are partial fills: a buy larger than what the
 // curve still needs takes only that (fee included) and completes the curve;
@@ -1106,120 +1292,341 @@ export function validateMarketIdentity(value: Market) {
     throw Error("Unsupported treasury mode.");
   if (value.uri !== undefined && !isProfileUrl(value.uri))
     throw Error("Unsupported token profile location.");
-  const [treasury] = PublicKey.findProgramAddressSync(
-    [Buffer.from("treasury"), pk(value.pool).toBuffer()],
-    program.programId,
+  const treasury = derived(`treasury:${value.pool}`, () =>
+    PublicKey.findProgramAddressSync([Buffer.from("treasury"), pk(value.pool).toBuffer()], program.programId)[0],
   );
   if (treasury.toBase58() !== value.treasury)
     throw Error("Treasury address does not match the pool.");
 }
-export async function discoverMarkets(): Promise<Market[]> {
-  await checkNetwork();
+const METAPLEX_PROGRAM = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
+/** A mint's Metaplex metadata account, as the DBC SDK's deriveMintMetadata derives it. */
+export function metadataAddress(mint: PublicKey | string) {
+  return derived(`metadata:${typeof mint === "string" ? mint : mint.toBase58()}`, () =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("metadata"), pk(METAPLEX_PROGRAM).toBuffer(), new PublicKey(mint).toBuffer()],
+      pk(METAPLEX_PROGRAM),
+    )[0],
+  );
+}
+type TreasuryEntry = { publicKey: PublicKey; account: Treasury };
+/** A registered pool that is not listed, and why (for logs and the market snapshot API). */
+export type SkippedMarket = { pool: string; reason: string };
+const QUOTE_MINTS = new Set(quoteAssetList.map((a) => a.mint));
+// Only treasuries on a registered mock stock, in a mode the app knows, are considered.
+const supportedTreasury = (t: Treasury) => QUOTE_MINTS.has(t.quoteMint.toBase58()) && modeOf(t.mode) !== null;
+const errorText = (e: unknown, fallback: string) =>
+  e instanceof Error ? e.message || e.name || fallback : fallback;
+/** Every supported treasury the program has registered (one getProgramAccounts). */
+async function scanTreasuries(conn: Connection): Promise<TreasuryEntry[]> {
   const entries = await (
-    program.account as unknown as {
-      treasury: {
-        all(): Promise<{ publicKey: PublicKey; account: Treasury }[]>;
-      };
+    programFor(conn).account as unknown as {
+      treasury: { all(): Promise<TreasuryEntry[]> };
     }
   ).treasury.all();
-  const quoteMints = new Set(quoteAssetList.map((a) => a.mint));
-  const supported = entries.filter(
-    ({ account: t }) =>
-      quoteMints.has(t.quoteMint.toBase58()) && modeOf(t.mode) !== null,
-  );
-  if (!supported.length) return [];
-  const [pools, configs] = await Promise.all([
-    connection.getMultipleAccountsInfo(supported.map(({ account: t }) => t.pool)),
-    connection.getMultipleAccountsInfo(supported.map(({ account: t }) => t.config)),
-  ]);
-  const { deriveMintMetadata, METAPLEX_PROGRAM_ID } =
-    await import("@meteora-ag/dynamic-bonding-curve-sdk");
-  const metadata = await connection.getMultipleAccountsInfo(
-    supported.map(({ account: t }) => deriveMintMetadata(t.baseMint)),
-  );
-  // A market whose Meteora config is not Sonata's standard launch (liquidity the
-  // creator could pull, a mintable token, hidden fees) is never listed, even if
-  // it was registered before the treasury program refused such configs.
-  const standard = supported.map((_, i) => {
-    const info = configs[i];
-    if (!info?.owner.equals(pk(dbc.program))) return false;
-    return standardConfigProblem(coder.decode<StandardConfigFields>("poolConfig", info.data), exportsMarket.vault) === null;
-  });
-  return supported.filter((_, i) => standard[i]).map(({ publicKey, account: t }) => {
-    const i = supported.findIndex((e) => e.publicKey.equals(publicKey));
-    const info = pools[i];
-    if (!info?.owner.equals(pk(dbc.program)))
-      throw Error("A registered pool could not be verified.");
-    const decoded = coder.decode<Pool>("virtualPool", info.data),
-      pool = decoded.poolState ?? decoded;
-    let name = `Community ${t.baseMint.toBase58().slice(0, 6)}`,
-      symbol = t.baseMint.toBase58().slice(0, 6),
-      uri = "";
-    const md = metadata[i];
-    if (
-      md?.owner.equals(METAPLEX_PROGRAM_ID) &&
-      md.data.length > 69 &&
-      new PublicKey(md.data.subarray(33, 65)).equals(t.baseMint)
-    ) {
-      let offset = 65;
-      const read = () => {
-        const length = md.data.readUInt32LE(offset);
-        offset += 4;
-        if (length > 200 || offset + length > md.data.length)
-          throw Error("Invalid mint metadata.");
-        const text = md.data
-          .subarray(offset, offset + length)
-          .toString("utf8")
-          .replace(/\0/g, "");
-        offset += length;
-        return text;
-      };
-      try {
-        name = read();
-        symbol = read();
-        uri = read();
-      } catch {
-        /* Address remains the asset identity. */
-      }
+  return entries.filter(({ account }) => supportedTreasury(account));
+}
+/**
+ * Treasuries as scanTreasuries lists them, decoded from accounts read
+ * elsewhere (the server's market snapshot): each must be owned by the
+ * treasury program and decode as a treasury, or it is skipped.
+ */
+export function treasuryEntries(keys: string[], info: (key: string) => Info) {
+  const entries: TreasuryEntry[] = [],
+    skipped: SkippedMarket[] = [];
+  for (const key of keys) {
+    try {
+      const ti = info(key);
+      if (!ti?.owner.equals(program.programId)) throw Error("Treasury account is not owned by the Sonata program.");
+      const account = program.coder.accounts.decode<Treasury>("treasury", ti.data);
+      if (supportedTreasury(account)) entries.push({ publicKey: pk(key), account });
+    } catch (e) {
+      skipped.push({ pool: key, reason: errorText(e, "Treasury could not be read.") });
     }
-    const m: Market = {
-      ...exportsMarket,
-      name,
-      symbol,
-      config: t.config.toBase58(),
-      quoteMint: t.quoteMint.toBase58(),
-      pool: t.pool.toBase58(),
-      treasury: publicKey.toBase58(),
-      baseMint: t.baseMint.toBase58(),
-      creator: t.creator.toBase58(),
-      payoutOwner: t.payoutOwner.toBase58(),
-      mode: modeOf(t.mode) ?? undefined,
-      ...(isProfileUrl(uri) ? { uri } : {}),
-      baseVault: pool.baseVault.toBase58(),
-      quoteVault: pool.quoteVault.toBase58(),
-      treasuryBase: getAssociatedTokenAddressSync(
-        t.baseMint,
-        publicKey,
-        true,
-      ).toBase58(),
-      treasuryQuote: getAssociatedTokenAddressSync(
-        t.quoteMint,
-        publicKey,
-        true,
-        TOKEN_2022_PROGRAM_ID,
-      ).toBase58(),
-      payoutQuote: getAssociatedTokenAddressSync(
-        t.quoteMint,
-        t.payoutOwner,
-        true,
-        TOKEN_2022_PROGRAM_ID,
-      ).toBase58(),
-      traces:
-        t.pool.toBase58() === exportsMarket.pool ? exportsMarket.traces : [],
-    };
-    validateMarketIdentity(m);
-    return m;
+  }
+  return { entries, skipped };
+}
+/**
+ * One market's accounts for its listing and card, read together: pool,
+ * config, metadata, treasury, base mint, and the treasury's and payout
+ * wallet's quote accounts (both derived from the treasury's own fields).
+ */
+function cardKeys({ publicKey, account: t }: TreasuryEntry) {
+  return [
+    t.pool,
+    t.config,
+    metadataAddress(t.baseMint),
+    publicKey,
+    t.baseMint,
+    marketAta(t.quoteMint, publicKey, TOKEN_2022_PROGRAM_ID),
+    marketAta(t.quoteMint, t.payoutOwner, TOKEN_2022_PROGRAM_ID),
+  ].map((k) => k.toBase58());
+}
+/** Accounts every card needs once: the quote mints in use and the treasury program. */
+const sharedCardKeys = (entries: TreasuryEntry[]) => [
+  ...new Set(entries.map(({ account }) => account.quoteMint.toBase58())),
+  exportsMarket.programId,
+];
+export { MAX_ACCOUNTS_PER_CALL, accountBatches };
+/** Reads the keys in accountBatches' calls, one after another. */
+async function readAccounts(conn: Connection, groups: string[][], shared: string[] = [], max = MAX_ACCOUNTS_PER_CALL) {
+  const infos = new Map<string, Info>(),
+    slots = new Map<string, number>();
+  let minSlot = Infinity;
+  for (const batch of accountBatches(groups, shared, max)) {
+    const { context, value } = await conn.getMultipleAccountsInfoAndContext(batch.map(pk), "confirmed");
+    batch.forEach((k, i) => {
+      infos.set(k, value[i]);
+      slots.set(k, context.slot);
+    });
+    minSlot = Math.min(minSlot, context.slot);
+  }
+  const slot = Number.isFinite(minSlot) ? minSlot : 0;
+  return {
+    info: (k: string): Info => infos.get(k) ?? null,
+    slotOf: (k: string) => slots.get(k) ?? slot,
+    minSlot: slot,
+  };
+}
+/**
+ * The listing rule, used by every market list (the server snapshot, the
+ * browser's own read and discoverMarkets): a market is listed only if its
+ * Meteora config is Sonata's standard launch (liquidity the creator could
+ * pull, a mintable token or hidden fees are never listed, even for a market
+ * registered before the treasury program refused such configs), its pool is
+ * a DBC pool, and its identity passes validateMarketIdentity (quote mint,
+ * mode, treasury address, profile location). A registered market whose pool
+ * cannot be verified is left out and reported in `skipped`; the others are
+ * still listed. Reads nothing: `info` returns accounts already read.
+ */
+export function marketsFromAccounts(entries: TreasuryEntry[], info: (key: string) => Info) {
+  const markets: Market[] = [],
+    skipped: SkippedMarket[] = [];
+  for (const { publicKey, account: t } of entries) {
+    try {
+      const configInfo = info(t.config.toBase58());
+      if (!configInfo?.owner.equals(pk(dbc.program))) continue;
+      if (
+        standardConfigProblem(coder.decode<StandardConfigFields>("poolConfig", configInfo.data), exportsMarket.vault) !==
+        null
+      )
+        continue;
+      const poolInfo = info(t.pool.toBase58());
+      if (!poolInfo?.owner.equals(pk(dbc.program))) throw Error("A registered pool could not be verified.");
+      const decoded = coder.decode<Pool>("virtualPool", poolInfo.data),
+        pool = decoded.poolState ?? decoded;
+      let name = `Community ${t.baseMint.toBase58().slice(0, 6)}`,
+        symbol = t.baseMint.toBase58().slice(0, 6),
+        uri = "";
+      const md = info(metadataAddress(t.baseMint).toBase58());
+      if (
+        md?.owner.equals(pk(METAPLEX_PROGRAM)) &&
+        md.data.length > 69 &&
+        new PublicKey(md.data.subarray(33, 65)).equals(t.baseMint)
+      ) {
+        let offset = 65;
+        const read = () => {
+          const length = md.data.readUInt32LE(offset);
+          offset += 4;
+          if (length > 200 || offset + length > md.data.length)
+            throw Error("Invalid mint metadata.");
+          const text = md.data
+            .subarray(offset, offset + length)
+            .toString("utf8")
+            .replace(/\0/g, "");
+          offset += length;
+          return text;
+        };
+        try {
+          name = read();
+          symbol = read();
+          uri = read();
+        } catch {
+          /* Address remains the asset identity. */
+        }
+      }
+      const m: Market = {
+        ...exportsMarket,
+        name,
+        symbol,
+        config: t.config.toBase58(),
+        quoteMint: t.quoteMint.toBase58(),
+        pool: t.pool.toBase58(),
+        treasury: publicKey.toBase58(),
+        baseMint: t.baseMint.toBase58(),
+        creator: t.creator.toBase58(),
+        payoutOwner: t.payoutOwner.toBase58(),
+        mode: modeOf(t.mode) ?? undefined,
+        ...(isProfileUrl(uri) ? { uri } : {}),
+        baseVault: pool.baseVault.toBase58(),
+        quoteVault: pool.quoteVault.toBase58(),
+        treasuryBase: marketAta(t.baseMint, publicKey).toBase58(),
+        treasuryQuote: marketAta(t.quoteMint, publicKey, TOKEN_2022_PROGRAM_ID).toBase58(),
+        payoutQuote: marketAta(t.quoteMint, t.payoutOwner, TOKEN_2022_PROGRAM_ID).toBase58(),
+        traces:
+          t.pool.toBase58() === exportsMarket.pool ? exportsMarket.traces : [],
+      };
+      validateMarketIdentity(m);
+      markets.push(m);
+    } catch (e) {
+      skipped.push({ pool: t.pool.toBase58(), reason: errorText(e, "Market could not be verified.") });
+    }
+  }
+  return { markets, skipped };
+}
+/** Every listed Sonata market: one getProgramAccounts and one getMultipleAccounts per 100 accounts. */
+export async function discoverMarkets(conn: Connection = connection, { maxPerCall }: ReadOptions = {}): Promise<Market[]> {
+  const entries = await checkedRead(conn, () => scanTreasuries(conn));
+  if (!entries.length) return [];
+  const read = await readAccounts(
+    conn,
+    entries.map(({ account: t }) => [t.pool, t.config, metadataAddress(t.baseMint)].map((k) => k.toBase58())),
+    [],
+    maxPerCall,
+  );
+  const { markets, skipped } = marketsFromAccounts(entries, read.info);
+  // Nothing listed because nothing could be verified is an error, not an empty market.
+  if (!markets.length && skipped.length) throw Error(skipped[0].reason);
+  return markets;
+}
+/** A listed market and its card numbers (readTreasury's, without pool fees), or why they are unavailable. */
+export type MarketCard = { market: Market; data: TreasuryState | null; error?: string };
+/**
+ * The listed markets with every card's numbers, from accounts already read:
+ * the listing rule (marketsFromAccounts), then each market's checks and
+ * numbers exactly as readTreasury computes them (treasuryFromAccounts). A
+ * market whose checks fail is listed with `data: null` and the reason.
+ */
+export function cardsFromAccounts(
+  entries: TreasuryEntry[],
+  info: (key: string) => Info,
+  slotOf: (key: string) => number,
+) {
+  const { markets, skipped } = marketsFromAccounts(entries, info);
+  const cards = markets.map((market): MarketCard => {
+    try {
+      return {
+        market,
+        data: treasuryFromAccounts(
+          market,
+          TREASURY_ACCOUNTS.map((k) => info(market[k])),
+          slotOf(market.pool),
+        ),
+      };
+    } catch (e) {
+      return { market, data: null, error: errorText(e, "Chain data unavailable") };
+    }
   });
+  return { cards, skipped };
+}
+/**
+ * Every listed market with its card numbers in a few batched reads: one
+ * getProgramAccounts, then each market's seven accounts plus the shared quote
+ * mints and program in calls of up to 100 accounts (2 calls for 19 markets).
+ * For display: anything that moves funds re-reads with readTreasury.
+ */
+export async function readMarketsAndCards(conn: Connection = connection, { maxPerCall }: ReadOptions = {}) {
+  const entries = await checkedRead(conn, () => scanTreasuries(conn));
+  if (!entries.length) return { slot: 0, cards: [] as MarketCard[], skipped: [] as SkippedMarket[] };
+  const read = await readAccounts(conn, entries.map(cardKeys), sharedCardKeys(entries), maxPerCall);
+  return { slot: read.minSlot, ...cardsFromAccounts(entries, read.info, read.slotOf) };
+}
+/** What identifies a market, as the server's market snapshot carries it; everything else is fixed or derived. */
+export type MarketIdentity = Pick<
+  Market,
+  | "pool"
+  | "treasury"
+  | "config"
+  | "baseMint"
+  | "quoteMint"
+  | "creator"
+  | "payoutOwner"
+  | "mode"
+  | "baseVault"
+  | "quoteVault"
+  | "treasuryBase"
+  | "treasuryQuote"
+  | "payoutQuote"
+  | "name"
+  | "symbol"
+  | "uri"
+>;
+const IDENTITY_KEYS = [
+  "pool",
+  "treasury",
+  "config",
+  "baseMint",
+  "quoteMint",
+  "creator",
+  "payoutOwner",
+  "baseVault",
+  "quoteVault",
+  "treasuryBase",
+  "treasuryQuote",
+  "payoutQuote",
+] as const;
+export function identityOf(m: MarketIdentity): MarketIdentity {
+  return {
+    pool: m.pool,
+    treasury: m.treasury,
+    config: m.config,
+    baseMint: m.baseMint,
+    quoteMint: m.quoteMint,
+    creator: m.creator,
+    payoutOwner: m.payoutOwner,
+    mode: m.mode,
+    baseVault: m.baseVault,
+    quoteVault: m.quoteVault,
+    treasuryBase: m.treasuryBase,
+    treasuryQuote: m.treasuryQuote,
+    payoutQuote: m.payoutQuote,
+    name: m.name,
+    symbol: m.symbol,
+    ...(m.uri !== undefined ? { uri: m.uri } : {}),
+  };
+}
+/**
+ * A Market from identity fields received from elsewhere (the server's
+ * snapshot). Only those fields are taken: program, vault, decimals, traces
+ * and network are this build's own. The treasury address and its token
+ * accounts are derived here and must match, and the identity must pass
+ * validateMarketIdentity; otherwise this throws. Fields that cannot be derived
+ * (config, mints, creator, payout owner, mode, vaults) are checked against
+ * the chain by readTreasury before anything is signed.
+ */
+export function marketFromIdentity(id: MarketIdentity): Market {
+  for (const key of IDENTITY_KEYS)
+    if (typeof id[key] !== "string" || new PublicKey(id[key]).toBase58() !== id[key])
+      throw Error(`Market ${key} is not an address.`);
+  for (const key of ["name", "symbol"] as const)
+    if (typeof id[key] !== "string" || id[key].length > 200) throw Error(`Market ${key} is invalid.`);
+  if (id.uri !== undefined && typeof id.uri !== "string") throw Error("Market profile location is invalid.");
+  const treasury = pk(id.treasury),
+    quoteMint = pk(id.quoteMint);
+  const m: Market = {
+    ...exportsMarket,
+    name: id.name,
+    symbol: id.symbol,
+    config: id.config,
+    quoteMint: id.quoteMint,
+    pool: id.pool,
+    treasury: id.treasury,
+    baseMint: id.baseMint,
+    creator: id.creator,
+    payoutOwner: id.payoutOwner,
+    mode: id.mode,
+    ...(id.uri !== undefined ? { uri: id.uri } : {}),
+    baseVault: id.baseVault,
+    quoteVault: id.quoteVault,
+    treasuryBase: marketAta(pk(id.baseMint), treasury).toBase58(),
+    treasuryQuote: marketAta(quoteMint, treasury, TOKEN_2022_PROGRAM_ID).toBase58(),
+    payoutQuote: marketAta(quoteMint, pk(id.payoutOwner), TOKEN_2022_PROGRAM_ID).toBase58(),
+    traces: id.pool === exportsMarket.pool ? exportsMarket.traces : [],
+  };
+  if (m.treasuryBase !== id.treasuryBase || m.treasuryQuote !== id.treasuryQuote || m.payoutQuote !== id.payoutQuote)
+    throw Error("Market token accounts do not match its treasury.");
+  if (m.mode === undefined) throw Error("Unsupported treasury mode.");
+  validateMarketIdentity(m);
+  return m;
 }
 export type LaunchCurve = {
   quote: string;

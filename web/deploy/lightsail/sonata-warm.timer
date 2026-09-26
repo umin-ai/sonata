@@ -1,0 +1,11 @@
+# Starts sonata-warm.service every 10 seconds (see there).
+[Unit]
+Description=Keep Sonata's market snapshot warm
+
+[Timer]
+OnActiveSec=30s
+OnUnitActiveSec=10s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

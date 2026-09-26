@@ -3,7 +3,9 @@
 One Ubuntu 24.04 instance runs everything: Caddy (HTTPS) → the app on
 127.0.0.1:8787 (workerd via wrangler local mode), and `/api/index/*` → the
 trade indexer on 127.0.0.1:8790 (`indexer/index.mjs`, service
-`sonata-indexer`), which reads Devnet DBC swaps into PostgreSQL on localhost.
+`sonata-indexer`), which reads Devnet DBC swaps into PostgreSQL on localhost
+and every market's accounts for the server-rendered pages (see
+[below](#server-rendered-market-list-and-market-pages)).
 
 Images are served from S3 through CloudFront; the app needs only an
 upload-only key. Nothing secret is stored in this repository.
@@ -43,6 +45,51 @@ and Lightsail's browser SSH.
 Before the domain existed the app was served at `34-255-123-10.sslip.io`,
 which now redirects. Both names follow the instance's public IP: attach a
 static IP (and update the A record) before relying on them long term.
+
+## Server-rendered market list and market pages
+
+The market list (`/`) and market pages (`/onchain?pool=…`) arrive complete in
+the first HTML, from a snapshot the app keeps in memory:
+
+- `sonata-indexer` reads every market's raw accounts every 10 seconds (one
+  getProgramAccounts and one getMultipleAccounts per 100 accounts) and serves
+  them on loopback at `/api/index/accounts` (`indexer/modules/market-accounts.mjs`).
+  It decides nothing about a market. It reads through public Devnet (or
+  `SOLANA_RPC_URL` in `/opt/sonata/indexer-overrides.env`, which `setup.sh`
+  never rewrites). When that fails twice in a row it also reads through a
+  fallback provider, at most every 30 seconds (about 8,600 calls a day while
+  it lasts), until public Devnet answers again: `MARKET_ACCOUNTS_FALLBACK_RPC_URL`
+  if `sonata.env` has one, else the relay's `GETBLOCK_DEVNET_URL` (GetBlock
+  takes 100-key getMultipleAccounts calls; QuickNode's free plan takes only 5,
+  so it cannot be the fallback). `setup.sh` copies those two keys into
+  `indexer.env` on every deploy.
+- The app fetches that from `INDEXER_URL` (already in `dist/server/.dev.vars`,
+  written by `setup.sh`) at most every 2 seconds, checks every market with
+  the same code the browser runs (listing rule, then readTreasury's checks),
+  and renders the cards from it (`lib/server/market-snapshot.ts`). Token
+  images, prices and 24h stats have their own small caches. A page never
+  waits for a refresh of something it can still serve: the refresh runs after
+  the response. `/api/markets` serves the chain part to the browser.
+- `sonata-warm.timer` asks the app for `/api/markets` over loopback every 10
+  seconds, so at low traffic nothing expires between visitors and no page
+  waits for a refresh.
+- Chain data older than 3 minutes is never served; the pages then fall back
+  to the browser reading the chain, as before. A market page only shows the
+  snapshot's numbers until they are a minute old, and nothing on it can be
+  sent until the browser's own live read has verified the market.
+
+Nothing new to set: the indexer and app restarts in `setup.sh` are all it
+takes. `MARKET_ACCOUNTS_URL` (optional, in `sonata.env`) points the app at
+another copy of `/api/index/accounts`. To check a deploy (read-only):
+
+    node scripts/check-ssr.mjs https://sonata.umin.ai 5
+    journalctl -u sonata-indexer | grep "market accounts"
+    systemctl list-timers sonata-warm.timer
+
+The indexer logs `market accounts: fallback RPC configured` (or `not
+configured`) at start, and each switch to and from the fallback. The app logs
+`market snapshot: N listed, N skipped, …` when the counts change and
+`indexer accounts unavailable` when it cannot reach the indexer.
 
 ### Moving an existing instance to the monorepo layout
 

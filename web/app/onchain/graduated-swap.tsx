@@ -8,6 +8,27 @@ import { SwapPanel } from "./swap-panel";
 
 const message = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
 
+// A read of the pool started before this panel mounts (prefetchGraduatedPool),
+// so it queues ahead of the page's slower reads (pool fees, creator position).
+let prefetched: { pool: string; at: number; list: ReturnType<typeof listGraduatedPools> } | null = null;
+/**
+ * Starts reading a graduated market's pool now; the panel's first read uses it
+ * if it is under 10 s old. Resolves (never rejects) when the read is done.
+ */
+export function prefetchGraduatedPool(market: Market): Promise<void> {
+  const list = listGraduatedPools([market]);
+  prefetched = { pool: market.pool, at: Date.now(), list };
+  return list.then(
+    () => {},
+    () => {},
+  );
+}
+function firstRead(market: Market) {
+  const hit = prefetched?.pool === market.pool && Date.now() - prefetched.at < 10_000 ? prefetched.list : null;
+  prefetched = null;
+  return hit ?? listGraduatedPools([market]);
+}
+
 // The market's graduated DAMM v2 pool, checked as the Pools page checks it,
 // re-read after each confirmed transaction. The last read stays while a new one loads.
 function useGraduatedPool(market: Market) {
@@ -16,7 +37,7 @@ function useGraduatedPool(market: Market) {
   const [read, setRead] = useState<{ key: string; pool: GraduatedPool | null; error?: string } | null>(null);
   useEffect(() => {
     let active = true;
-    listGraduatedPools([market]).then(
+    firstRead(market).then(
       (list) => {
         const pool = list.pools.find((p) => !p.reserve && p.market.pool === market.pool) ?? null;
         const skipped = list.skipped.find((s) => s.market.pool === market.pool && s.pool !== undefined);

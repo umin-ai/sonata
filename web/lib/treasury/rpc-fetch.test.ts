@@ -162,6 +162,40 @@ test("network errors and server errors fail over too", async () => {
   await f(A, req("getBalance", 2, ["y"]));
   assert.deepEqual(hits, [A, B, A, B]);
 });
+test("a 403 or 401 is a refusal: the endpoint rests and the request moves on", async () => {
+  for (const status of [403, 401]) {
+    const c = clock(), hits: string[] = [];
+    const f = createRpcFetch(
+      async (url) => {
+        hits.push(String(url));
+        return String(url) === A
+          ? Response.json({ code: status, message: "Your IP or provider is blocked from this endpoint" }, { status })
+          : ok();
+      },
+      { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {} },
+    );
+    assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42, `status ${status}`);
+    assert.deepEqual(hits, [A, B]);
+    // A rests like a rate-limited endpoint: the next request goes straight to B.
+    await f(A, req("getAccountInfo", 2, ["y"]));
+    assert.deepEqual(hits, [A, B, B]);
+    c.advance(16_000);
+    await f(A, req("getAccountInfo", 3, ["z"]));
+    assert.equal(hits[3], A);
+  }
+});
+test("a write refused with 403 moves to the next endpoint once", async () => {
+  const hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return String(url) === A ? new Response("forbidden", { status: 403 }) : ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 0, sleep: async () => {} },
+  );
+  assert.equal((await body(await f(A, req("sendTransaction", 1, ["tx"])))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+});
 test("a hung endpoint times out and the request moves on", async () => {
   const hits: string[] = [];
   const f = createRpcFetch(
@@ -413,8 +447,9 @@ test("a first endpoint that times out or fails to connect after the hedge went o
   }
 });
 test("a hedge's error answer does not beat the first endpoint, and is used only if that one fails", async () => {
-  // A JSON-RPC error with HTTP 200 (as a provider's plan restriction comes through the relay), or an HTTP error.
-  for (const status of [200, 403])
+  // A JSON-RPC error with HTTP 200 (as a provider's plan restriction comes through the relay), or an HTTP
+  // error that is not a refusal (401, 403 and 429 are refusals: the endpoint rests).
+  for (const status of [200, 400])
     for (const first of ["answers", "500", "throw", "throws before the error answer"]) {
       const c = clock(), h = hedges(), store = memory(), hits: string[] = [];
       const early = first === "throws before the error answer";
@@ -974,4 +1009,39 @@ test("in a browser the rests go to localStorage by default, and storage: null ke
     delete g.window;
     delete g.localStorage;
   }
+});
+
+// --- The app's endpoint order (runtime.ts) ---
+test("the app asks Sonata's relay first in a browser, then public Devnet; elsewhere public Devnet only", async () => {
+  const { devnetEndpoints, PUBLIC_DEVNET } = await import("./runtime.ts");
+  assert.equal(PUBLIC_DEVNET, "https://api.devnet.solana.com");
+  assert.deepEqual(devnetEndpoints("https://sonata.umin.ai"), ["https://sonata.umin.ai/api/rpc", PUBLIC_DEVNET]);
+  assert.deepEqual(devnetEndpoints("http://localhost:5173"), ["http://localhost:5173/api/rpc", PUBLIC_DEVNET]);
+  assert.deepEqual(devnetEndpoints(), [PUBLIC_DEVNET]);
+});
+test("the network check goes out at once, alongside a queued read, and does not delay the next one", async () => {
+  const started: string[] = [];
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const waits: number[] = [];
+  const f = createRpcFetch(
+    async (_input, init) => {
+      const method = JSON.parse(String(init?.body)).method as string;
+      started.push(method);
+      if (method === "getMultipleAccounts") await gate;
+      return ok();
+    },
+    { intervalMs: 350, sleep: async (ms) => void waits.push(ms), timeoutMs: 0 },
+  );
+  const read = f("https://rpc", req("getMultipleAccounts", 1, [["a"]]));
+  await new Promise((r) => setTimeout(r, 0));
+  const check = f("https://rpc", req("getGenesisHash", 2));
+  assert.equal((await body(await check)).result, 42, "answered while the read is still out");
+  assert.deepEqual(started, ["getMultipleAccounts", "getGenesisHash"]);
+  release();
+  await read;
+  // Other requests still run one at a time, paced.
+  await f("https://rpc", req("getSlot", 3));
+  assert.deepEqual(started, ["getMultipleAccounts", "getGenesisHash", "getSlot"]);
+  assert.equal(waits.length, 1, "the read after the first was paced; the network check was not");
 });

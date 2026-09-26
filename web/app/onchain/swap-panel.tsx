@@ -8,6 +8,7 @@ import type { Market, PreparedTreasury } from "@/lib/treasury/runtime";
 import { formatUnits, parseUnits } from "@/lib/treasury/units";
 import { useLive } from "./live-session";
 import { WalletConnectButton } from "./wallet-connect";
+import { useUsdPrice } from "./usd-price";
 
 export type SwapSide = "buy" | "sell";
 /** A live estimate: output and minimum in output atoms, fee in stock atoms. */
@@ -29,29 +30,6 @@ const message = (e: unknown, fallback: string) => (e instanceof Error ? e.messag
 const REQUOTE_MS = 20_000;
 const CHIPS = [25, 50, 75, 100] as const;
 
-// USD per stock token, from the site's price route, refetched at most once a minute.
-const prices = new Map<string, { at: number; promise: Promise<number | null> }>();
-function usdPrice(symbol: string) {
-  const hit = prices.get(symbol);
-  if (hit && Date.now() - hit.at < 60_000) return hit.promise;
-  const promise = fetch(`/api/stock-price?symbol=${encodeURIComponent(symbol)}`)
-    .then((r) => (r.ok ? (r.json() as Promise<{ price?: unknown; error?: string }>) : null))
-    .then((d) => (typeof d?.price === "number" && d.price > 0 && !d.error ? d.price : null))
-    .catch(() => null);
-  prices.set(symbol, { at: Date.now(), promise });
-  return promise;
-}
-function useUsdPrice(symbol: string) {
-  const [price, setPrice] = useState<{ symbol: string; value: number | null } | null>(null);
-  useEffect(() => {
-    let active = true;
-    void usdPrice(symbol).then((value) => active && setPrice({ symbol, value }));
-    return () => {
-      active = false;
-    };
-  }, [symbol]);
-  return price?.symbol === symbol ? price.value : null;
-}
 const usd = (atoms: bigint, decimals: number, price: number | null) =>
   price === null
     ? null

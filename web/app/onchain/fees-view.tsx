@@ -20,6 +20,7 @@ import { sinceText } from "@/lib/treasury/payout-timing";
 import { formatUnits } from "@/lib/treasury/units";
 import { useLive } from "./live-session";
 import { PayoutTimer } from "./payout-timer";
+import { actionsEnabled } from "./panel-state";
 
 // What Sonata's payout bot has done for a reward token, as the indexer recorded it.
 type BotPayouts = {
@@ -82,6 +83,7 @@ function useBotPayouts(pool: string, active: boolean, revision: number) {
 export function FeesView({
   market,
   data,
+  verified,
   quote: q,
   feeModel: profileModel,
   held,
@@ -89,6 +91,8 @@ export function FeesView({
 }: {
   market: Market;
   data: TreasurySnapshot | null;
+  /** Whether `data` is the live verified read; false while it is the server snapshot's (display only): nothing can be sent until the live read. Required, so no caller can leave it out. */
+  verified: boolean;
   quote: string;
   feeModel?: string;
   /** The connected wallet's balance of the token, in base atoms (undefined while it loads). */
@@ -106,7 +110,7 @@ export function FeesView({
     ? { paid: BigInt(data.paid), retained: BigInt(data.retained), withdrawn: BigInt(data.withdrawn) }
     : undefined;
   const shares = feeSplit(mode, { reward, feeModel: model, totals });
-  const enabled = !!address && !busy && !pending && !!data;
+  const enabled = actionsEnabled({ address, busy, pending, data, verified });
   const poolError = data?.poolFees && "error" in data.poolFees ? data.poolFees.error : null;
   const ready = data ? BigInt(data.uncollected) : 0n,
     waiting = data ? BigInt(data.unallocated) : 0n;
