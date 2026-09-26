@@ -5,7 +5,7 @@
 //     marked "expected refusal" (then it must have failed);
 //   - every account exists on Devnet;
 //   - with --links, every other https link returns HTTP 200.
-// Usage (from protocol/): node scripts/verify-handoff.mjs [--links] [HANDOFF.md]
+// Usage (from protocol/): node scripts/verify-handoff.mjs [--links] [file]
 // With no file it checks the repository's HANDOFF.md (../HANDOFF.md from
 // protocol/), and it always writes protocol/artifacts/handoff-check.json.
 import { readFileSync, writeFileSync } from "node:fs";
