@@ -1,20 +1,32 @@
-# Recorded evidence
+# Artifacts
 
-These files record what actually ran on 14 September 2026.
+Evidence written by the scripts in `scripts/`, all on Solana Devnet. HANDOFF.md cites these files; each transaction in them can be opened on https://explorer.solana.com with `?cluster=devnet`.
 
-| Evidence                                 | Result                                                                                                                                            |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `verification.json`                      | PASS; six Rust math tests, twelve compiled SBF integration tests, Rust/JavaScript formatting checks; exact source and binary hashes               |
-| `localnet-2026-09-14T02-51-56-818Z.json` | PASS; 24 confirmed Agave local-validator transactions; two exact on-validator bytecode matches; normal loan closure plus loss-bearing liquidation |
-| `localnet-2026-09-14T02-40-18-184Z.json` | Earlier successful local run; retained with its own pre-formatting binary hashes                                                                  |
-| `build.json`                             | Pinned compiler versions and latest program source/binary hashes                                                                                  |
-| `devnet-deployment.json`                 | Both programs executable on Devnet; deployment signatures and exact deployed-binary comparisons |
-| `devnet-2026-09-14T03-34-45-792Z.json`    | PASS; 24 successful Devnet transactions; custody, repayment, liquidation and loss accounting |
-| `devnet-status.json`                     | All 24 signatures independently checked as finalized and successful; 2.127332640 test SOL remaining |
-| `dependency-audit.json`                  | npm advisories remain; see `docs/security-status.md`                                                                                              |
+| File | What it records | Written by |
+| --- | --- | --- |
+| `build.json` | Source and binary hashes of the last local build | `scripts/build.mjs` |
+| `deployed-bytes-check.json` | Deployed program bytes vs. the local build, and the upgrade authority | `scripts/verify-deployed-bytes.mjs` |
+| `handoff-check.json` | Status of every transaction and account HANDOFF.md links | `scripts/verify-handoff.mjs` |
+| `stockroom-treasury-deployment.json` | Treasury deployment on 17 September and the rebuild mismatch (HANDOFF.md §1) | `scripts/stockroom-treasury-deploy.mjs` |
+| `stockroom-rewards-deployment.json` | Rewards deployment on 17 September, its signature and byte proof | `scripts/rewards-deploy.mjs` |
+| `stockroom-treasury-market.json` | Flagship ROOM/mSPY pool and treasury | `scripts/stockroom-treasury-demo.mjs` |
+| `holder-rounds/` | Holder-reward snapshots, rounds and deliveries on the flagship market | `scripts/holder-operator.mjs` |
+| `stockroom-rewards-lifecycle.json` | Reserve-funded reward campaign and recipient self-claim | `scripts/rewards-lifecycle.mjs` |
+| `stockroom-rewards-browser-peer.json` | Second recipient's claim on a browser-created campaign | `scripts/claim-test-reward.mjs` |
+| `stockroom-liquidity-market.json`, `stockroom-liquidity-lifecycle.json` | Separate DAMM v2 pool: creation, deposits, a swap, exits | `scripts/liquidity-lifecycle.mjs` |
+| `stockroom-liquidity-verification.json` | Read-only re-check of that lifecycle | `scripts/verify-liquidity-lifecycle.mjs` |
+| `stockroom-trader-funding.json` | Test grant to a trader wallet | `scripts/fund-stockroom-trader.mjs` |
+| `configurable-launch-proof.json`, `configurable-launch-proof-post-upgrade.json` | Per-launch DBC configs and treasury registrations | `scripts/verify-configurable-launch.mjs` |
+| `fee-path-proof.json` | Buy, claim, 50/50 split and creator withdrawal on the 3% pool | `scripts/verify-fee-path.mjs` |
+| `refrain-launch-proof.json`, `refrain-fee-path.json` | Refrain launch and its 100% payout | `scripts/verify-configurable-launch.mjs`, `scripts/verify-fee-path.mjs` |
+| `graduation-proof.json`, `graduated-trade-proof.json` | DBC to DAMM v2 graduation and a trade on the graduated pool | `scripts/verify-graduation.mjs`, `scripts/verify-graduated-trade.mjs` |
+| `dollar-launch-mqqq.json`, `stock-floor-launch.json` | Dollar-priced launches | `scripts/verify-dollar-launch.mjs` |
+| `stock-floor-proof.json` | Stock Floor: holder burn and the refused creator withdrawal | `scripts/verify-stock-floor.mjs` |
+| `stock-floor-app-flow.json`, `app-launch-floor-profile.json`, `app-launch-s3-e2e.json` | Launches and trades driven through the Sonata app | Recorded from the app |
+| `creator-position-proof.json` | 50/50 graduation and the creator's position claim | `scripts/verify-creator-position.mjs` |
+| `graduated-claim-proof.json` | `claim_graduated` on the Vault's locked position | `scripts/verify-graduated-claim.mjs` |
+| `standard-config-proof.json` | Registration refused with `NonStandardConfig` | `scripts/verify-standard-config.mjs` |
+| `mock-quote-mints.json` | Mock stock quote mints | `scripts/create-mock-quote-mints.mjs` |
+| `partner-metadata.json` | Meteora partner metadata naming Sonata | `scripts/create-partner-metadata.mjs` |
 
-The Devnet run used 52,259 compute units at its most expensive recorded step, including initialization. It ended with zero outstanding debt, zero supply shares, zero remaining borrower collateral, and one quote-token atom of rounding dust in the market. In the crash scenario, the lender's 5,000 demo USD NAV fell to 4,576.190479 before redemption. This is an explicit test of loss accounting, not a promised return.
-
-The thirty-day interest scenario is tested by advancing LiteSVM's clock. RPC demos accrue only actual elapsed network time. No local receipt is represented as a Devnet or mainnet transaction. See [the Devnet receipt index](../docs/devnet-deployment.md) for public Explorer links.
-
-All addresses and signatures here are public test data. No secret keys, deployment buffers or wallet seed phrases are included. Reproduce the evidence with the commands in the root README; network runs generate fresh test mints and wallets.
+Evidence for the retired credit prototype was removed with its source on 26 September 2026 and remains at commit `0d9046a`.
