@@ -3,6 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { marketStore, MAX_REPLAY_TRADES } from "./market-store.mjs";
+import { mergeList } from "../../lib/treasury/market-snapshot.ts";
+import { entryAfter } from "../../lib/live-events.ts";
 import { appDecode, bought, bySymbol, fakeRpc, fixture, golden, manualClock, PROGRAM, readerOver, tokenAmount } from "./livekit.mjs";
 
 const decode = await appDecode();
@@ -190,6 +192,42 @@ test("replay: what a page missed, compacted; null once the buffer no longer cove
   for (let i = 0; i <= MAX_REPLAY_TRADES; i++) store.publishTrade({ pool: fpt.pool, signature: `t${i}`, ix_index: 0 });
   assert.equal(store.replay(at, "market", fpt.pool), null);
   assert.ok(store.replay(store.seq, "list"));
+});
+
+test("changed content always moves the version on, even when what changed was seen at a slot no newer than the entry's", async () => {
+  const { chain, store, frames, read } = await setup();
+  await read();
+  const backed = bySymbol("BACKED");
+  // The 1 s poll sees the pool change at slot +5.
+  chain.edit(backed.pool, bought());
+  store.decode(store.patch([[backed.pool, poolAccount(chain, backed.pool, fixture.slot + 5)]]));
+  const prev = store.entryOf(backed.pool);
+  assert.equal(prev.version, fixture.slot + 5);
+  // A full read from a node at slot +3 brings a base mint change (a Stock Floor burn) not seen before.
+  chain.edit(backed.baseMint, (d) => d.writeBigUInt64LE(d.readBigUInt64LE(36) - 1_000_000n, 36));
+  chain.slot = fixture.slot + 3;
+  frames.length = 0;
+  await read();
+  const now = store.entryOf(backed.pool);
+  assert.notEqual(now.data.baseSupply, prev.data.baseSupply);
+  assert.equal(now.version, fixture.slot + 6, "one past the entry's");
+  assert.equal(frames.find((f) => f.scope === "market").data.version, fixture.slot + 6);
+  // Pages and the server's snapshot, which keep what they show on a tie, take it: a replay's `added`, and a list merge.
+  assert.equal(entryAfter(prev, { pool: backed.pool, kind: "added", version: now.version, entry: now }).data.baseSupply, now.data.baseSupply);
+  assert.equal(mergeList([prev], [now])[0], now);
+  // Nothing changed: the version stays.
+  await read();
+  assert.equal(store.entryOf(backed.pool).version, fixture.slot + 6);
+});
+
+test("the ring buffer keeps at most five minutes and its byte budget of frames; seq only grows", async () => {
+  const small = await setup({ ringBytes: 2_000 });
+  await small.read();
+  for (let i = 0; i < 50; i++) small.store.publishTrade({ pool: "p", signature: String(i).padStart(40, "0"), ix_index: 0 });
+  assert.ok(small.store.health().ringBytes <= 2_000);
+  assert.ok(small.store.health().frames < 50);
+  assert.equal(small.store.replay(small.store.seq - small.store.health().frames, "list") !== null, true);
+  assert.equal(small.store.replay(small.store.seq - small.store.health().frames - 1, "list"), null);
 });
 
 test("the ring buffer keeps at most its size and five minutes; seq only grows", async () => {

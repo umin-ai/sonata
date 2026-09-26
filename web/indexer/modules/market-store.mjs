@@ -6,7 +6,11 @@
 // right after a new Sonata transaction) and from the live module's 1 s pool
 // reads. Each account is kept with the newest slot it was seen at, so a read
 // served by a node that lags never replaces a newer value, and with the slot
-// its current data was first seen at, which dates the entry (`version`).
+// its current data was first seen at, which dates the entry (`version`). An
+// entry whose content changes always gets a higher version, even when the
+// accounts that changed were seen at a slot no newer than its last one (a
+// full read that lands in the same slot as a pool read, say), so every page
+// and the server's snapshot take it (they keep what they show on a tie).
 //
 // Entries are decoded with the app's own code (`decode` is
 // lib/treasury/snapshot-decode.ts snapshotFromAccounts, the function the app's
@@ -18,9 +22,9 @@
 // same (`suspects`, re-read by the live module): a half-updated view of a
 // claim, say, never shows as an error.
 //
-// Frames: every change is one frame with the next sequence number `seq`, in a
-// ring buffer (the last 5,000 frames or 5 minutes) that reconnecting pages
-// resume from. The market list gets each market's changes at most once a
+// Frames: every change is one frame with the next sequence number `seq`,
+// serialized once, in a ring buffer (the last 5 minutes, at most 16 MB) that
+// reconnecting pages resume from. The market list gets each market's changes at most once a
 // second, with only the fields a card shows; a market page gets every change
 // of its market in full, and its trades. `epoch` (the process start) tells a
 // page that the sequence started over.
@@ -28,8 +32,10 @@ import { PublicKey } from "@solana/web3.js";
 import { marketKeys, sharedKeys, treasuryFields } from "./market-accounts.mjs";
 
 export const LIST_UPDATE_EVERY_MS = 1_000;
-export const RING_FRAMES = 5_000;
+/** The ring buffer keeps the last RING_MS of frames, at most RING_BYTES of them serialized (and RING_FRAMES, a backstop). */
 export const RING_MS = 5 * 60_000;
+export const RING_BYTES = 16 << 20;
+export const RING_FRAMES = 200_000;
 /** A treasury missing from this many full reads in a row is dropped (none should ever be: treasuries are never closed). */
 export const MISSING_READS_BEFORE_DROP = 6;
 /** A market page that missed more trades than this gets a snapshot instead of a replay. */
@@ -59,6 +65,8 @@ const pick = (data) => Object.fromEntries(CARD_FIELDS.filter((k) => k in data).m
 const same = (a, b) =>
   a === b || (!!a && !!b && a.data === b.data && a.owner === b.owner && a.lamports === b.lamports && a.executable === b.executable);
 const errorText = (e) => String(e?.message ?? e).slice(0, 300);
+/** An entry's version (lib/treasury/market-snapshot.ts versionOf). */
+const versionOf = (e) => e.version ?? e.data?.slot ?? -1;
 /** The market list's order (lib/treasury/market-snapshot.ts newestFirst): newest launch first, unknown last, then by pool. */
 export const newestFirst = (a, b) => {
   const x = a.launchedAt ?? -1,
@@ -78,6 +86,7 @@ export function marketStore({
   listEveryMs = LIST_UPDATE_EVERY_MS,
   ringFrames = RING_FRAMES,
   ringMs = RING_MS,
+  ringBytes = RING_BYTES,
   missingReads = MISSING_READS_BEFORE_DROP,
   log = (...a) => console.error(...a),
 }) {
@@ -99,6 +108,7 @@ export function marketStore({
     liveAt = 0,
     seq = 0,
     evictedThrough = 0,
+    ringUsed = 0,
     viewJson = null;
   const frames = [];
   const frameListeners = new Set(),
@@ -108,10 +118,17 @@ export function marketStore({
     listTimers = new Map(),
     listHadData = new Map();
 
+  // `json`: the frame's data as sent (modules/stream.mjs), serialized once.
   function frame(event, scope, pool, data) {
-    const f = { seq: ++seq, t: now(), event, scope, pool, data };
+    const t = now();
+    const f = { seq: ++seq, t, event, scope, pool, data, json: JSON.stringify({ seq, t, ...data }) };
     frames.push(f);
-    while (frames.length > ringFrames || (frames.length && f.t - frames[0].t > ringMs)) evictedThrough = frames.shift().seq;
+    ringUsed += f.json.length;
+    while (frames.length > ringFrames || ringUsed > ringBytes || (frames.length && f.t - frames[0].t > ringMs)) {
+      const old = frames.shift();
+      ringUsed -= old.json.length;
+      evictedThrough = old.seq;
+    }
     for (const fn of frameListeners)
       try {
         fn(f);
@@ -335,7 +352,7 @@ export function marketStore({
         } catch (e) {
           out = { entries: [], skipped: [{ pool: t, reason: errorText(e) }] };
         }
-        const next = out.entries[0] ?? null;
+        let next = out.entries[0] ?? null;
         if (out.skipped?.length) skipped.set(t, out.skipped);
         else skipped.delete(t);
         const prev = m.entry;
@@ -356,6 +373,8 @@ export function marketStore({
         }
         const sig = signature(next);
         if (sig === m.sig) continue;
+        // Changed content always moves the version on.
+        if (prev && versionOf(next) <= versionOf(prev)) next = { ...next, version: versionOf(prev) + 1 };
         m.entry = next;
         m.sig = sig;
         m.uri = next.market.uri;
@@ -523,6 +542,7 @@ export function marketStore({
       registered: info.registered,
       accounts: accounts.size,
       frames: frames.length,
+      ringBytes: ringUsed,
       readAt: info.readAt,
       liveAt,
     }),

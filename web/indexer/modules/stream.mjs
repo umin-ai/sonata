@@ -81,7 +81,8 @@ export function streamServer({
   const between = ([a, b]) => Math.round(a + random() * (b - a));
   const position = (seq = store.seq) => `${store.epoch}-${seq}`;
   const pingText = (withId) => sseText("ping", { seq: store.seq, t: now() }, withId ? position() : null);
-  const frameText = (f) => sseText(f.event, { seq: f.seq, t: f.t, ...f.data }, position(f.seq));
+  // The store serializes each frame once; every client gets that text.
+  const frameText = (f) => `id: ${position(f.seq)}\nevent: ${f.event}\ndata: ${f.json ?? JSON.stringify({ seq: f.seq, t: f.t, ...f.data })}\n\n`;
   const matches = (c, f) => (c.scope === "market" ? f.scope !== "list" && f.pool === c.pool : f.scope !== "market");
 
   function cleanup(c) {
