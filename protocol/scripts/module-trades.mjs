@@ -30,7 +30,7 @@ const [poolArg, ...steps] = args;
 assert.ok(poolArg && steps.length, "Usage: module-trades.mjs <pool> <wallet>:<buy|sell>:<amount> ...");
 assert.notEqual(poolArg, FLAGSHIP, "Never trade the flagship pool from a script.");
 
-const conn = new Connection("https://api.devnet.solana.com", "confirmed");
+const conn = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com", "confirmed");
 assert.equal(await conn.getGenesisHash(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", "Not Devnet.");
 const key = (name) => Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(`.keys/${name}.json`))));
 const deployer = key("deployer");
