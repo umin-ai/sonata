@@ -76,12 +76,16 @@ export function TokenName({
       style={{ "--token-size": `${size}px` } as CSSProperties}
     >
       {logo ? (
+        // Low priority: small stock logos should not compete with the page's
+        // styles and scripts for the connection (and React then does not
+        // preload them in the response headers).
         <img
           src={logo}
           width={size}
           height={size}
           alt=""
           className="sr-token-logo"
+          fetchPriority="low"
         />
       ) : (
         <TokenFallback size={size} />
