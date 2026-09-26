@@ -9,7 +9,7 @@ test("matches the program's share: floor * burned / supply, rounded down", () =>
 });
 
 test("reproduces the Devnet Stock Floor proof", () => {
-  // artifacts/stock-floor-proof.json in sonata-protocol.
+  // protocol/artifacts/stock-floor-proof.json.
   assert.equal(
     floorShare(2_400_000n, 117_600_268_266_952n, 1_000_000_000_000_000n),
     282_240n,

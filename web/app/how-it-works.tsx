@@ -5,7 +5,7 @@ import { PAYOUT_BOT_V2 } from "@/lib/features";
 
 // What each part of Sonata is built on, what state it is in, and where to check
 // it. Kept factual: every "Live" item has transactions in HANDOFF.md.
-const HANDOFF = "https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md";
+const HANDOFF = "https://github.com/umin-ai/sonata/blob/main/HANDOFF.md";
 const explorer = (a: string) => `https://explorer.solana.com/address/${a}?cluster=devnet`;
 
 const parts: [string, string, string, string][] = [
@@ -79,8 +79,8 @@ export function HowItWorks() {
           <p className="sr-note">Every claim above links to a Devnet transaction in the evidence document.</p>
           <div className="flex flex-col gap-2 mt-2">
             <a className="sr-text-link" href={HANDOFF} target="_blank" rel="noreferrer">Evidence and security model <ArrowUpRight size={14} /></a>
-            <a className="sr-text-link" href="https://github.com/umin-ai/sonata" target="_blank" rel="noreferrer">App source <ArrowUpRight size={14} /></a>
-            <a className="sr-text-link" href="https://github.com/umin-ai/sonata-protocol" target="_blank" rel="noreferrer">Programs source <ArrowUpRight size={14} /></a>
+            <a className="sr-text-link" href="https://github.com/umin-ai/sonata/tree/main/web" target="_blank" rel="noreferrer">App source <ArrowUpRight size={14} /></a>
+            <a className="sr-text-link" href="https://github.com/umin-ai/sonata/tree/main/protocol" target="_blank" rel="noreferrer">Programs source <ArrowUpRight size={14} /></a>
           </div>
         </Card>
       </div>

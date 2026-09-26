@@ -1,6 +1,6 @@
 // Sonata's standard launch settings, the ones lib/treasury/dbc-preview.ts builds.
 // The treasury program refuses to register a market whose Meteora config differs
-// (stockroom-protocol: check_standard_config); the app applies the same rules to
+// (protocol/programs/stockroom-treasury: check_standard_config); the app applies the same rules to
 // markets registered before that check existed, so none can be rugged through
 // its config: no liquidity the creator can pull after graduation, no token that
 // can still be minted, no tokens vesting to anyone, no hidden creator fee, and

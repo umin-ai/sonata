@@ -200,7 +200,7 @@ const distributeSplitIx = (m) =>
     .instruction();
 
 // After graduation: the Vault's locked DAMM v2 position fees into the treasury
-// (accounts as stockroom-protocol/scripts/verify-graduated-claim.mjs). `g` is
+// (accounts as protocol/scripts/verify-graduated-claim.mjs). `g` is
 // the market's graduated pool and position (modules/graduated.mjs).
 export const claimGraduatedIx = (m, g) =>
   program.methods

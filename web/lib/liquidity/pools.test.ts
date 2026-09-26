@@ -22,7 +22,7 @@ import {
 } from "./pools.ts";
 
 // A graduated Devnet market and its DAMM v2 pool, as read on 2026-09-24
-// (stockroom-protocol/artifacts/creator-position-proof.json).
+// (protocol/artifacts/creator-position-proof.json).
 const market: PoolMarket = {
   pool: "51fyqN7fdXAdRMagYya92cQ7caSP5FUDJpQvaefKrecR",
   config: "Bvdjyp4t7Z3jpYkMrRvj8cQcArthBhvwDT52222JAAnR",
