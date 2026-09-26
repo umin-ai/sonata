@@ -47,6 +47,7 @@ Devnet proofs (these send transactions and need a funded key at `.keys/deployer.
 - `scripts/verify-stock-floor.mjs` proves the Stock Floor on a Floor-mode launch: a separate holder buys, fees split 50/50, the holder burns for an exact share, and the creator's withdrawal is refused on-chain.
 - `scripts/verify-creator-position.mjs` graduates a launch whose locked liquidity is split 50/50 and claims the creator's locked-position fees with the app's own claim code.
 - `scripts/verify-graduated-claim.mjs` proves `claim_graduated`; `scripts/verify-standard-config.mjs` proves the `NonStandardConfig` refusal.
+- `scripts/module-trades.mjs` is a helper, not a proof: it makes test buys and sells on a market other than the flagship so that market's fee module has fees to pay. It uses the test wallets in `.keys/` and tops them up from the deployer.
 
 Each of these checks the Devnet genesis hash before sending anything. HANDOFF.md §12 lists the full commands. Keys stay under the git-ignored `.keys/`.
 
