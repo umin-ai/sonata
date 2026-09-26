@@ -6,13 +6,19 @@
 // output rather than against the new code.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  ACCOUNT_SIZE,
+  AccountLayout,
+  AccountState,
+  getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { deriveDammV2PoolAddress, deriveMintMetadata, DAMM_V2_MIGRATION_FEE_ADDRESS } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import fixtureJson from "./fixtures/devnet-markets.json" with { type: "json" };
-import dbcIdl from "./dbc.json" with { type: "json" };
-import { browserAnchor } from "./anchor.mjs";
 import { fakeConnection, type Call, type Fixture, type RawAccount } from "./fixtures/fake-rpc.ts";
+import { setConfigByte } from "./fixtures/config-bytes.ts";
 import {
   accountBatches,
   cardsFromAccounts,
@@ -24,7 +30,10 @@ import {
   metadataAddress,
   readMarketsAndCards,
   readTreasury,
+  readTreasuryVerified,
+  readWalletBalances,
   treasuryEntries,
+  withPoolFees,
   MAX_ACCOUNTS_PER_CALL,
   type Market,
   type MarketIdentity,
@@ -32,8 +41,6 @@ import {
 
 const fixture = fixtureJson as unknown as Fixture;
 const golden = fixture.golden as { markets: Market[]; treasuries: Record<string, Record<string, unknown>> };
-const { BorshAccountsCoder } = browserAnchor as typeof import("@coral-xyz/anchor");
-const dbcCoder = new BorshAccountsCoder(dbcIdl as never);
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 const bytes = (a: RawAccount) => Buffer.from(a.data[0], "base64");
@@ -115,28 +122,19 @@ test("cards from accounts read elsewhere (the server snapshot) match the browser
 
 // ---- The listing rule and the card checks reject what they must -----------------
 
-// Finds a u8 field's offset by trying each byte (the anchor coder cannot
-// re-encode accounts over 1000 bytes), then sets it.
-function setConfigByte(data: Buffer, field: string, value: number) {
-  const before = dbcCoder.decode("poolConfig", data) as Record<string, unknown>;
-  for (let i = 8; i < data.length; i++) {
-    if (data[i] !== before[field]) continue;
-    const copy = Buffer.from(data);
-    copy[i] = value;
-    try {
-      const after = dbcCoder.decode("poolConfig", copy) as Record<string, unknown>;
-      if (after[field] === value) return copy;
-    } catch {
-      /* not this byte */
-    }
-  }
-  throw Error(`no byte for ${field}`);
-}
-
 test("a market whose Meteora config is not the standard launch is not listed", async () => {
   const accounts = clone(fixture.accounts);
   const config = accounts[floorMarket.config]!;
   accounts[floorMarket.config] = withBytes(config, setConfigByte(bytes(config), "creatorTradingFeePercentage", 50));
+  const { cards, skipped } = await readMarketsAndCards(fakeConnection(fixture, { accounts }));
+  assert.deepEqual(cards.map((c) => c.market.pool), golden.markets.filter((m) => m !== floorMarket).map((m) => m.pool));
+  assert.deepEqual(skipped, []);
+  assert.deepEqual((await discoverMarkets(fakeConnection(fixture, { accounts }))).map((m) => m.pool), cards.map((c) => c.market.pool));
+});
+
+test("a config not owned by the DBC program is not listed, even with standard bytes", async () => {
+  const accounts = clone(fixture.accounts);
+  accounts[floorMarket.config] = { ...accounts[floorMarket.config]!, owner: "11111111111111111111111111111111" };
   const { cards, skipped } = await readMarketsAndCards(fakeConnection(fixture, { accounts }));
   assert.deepEqual(cards.map((c) => c.market.pool), golden.markets.filter((m) => m !== floorMarket).map((m) => m.pool));
   assert.deepEqual(skipped, []);
@@ -243,6 +241,26 @@ test("the card read makes one getProgramAccounts and one getMultipleAccounts per
   assert.ok(calls[2].keys! <= MAX_ACCOUNTS_PER_CALL);
 });
 
+test("with 10 accounts a call, the same markets and numbers in 4 calls, each card at its own call's slot", async () => {
+  const calls: Call[] = [];
+  const slots = [201, 202, 203, 204];
+  const { cards, skipped, slot } = await readMarketsAndCards(fakeConnection(fixture, { calls, slots }), { maxPerCall: 10 });
+  const multiple = calls.filter((c) => c.method === "getMultipleAccounts");
+  assert.equal(multiple.length, 4);
+  assert.ok(multiple.every((c) => c.keys! <= 10));
+  assert.deepEqual(skipped, []);
+  assert.equal(slot, 201, "the lowest slot");
+  assert.deepEqual(clone(cards.map((c) => c.market)), golden.markets);
+  // The 3 shared keys and the first market fill the first call; each later market has a call of its own.
+  cards.forEach((card, i) => {
+    assert.ok(card.data, `${card.market.symbol}: ${card.error}`);
+    assert.equal(card.data.slot, slots[i], card.market.symbol);
+    assert.deepEqual(without(comparable(clone(card.data)), "slot"), without(comparable(golden.treasuries[card.market.pool]), "slot"));
+  });
+  const listed = await discoverMarkets(fakeConnection(fixture, { calls: [] }), { maxPerCall: 5 });
+  assert.deepEqual(clone(listed), golden.markets);
+});
+
 test("the network check runs once a minute per connection", async () => {
   const calls: Call[] = [];
   const conn = fakeConnection(fixture, { calls });
@@ -333,5 +351,187 @@ test("a tampered identity whose derived accounts are made to match still fails r
         `${target.symbol} ${label}`,
       );
     }
+  }
+});
+
+// ---- Graduated pool fees ----------------------------------------------------------
+
+test("withPoolFees adds a graduated market's pool fees and replaces its curve's uncollected fees", async () => {
+  const conn = fakeConnection(fixture);
+  const state = await readTreasuryVerified(room, conn);
+  assert.ok(state.migrated && state.dammPool);
+  const asked: string[] = [];
+  const fees = {
+    dammPool: state.dammPool,
+    position: "p",
+    positionNftAccount: "n",
+    tokenAVault: "a",
+    tokenBVault: "b",
+    quote: "123456",
+    base: "0",
+  };
+  const read = async (m: Market, pool: string) => (asked.push(`${m.symbol}:${pool}`), fees);
+  const full = await withPoolFees(room, state, conn, read);
+  assert.deepEqual(asked, [`ROOM:${state.dammPool}`]);
+  assert.equal(full.uncollected, "123456");
+  assert.deepEqual(full.poolFees, fees);
+  assert.deepEqual(without(full, "uncollected", "poolFees"), without(state, "uncollected", "poolFees"));
+  // Unreadable fees: the reason, and the curve's number is not replaced by a guess.
+  const failed = await withPoolFees(room, state, conn, async () => {
+    throw Error("pool not found");
+  });
+  assert.deepEqual(failed.poolFees, { error: "pool not found" });
+  assert.equal(failed.uncollected, state.uncollected);
+  // A market on its curve reads no pool fees.
+  const curve = await readTreasuryVerified(floorMarket, conn);
+  const onCurve = await withPoolFees(floorMarket, curve, conn, async () => {
+    throw Error("must not be read");
+  });
+  assert.equal(onCurve.poolFees, null);
+  assert.equal(onCurve.uncollected, curve.uncollected);
+});
+
+// ---- Wallet balances (the portfolio) -----------------------------------------------
+
+// A wallet is a key on the curve (the other tests' "somebody" is a PDA).
+const wallet = Keypair.fromSeed(new Uint8Array(32).fill(7)).publicKey.toBase58();
+function tokenAccount(mint: string, owner: string, amount: bigint, program: PublicKey, state = AccountState.Initialized): RawAccount {
+  const data = Buffer.alloc(ACCOUNT_SIZE);
+  AccountLayout.encode(
+    {
+      mint: new PublicKey(mint),
+      owner: new PublicKey(owner),
+      amount,
+      delegateOption: 0,
+      delegate: PublicKey.default,
+      state,
+      isNativeOption: 0,
+      isNative: 0n,
+      delegatedAmount: 0n,
+      closeAuthorityOption: 0,
+      closeAuthority: PublicKey.default,
+    },
+    data,
+  );
+  return { data: [data.toString("base64"), "base64"], executable: false, lamports: 2_039_280, owner: program.toBase58(), rentEpoch: 0 };
+}
+const quoteAta = (mint: string, owner = wallet) =>
+  getAssociatedTokenAddressSync(new PublicKey(mint), new PublicKey(owner), false, TOKEN_2022_PROGRAM_ID).toBase58();
+const baseAta = (mint: string, owner = wallet) =>
+  getAssociatedTokenAddressSync(new PublicKey(mint), new PublicKey(owner), false, TOKEN_PROGRAM_ID).toBase58();
+// The wallet holds ROOM's quote stock and ROOM tokens; it has never touched the other markets' tokens.
+function walletAccounts(change: (a: Record<string, RawAccount | null>) => void = () => {}) {
+  const accounts: Record<string, RawAccount | null> = clone(fixture.accounts);
+  accounts[wallet] = { data: ["", "base64"], executable: false, lamports: 1_500_000_000, owner: "11111111111111111111111111111111", rentEpoch: 0 };
+  for (const m of golden.markets) {
+    accounts[quoteAta(m.quoteMint)] = null;
+    accounts[baseAta(m.baseMint)] = null;
+  }
+  accounts[quoteAta(room.quoteMint)] = tokenAccount(room.quoteMint, wallet, 700n, TOKEN_2022_PROGRAM_ID);
+  accounts[baseAta(room.baseMint)] = tokenAccount(room.baseMint, wallet, 42n, TOKEN_PROGRAM_ID);
+  change(accounts);
+  return accounts;
+}
+
+test("readWalletBalances reads every market's balances in one batched read, with readTradingWallet's shape", async () => {
+  const calls: Call[] = [];
+  const balances = await readWalletBalances(wallet, golden.markets, fakeConnection(fixture, { calls, accounts: walletAccounts() }));
+  assert.deepEqual(
+    calls.map((c) => c.method),
+    ["getGenesisHash", "getMultipleAccounts"],
+  );
+  assert.deepEqual([...balances.keys()], golden.markets.map((m) => m.pool));
+  for (const m of golden.markets) {
+    const b = balances.get(m.pool)!;
+    const sameQuote = m.quoteMint === room.quoteMint;
+    assert.deepEqual(
+      b,
+      {
+        wallet,
+        slot: fixture.slot,
+        sol: "1500000000",
+        quote: sameQuote ? "700" : "0",
+        base: m === room ? "42" : "0",
+        hasBase: m === room,
+        hasQuote: sameQuote,
+      },
+      m.symbol,
+    );
+  }
+  // Split across calls when asked to: the same answer.
+  const small: Call[] = [];
+  const again = await readWalletBalances(wallet, golden.markets, fakeConnection(fixture, { calls: small, accounts: walletAccounts() }), {
+    maxPerCall: 2,
+  });
+  const keys = 1 + new Set(golden.markets.map((m) => m.quoteMint)).size + golden.markets.length;
+  assert.equal(small.filter((c) => c.method === "getMultipleAccounts").length, Math.ceil(keys / 2));
+  assert.deepEqual([...again.values()].map((b) => ({ ...b, slot: 0 })), [...balances.values()].map((b) => ({ ...b, slot: 0 })));
+});
+
+test("readWalletBalances refuses a frozen token account, or one for another mint or owner", async () => {
+  const cases: [string, (a: Record<string, RawAccount | null>) => void][] = [
+    ["frozen", (a) => void (a[baseAta(room.baseMint)] = tokenAccount(room.baseMint, wallet, 42n, TOKEN_PROGRAM_ID, AccountState.Frozen))],
+    ["another mint", (a) => void (a[baseAta(room.baseMint)] = tokenAccount(floorMarket.baseMint, wallet, 42n, TOKEN_PROGRAM_ID))],
+    ["another owner", (a) => void (a[quoteAta(room.quoteMint)] = tokenAccount(room.quoteMint, room.creator, 700n, TOKEN_2022_PROGRAM_ID))],
+  ];
+  for (const [label, change] of cases)
+    await assert.rejects(
+      readWalletBalances(wallet, golden.markets, fakeConnection(fixture, { accounts: walletAccounts(change) })),
+      /Unexpected wallet token account/,
+      label,
+    );
+});
+
+// ---- The network check ----------------------------------------------------------------
+
+test("a read made together with the network check is never used when the check fails", async () => {
+  const mainnet = { ...fixture, genesis: "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" };
+  await assert.rejects(readTreasury(room, fakeConnection(mainnet)), /Devnet verification failed/);
+  await assert.rejects(readMarketsAndCards(fakeConnection(mainnet)), /Devnet verification failed/);
+  await assert.rejects(readWalletBalances(wallet, golden.markets, fakeConnection(mainnet, { accounts: walletAccounts() })), /Devnet verification failed/);
+});
+
+test("the browser's network check is kept for the tab: a new page load within the minute skips it", async () => {
+  const store = new Map<string, string>();
+  const methods: string[] = [];
+  const g = globalThis as unknown as { window?: unknown; fetch: typeof fetch };
+  const realFetch = g.fetch;
+  g.fetch = (async (_input: unknown, init?: RequestInit) => {
+    const request = JSON.parse(String(init?.body)) as { id: unknown; method: string };
+    methods.push(request.method);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: fixture.genesis }), {
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  g.window = {
+    location: { origin: "https://sonata.test" },
+    sessionStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) },
+    localStorage: { getItem: () => null, setItem: () => {} },
+  };
+  // Each import is a fresh copy of the module: a new page load in the same tab.
+  const pageLoad = (): Promise<typeof import("./runtime.ts")> => import(`./runtime.ts?page=${Math.random()}`);
+  try {
+    const first = await pageLoad();
+    await first.checkNetwork();
+    assert.deepEqual(methods, ["getGenesisHash"]);
+    const second = await pageLoad();
+    await second.checkNetwork();
+    assert.deepEqual(methods, ["getGenesisHash"], "skipped within the minute");
+    // Older than a minute, dated in the future, or for other endpoints: checked again.
+    for (const change of [
+      (v: Record<string, unknown>) => ({ ...v, at: Date.now() - 61_000 }),
+      (v: Record<string, unknown>) => ({ ...v, at: Date.now() + 3_600_000 }),
+      (v: Record<string, unknown>) => ({ ...v, endpoints: "https://mainnet.example/" }),
+    ]) {
+      const [key, value] = [...store.entries()][0];
+      store.set(key, JSON.stringify(change(JSON.parse(value))));
+      const before = methods.length;
+      const page = await pageLoad();
+      await page.checkNetwork();
+      assert.equal(methods.length, before + 1);
+    }
+  } finally {
+    g.fetch = realFetch;
+    delete g.window;
   }
 });

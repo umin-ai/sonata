@@ -25,6 +25,11 @@
  * times only), so a new page load does not start with the endpoint that just
  * went quiet. The site's tabs share them, and each tab updates only the
  * endpoints it asked.
+ *
+ * Requests run one at a time, paced, except getGenesisHash: the network check
+ * is tiny and made at most once a minute, and it goes out alongside the read
+ * it guards (runtime.ts runs the two together and uses neither until both
+ * pass) instead of adding a round trip in front of it.
  */
 export const READS = new Set([
   "getAccountInfo",
@@ -82,6 +87,8 @@ const HEAVY_PROBE_TIMEOUT_MS = 10_000;
 const HEDGE_MS = 2_500;
 const HEAVY_HEDGE_MS = 4_000;
 const STORAGE_KEY = "sonata.rpc.rest.v1";
+// Sent at once, outside the queue and its pacing.
+const UNQUEUED = new Set(["getGenesisHash"]);
 
 type Health = { restUntil: number; strikes: number };
 // A usable response (`error`: it is an error answer or an HTTP error), or a
@@ -367,10 +374,11 @@ export function createRpcFetch(
     method: string | undefined,
     hedge: boolean,
     final: boolean,
+    paced = true,
   ): Promise<Result> {
     let retryAfterMs: number | undefined;
     for (let i = 0; i < order.length; i++) {
-      await pace();
+      if (paced) await pace();
       const url = order[i],
         last = final || i === order.length - 1;
       const backup = hedge ? (order[i + 1] ?? soonestFirst(endpoints).find((u) => u !== url)) : undefined;
@@ -401,8 +409,8 @@ export function createRpcFetch(
         : undefined;
     let work = key ? inFlight.get(key) : undefined;
     if (!work) {
-      work = tail
-        .catch(() => undefined)
+      const queued = !(request.method && UNQUEUED.has(request.method));
+      work = (queued ? tail.catch(() => undefined) : Promise.resolve())
         .then(async () => {
           // Only reads are hedged, and only with another endpoint to ask. A caller's
           // own signal cannot cancel the losing request, so its reads are not hedged.
@@ -411,12 +419,12 @@ export function createRpcFetch(
           // resting, the one back soonest still gets this request.
           let ready = endpoints.filter((u) => state(u).restUntil <= now());
           if (!ready.length) ready = soonestFirst(endpoints).slice(0, 1);
-          let first = await pass(ready, endpoints, init, request.method, hedge, false);
+          let first = await pass(ready, endpoints, init, request.method, hedge, false, queued);
           // An endpoint whose rest ended meanwhile, as a long one does when another
           // refuses (see rest()), is asked before any wait.
           const freed = endpoints.filter((u) => !ready.includes(u) && state(u).restUntil <= now());
           if (!("response" in first) && freed.length) {
-            const more = await pass(freed, endpoints, init, request.method, hedge, false);
+            const more = await pass(freed, endpoints, init, request.method, hedge, false, queued);
             if ("response" in more) return more.response;
             first = { retryAfterMs: more.retryAfterMs ?? first.retryAfterMs };
           }
@@ -427,11 +435,11 @@ export function createRpcFetch(
           // Reads wait once (Retry-After, else 4 s), then give every endpoint one more try.
           await sleep(Math.min(10_000, Math.max(2_000, first.retryAfterMs ?? 4_000)));
           // The last round: every endpoint gets its full time.
-          const again = await pass(soonestFirst(endpoints), endpoints, init, request.method, hedge, true);
+          const again = await pass(soonestFirst(endpoints), endpoints, init, request.method, hedge, true, queued);
           if ("response" in again) return again.response;
           throw new Error(RPC_BUSY);
         });
-      tail = work.catch(() => undefined);
+      if (queued) tail = work.catch(() => undefined);
       if (key) {
         inFlight.set(key, work);
         const current = work;

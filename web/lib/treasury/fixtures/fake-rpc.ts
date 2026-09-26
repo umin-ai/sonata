@@ -28,12 +28,15 @@ export type Call = { method: string; keys?: number };
 
 export function fakeRpc(
   fixture: Fixture,
-  { calls, accounts = fixture.accounts, programAccounts = fixture.programAccounts }: {
+  { calls, accounts = fixture.accounts, programAccounts = fixture.programAccounts, slots = [] }: {
     calls?: Call[];
     accounts?: Record<string, RawAccount | null>;
     programAccounts?: Fixture["programAccounts"];
+    /** The slot each getMultipleAccounts call answers at, in order (default: the fixture's). */
+    slots?: number[];
   } = {},
 ): typeof fetch {
+  let multiple = 0;
   return (async (_input: RequestInfo | URL, init?: RequestInit) => {
     const request = JSON.parse(String(init?.body)) as { id: unknown; method: string; params?: unknown[] };
     const params = request.params ?? [];
@@ -62,7 +65,8 @@ export function fakeRpc(
         case "getMultipleAccounts": {
           const keys = params[0] as string[];
           calls?.push({ method: request.method, keys: keys.length });
-          return answer({ context, value: keys.map(lookup) });
+          const slot = slots[multiple++] ?? fixture.slot;
+          return answer({ context: { slot }, value: keys.map(lookup) });
         }
         case "getAccountInfo":
           calls?.push({ method: request.method, keys: 1 });

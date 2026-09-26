@@ -1019,3 +1019,29 @@ test("the app asks Sonata's relay first in a browser, then public Devnet; elsewh
   assert.deepEqual(devnetEndpoints("http://localhost:5173"), ["http://localhost:5173/api/rpc", PUBLIC_DEVNET]);
   assert.deepEqual(devnetEndpoints(), [PUBLIC_DEVNET]);
 });
+test("the network check goes out at once, alongside a queued read, and does not delay the next one", async () => {
+  const started: string[] = [];
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const waits: number[] = [];
+  const f = createRpcFetch(
+    async (_input, init) => {
+      const method = JSON.parse(String(init?.body)).method as string;
+      started.push(method);
+      if (method === "getMultipleAccounts") await gate;
+      return ok();
+    },
+    { intervalMs: 350, sleep: async (ms) => void waits.push(ms), timeoutMs: 0 },
+  );
+  const read = f("https://rpc", req("getMultipleAccounts", 1, [["a"]]));
+  await new Promise((r) => setTimeout(r, 0));
+  const check = f("https://rpc", req("getGenesisHash", 2));
+  assert.equal((await body(await check)).result, 42, "answered while the read is still out");
+  assert.deepEqual(started, ["getMultipleAccounts", "getGenesisHash"]);
+  release();
+  await read;
+  // Other requests still run one at a time, paced.
+  await f("https://rpc", req("getSlot", 3));
+  assert.deepEqual(started, ["getMultipleAccounts", "getGenesisHash", "getSlot"]);
+  assert.equal(waits.length, 1, "the read after the first was paced; the network check was not");
+});

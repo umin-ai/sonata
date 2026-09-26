@@ -30,6 +30,9 @@ import { standardConfigProblem, type StandardConfigFields } from "./standard";
 import { quoteAssetList, quoteAssetBySymbol, quoteSymbolOf } from "./quote-assets";
 import { buyOut, graduationProgress, milestoneCaps } from "./graduation";
 import { isProfileUrl, type FeeModel } from "../token-profile";
+import { MAX_ACCOUNTS_PER_CALL, accountBatches } from "./account-batches.mjs";
+/** Reader options for tests: the most accounts per getMultipleAccounts call (default 100). */
+export type ReadOptions = { maxPerCall?: number };
 // Of the net fees the treasury claims (80% of the trading fee; Meteora takes 20%, and
 // pays a fifth of that to Sonata as referrer on swaps this site builds):
 // "standard": 50% to the creator's payout wallet, 50% to Sonata. New launches.
@@ -92,6 +95,23 @@ export const connection = new Connection(PUBLIC_DEVNET, {
 const pk = (s: string) => new PublicKey(s),
   program = new Program(treasuryIdl as Idl, { connection }),
   coder = new BorshAccountsCoder(dbcIdl as Idl);
+// Address derivations are pure and each costs a hash search. Every market list
+// (the server snapshot every 10 s, the browser's reads, marketFromIdentity per
+// card) repeats the same ones for every market, so their results are kept.
+const derivations = new Map<string, PublicKey>();
+function derived(key: string, derive: () => PublicKey) {
+  let value = derivations.get(key);
+  if (!value) {
+    if (derivations.size >= 20_000) derivations.clear();
+    derivations.set(key, (value = derive()));
+  }
+  return value;
+}
+/** An associated token account, allowing an owner off the curve (a PDA), as every market account is derived. */
+const marketAta = (mint: PublicKey, owner: PublicKey, tokenProgram: PublicKey = TOKEN_PROGRAM_ID) =>
+  derived(`ata:${mint.toBase58()}:${owner.toBase58()}:${tokenProgram.toBase58()}`, () =>
+    getAssociatedTokenAddressSync(mint, owner, true, tokenProgram),
+  );
 // The treasury program bound to another connection (tests, scripts), made once per connection.
 const programs = new WeakMap<Connection, typeof program>();
 function programFor(conn: Connection) {
@@ -103,18 +123,57 @@ function programFor(conn: Connection) {
 const GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 // The last Devnet check per connection, and the one in flight.
 const networkChecks = new WeakMap<Connection, { checkedAt: number; pending: Promise<void> | null }>();
+// The browser's last passed check is also kept for the tab (sessionStorage), for
+// the same endpoints, so a page load within the minute (every navigation is one)
+// does not repeat it. Times only; an unreadable or foreign entry counts as none.
+const NETWORK_CHECK_KEY = "sonata.devnet-check.v1";
+const checkedEndpoints = () => devnetEndpoints(window.location.origin).join(" ");
+function savedCheck(conn: Connection) {
+  if (conn !== connection || typeof window === "undefined") return 0;
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(NETWORK_CHECK_KEY) ?? "null") as {
+      at?: unknown;
+      genesis?: unknown;
+      endpoints?: unknown;
+    } | null;
+    return saved?.genesis === GENESIS && saved.endpoints === checkedEndpoints() && typeof saved.at === "number" ? saved.at : 0;
+  } catch {
+    return 0;
+  }
+}
+function saveCheck(conn: Connection, at: number) {
+  if (conn !== connection || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(NETWORK_CHECK_KEY, JSON.stringify({ at, genesis: GENESIS, endpoints: checkedEndpoints() }));
+  } catch {
+    /* Storage blocked: the check is simply made again. */
+  }
+}
+/** Throws unless the connection's endpoint is Devnet; checked at most once a minute (`maxAgeMs`). */
 export async function checkNetwork(conn: Connection = connection, maxAgeMs = 60_000) {
   let state = networkChecks.get(conn);
-  if (!state) networkChecks.set(conn, (state = { checkedAt: 0, pending: null }));
-  if (Date.now() - state.checkedAt <= maxAgeMs) return;
+  if (!state) networkChecks.set(conn, (state = { checkedAt: savedCheck(conn), pending: null }));
+  const age = Date.now() - state.checkedAt;
+  // A check dated in the future (a clock that stepped back) does not count.
+  if (age >= 0 && age <= maxAgeMs) return;
   const s = state;
   s.pending ??= (async () => {
     if ((await conn.getGenesisHash()) !== GENESIS) throw Error("Devnet verification failed.");
     s.checkedAt = Date.now();
+    saveCheck(conn, s.checkedAt);
   })().finally(() => {
     s.pending = null;
   });
   await s.pending;
+}
+/**
+ * `read` together with the network check: both go out at once (rpc-fetch sends
+ * the check outside its queue), and the result is returned only once both
+ * have passed, so nothing read from an unverified network is ever used.
+ */
+async function checkedRead<T>(conn: Connection, read: () => Promise<T>): Promise<T> {
+  const [, value] = await Promise.all([checkNetwork(conn), read()]);
+  return value;
 }
 
 type Treasury = {
@@ -282,10 +341,11 @@ export type TreasuryState = ReturnType<typeof treasuryFromAccounts>;
  */
 export async function readTreasuryVerified(market: Market = exportsMarket, conn: Connection = connection) {
   validateMarketIdentity(market);
-  await checkNetwork(conn);
-  const result = await conn.getMultipleAccountsInfoAndContext(
-    TREASURY_ACCOUNTS.map((n) => pk(market[n])),
-    "confirmed",
+  const result = await checkedRead(conn, () =>
+    conn.getMultipleAccountsInfoAndContext(
+      TREASURY_ACCOUNTS.map((n) => pk(market[n])),
+      "confirmed",
+    ),
   );
   return treasuryFromAccounts(market, result.value, result.context.slot);
 }
@@ -294,10 +354,16 @@ export async function readTreasuryVerified(market: Market = exportsMarket, conn:
  * returns it: after graduation the curve earns nothing more; Sonata's locked
  * half of the pool earns the fees instead, and "uncollected" is what it holds now.
  */
-export async function withPoolFees(market: Market, state: TreasuryState, conn: Connection = connection) {
+export async function withPoolFees(
+  market: Market,
+  state: TreasuryState,
+  conn: Connection = connection,
+  // Replaced only in tests.
+  readFees: typeof readPoolFees = readPoolFees,
+) {
   const poolFees: PoolFeesRead =
     state.migrated && state.dammPool
-      ? await readPoolFees(market, state.dammPool, conn).catch((e) => ({
+      ? await readFees(market, state.dammPool, conn).catch((e) => ({
           error: e instanceof Error ? e.message : "Pool fees unavailable",
         }))
       : null;
@@ -965,7 +1031,6 @@ export async function readTradingWallet(
   wallet: string,
   market: Market = exportsMarket,
 ) {
-  await checkNetwork();
   const owner = pk(wallet);
   const quote = getAssociatedTokenAddressSync(
     pk(market.quoteMint),
@@ -979,9 +1044,8 @@ export async function readTradingWallet(
     false,
     TOKEN_PROGRAM_ID,
   );
-  const { value, context } = await connection.getMultipleAccountsInfoAndContext(
-    [owner, quote, base],
-    "confirmed",
+  const { value, context } = await checkedRead(connection, () =>
+    connection.getMultipleAccountsInfoAndContext([owner, quote, base], "confirmed"),
   );
   const amount = (
     index: number,
@@ -1018,8 +1082,8 @@ export async function readWalletBalances(
   wallet: string,
   markets: Pick<Market, "pool" | "quoteMint" | "baseMint">[],
   conn: Connection = connection,
+  { maxPerCall }: ReadOptions = {},
 ) {
-  await checkNetwork(conn);
   const owner = pk(wallet);
   const quoteOf = (mint: string) => getAssociatedTokenAddressSync(pk(mint), owner, false, TOKEN_2022_PROGRAM_ID);
   const baseOf = (mint: string) => getAssociatedTokenAddressSync(pk(mint), owner, false, TOKEN_PROGRAM_ID);
@@ -1027,7 +1091,7 @@ export async function readWalletBalances(
     owner.toBase58(),
     ...new Set(markets.flatMap((m) => [quoteOf(m.quoteMint).toBase58(), baseOf(m.baseMint).toBase58()])),
   ];
-  const read = await readAccounts(conn, keys.map((k) => [k]));
+  const read = await checkedRead(conn, () => readAccounts(conn, keys.map((k) => [k]), [], maxPerCall));
   const amount = (address: PublicKey, mint: string, tokenProgram: PublicKey) => {
     const info = read.info(address.toBase58());
     if (!info) return "0";
@@ -1228,9 +1292,8 @@ export function validateMarketIdentity(value: Market) {
     throw Error("Unsupported treasury mode.");
   if (value.uri !== undefined && !isProfileUrl(value.uri))
     throw Error("Unsupported token profile location.");
-  const [treasury] = PublicKey.findProgramAddressSync(
-    [Buffer.from("treasury"), pk(value.pool).toBuffer()],
-    program.programId,
+  const treasury = derived(`treasury:${value.pool}`, () =>
+    PublicKey.findProgramAddressSync([Buffer.from("treasury"), pk(value.pool).toBuffer()], program.programId)[0],
   );
   if (treasury.toBase58() !== value.treasury)
     throw Error("Treasury address does not match the pool.");
@@ -1238,10 +1301,12 @@ export function validateMarketIdentity(value: Market) {
 const METAPLEX_PROGRAM = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 /** A mint's Metaplex metadata account, as the DBC SDK's deriveMintMetadata derives it. */
 export function metadataAddress(mint: PublicKey | string) {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("metadata"), pk(METAPLEX_PROGRAM).toBuffer(), new PublicKey(mint).toBuffer()],
-    pk(METAPLEX_PROGRAM),
-  )[0];
+  return derived(`metadata:${typeof mint === "string" ? mint : mint.toBase58()}`, () =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("metadata"), pk(METAPLEX_PROGRAM).toBuffer(), new PublicKey(mint).toBuffer()],
+      pk(METAPLEX_PROGRAM),
+    )[0],
+  );
 }
 type TreasuryEntry = { publicKey: PublicKey; account: Treasury };
 /** A registered pool that is not listed, and why (for logs and the market snapshot API). */
@@ -1292,8 +1357,8 @@ function cardKeys({ publicKey, account: t }: TreasuryEntry) {
     metadataAddress(t.baseMint),
     publicKey,
     t.baseMint,
-    getAssociatedTokenAddressSync(t.quoteMint, publicKey, true, TOKEN_2022_PROGRAM_ID),
-    getAssociatedTokenAddressSync(t.quoteMint, t.payoutOwner, true, TOKEN_2022_PROGRAM_ID),
+    marketAta(t.quoteMint, publicKey, TOKEN_2022_PROGRAM_ID),
+    marketAta(t.quoteMint, t.payoutOwner, TOKEN_2022_PROGRAM_ID),
   ].map((k) => k.toBase58());
 }
 /** Accounts every card needs once: the quote mints in use and the treasury program. */
@@ -1301,42 +1366,13 @@ const sharedCardKeys = (entries: TreasuryEntry[]) => [
   ...new Set(entries.map(({ account }) => account.quoteMint.toBase58())),
   exportsMarket.programId,
 ];
-export const MAX_ACCOUNTS_PER_CALL = 100;
-/**
- * Splits keys into getMultipleAccounts calls of at most 100: the shared keys
- * first, then each group whole, so one market's own accounts are read in one
- * call (at one slot). A key is read once: a group key an earlier call already
- * holds (a payout account two markets share, say) is not read again.
- */
-export function accountBatches(groups: string[][], shared: string[] = []) {
-  const batches: string[][] = [],
-    seen = new Set<string>();
-  let current: string[] = [];
-  const add = (keys: string[]) => {
-    for (const k of keys)
-      if (!seen.has(k)) {
-        seen.add(k);
-        current.push(k);
-      }
-  };
-  add(shared);
-  for (const group of groups) {
-    const fresh = [...new Set(group)].filter((k) => !seen.has(k));
-    if (current.length && current.length + fresh.length > MAX_ACCOUNTS_PER_CALL) {
-      batches.push(current);
-      current = [];
-    }
-    add(fresh);
-  }
-  if (current.length) batches.push(current);
-  return batches;
-}
+export { MAX_ACCOUNTS_PER_CALL, accountBatches };
 /** Reads the keys in accountBatches' calls, one after another. */
-async function readAccounts(conn: Connection, groups: string[][], shared: string[] = []) {
+async function readAccounts(conn: Connection, groups: string[][], shared: string[] = [], max = MAX_ACCOUNTS_PER_CALL) {
   const infos = new Map<string, Info>(),
     slots = new Map<string, number>();
   let minSlot = Infinity;
-  for (const batch of accountBatches(groups, shared)) {
+  for (const batch of accountBatches(groups, shared, max)) {
     const { context, value } = await conn.getMultipleAccountsInfoAndContext(batch.map(pk), "confirmed");
     batch.forEach((k, i) => {
       infos.set(k, value[i]);
@@ -1423,23 +1459,9 @@ export function marketsFromAccounts(entries: TreasuryEntry[], info: (key: string
         ...(isProfileUrl(uri) ? { uri } : {}),
         baseVault: pool.baseVault.toBase58(),
         quoteVault: pool.quoteVault.toBase58(),
-        treasuryBase: getAssociatedTokenAddressSync(
-          t.baseMint,
-          publicKey,
-          true,
-        ).toBase58(),
-        treasuryQuote: getAssociatedTokenAddressSync(
-          t.quoteMint,
-          publicKey,
-          true,
-          TOKEN_2022_PROGRAM_ID,
-        ).toBase58(),
-        payoutQuote: getAssociatedTokenAddressSync(
-          t.quoteMint,
-          t.payoutOwner,
-          true,
-          TOKEN_2022_PROGRAM_ID,
-        ).toBase58(),
+        treasuryBase: marketAta(t.baseMint, publicKey).toBase58(),
+        treasuryQuote: marketAta(t.quoteMint, publicKey, TOKEN_2022_PROGRAM_ID).toBase58(),
+        payoutQuote: marketAta(t.quoteMint, t.payoutOwner, TOKEN_2022_PROGRAM_ID).toBase58(),
         traces:
           t.pool.toBase58() === exportsMarket.pool ? exportsMarket.traces : [],
       };
@@ -1452,13 +1474,14 @@ export function marketsFromAccounts(entries: TreasuryEntry[], info: (key: string
   return { markets, skipped };
 }
 /** Every listed Sonata market: one getProgramAccounts and one getMultipleAccounts per 100 accounts. */
-export async function discoverMarkets(conn: Connection = connection): Promise<Market[]> {
-  await checkNetwork(conn);
-  const entries = await scanTreasuries(conn);
+export async function discoverMarkets(conn: Connection = connection, { maxPerCall }: ReadOptions = {}): Promise<Market[]> {
+  const entries = await checkedRead(conn, () => scanTreasuries(conn));
   if (!entries.length) return [];
   const read = await readAccounts(
     conn,
     entries.map(({ account: t }) => [t.pool, t.config, metadataAddress(t.baseMint)].map((k) => k.toBase58())),
+    [],
+    maxPerCall,
   );
   const { markets, skipped } = marketsFromAccounts(entries, read.info);
   // Nothing listed because nothing could be verified is an error, not an empty market.
@@ -1501,11 +1524,10 @@ export function cardsFromAccounts(
  * mints and program in calls of up to 100 accounts (2 calls for 19 markets).
  * For display: anything that moves funds re-reads with readTreasury.
  */
-export async function readMarketsAndCards(conn: Connection = connection) {
-  await checkNetwork(conn);
-  const entries = await scanTreasuries(conn);
+export async function readMarketsAndCards(conn: Connection = connection, { maxPerCall }: ReadOptions = {}) {
+  const entries = await checkedRead(conn, () => scanTreasuries(conn));
   if (!entries.length) return { slot: 0, cards: [] as MarketCard[], skipped: [] as SkippedMarket[] };
-  const read = await readAccounts(conn, entries.map(cardKeys), sharedCardKeys(entries));
+  const read = await readAccounts(conn, entries.map(cardKeys), sharedCardKeys(entries), maxPerCall);
   return { slot: read.minSlot, ...cardsFromAccounts(entries, read.info, read.slotOf) };
 }
 /** What identifies a market, as the server's market snapshot carries it; everything else is fixed or derived. */
@@ -1595,9 +1617,9 @@ export function marketFromIdentity(id: MarketIdentity): Market {
     ...(id.uri !== undefined ? { uri: id.uri } : {}),
     baseVault: id.baseVault,
     quoteVault: id.quoteVault,
-    treasuryBase: getAssociatedTokenAddressSync(pk(id.baseMint), treasury, true).toBase58(),
-    treasuryQuote: getAssociatedTokenAddressSync(quoteMint, treasury, true, TOKEN_2022_PROGRAM_ID).toBase58(),
-    payoutQuote: getAssociatedTokenAddressSync(quoteMint, pk(id.payoutOwner), true, TOKEN_2022_PROGRAM_ID).toBase58(),
+    treasuryBase: marketAta(pk(id.baseMint), treasury).toBase58(),
+    treasuryQuote: marketAta(quoteMint, treasury, TOKEN_2022_PROGRAM_ID).toBase58(),
+    payoutQuote: marketAta(quoteMint, pk(id.payoutOwner), TOKEN_2022_PROGRAM_ID).toBase58(),
     traces: id.pool === exportsMarket.pool ? exportsMarket.traces : [],
   };
   if (m.treasuryBase !== id.treasuryBase || m.treasuryQuote !== id.treasuryQuote || m.payoutQuote !== id.payoutQuote)
