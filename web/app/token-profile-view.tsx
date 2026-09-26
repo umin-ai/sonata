@@ -110,7 +110,8 @@ export function TokenImage({
   fallback?: boolean;
 }) {
   const [failed, setFailed] = useState<string | null>(null);
-  const src = profile?.image;
+  // ROOM, the flagship demo market, has no token profile; it uses its own logo (as in token-identity.tsx).
+  const src = profile?.image ?? (symbol === "ROOM" ? "/token-logos/ROOM.svg" : undefined);
   const ref = useRef<HTMLImageElement>(null);
   // An image in the server's HTML can fail before React is listening for its
   // error: show the fallback then too.
