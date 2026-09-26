@@ -247,3 +247,460 @@ test("a reply that stalls midway times out and the request moves on", async () =
   assert.equal((await body(sent)).result, 42);
   assert.deepEqual(hits, [A, B, B]);
 });
+
+// --- Hedged reads ---
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+// A request that never answers; it ends only when its signal aborts.
+const silent = (init?: RequestInit) =>
+  new Promise<Response>((_, reject) => {
+    const abort = () => reject(new DOMException("aborted", "AbortError"));
+    if (init?.signal?.aborted) abort();
+    init?.signal?.addEventListener("abort", abort);
+  });
+// Hedge timers the test controls: each records its delay and fires only when the
+// test says the delay has passed (`fire`, or `fireSoon` from inside a request).
+function hedges() {
+  const delays: number[] = [];
+  let due: (() => void)[] = [],
+    stopped = 0;
+  const fire = () => {
+    const now = due;
+    due = [];
+    for (const f of now) f();
+  };
+  return {
+    delays,
+    stopped: () => stopped,
+    fire,
+    fireSoon: () => queueMicrotask(fire),
+    hedgeTimer(ms: number, go: () => void) {
+      delays.push(ms);
+      let live = true;
+      due.push(() => live && go());
+      return () => {
+        if (live) stopped++;
+        live = false;
+      };
+    },
+  };
+}
+// A stand-in for localStorage holding the saved rests.
+const KEY = "sonata.rpc.rest.v1";
+function memory(initial?: unknown) {
+  let value: string | null = initial === undefined ? null : typeof initial === "string" ? initial : JSON.stringify(initial);
+  return {
+    getItem: (k: string) => (k === KEY ? value : null),
+    setItem: (k: string, v: string) => {
+      if (k === KEY) value = v;
+    },
+    saved: () => JSON.parse(value ?? "null") as Record<string, { restUntil: number; strikes: number }> | null,
+  };
+}
+const MINUTE = 60_000;
+
+test("a read the first endpoint leaves unanswered is sent to the next one too, and the quiet one rests 10 minutes", async () => {
+  const c = clock(), h = hedges(), store = memory(), hits: string[] = [];
+  let aborted = false;
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      if (String(url) === B) return Promise.resolve(ok());
+      init?.signal?.addEventListener("abort", () => (aborted = true));
+      h.fireSoon();
+      return silent(init);
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer, storage: store },
+  );
+  assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+  assert.equal(aborted, true, "the quiet request is cancelled");
+  // One strike: the cancelled request did not count as an ordinary failure too.
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 } });
+  // Well past an ordinary cooldown, reads still go straight to B.
+  c.advance(9 * MINUTE);
+  await f(A, req("getAccountInfo", 2, ["y"]));
+  assert.deepEqual(hits, [A, B, B]);
+  // After 10 minutes A is tried first again.
+  c.advance(MINUTE + 1);
+  await f(A, req("getAccountInfo", 3, ["z"]));
+  assert.deepEqual(hits, [A, B, B, A, B]);
+});
+test("an endpoint that answers within the hedge delay is the only one asked", async () => {
+  const h = hedges(), hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer },
+  );
+  assert.equal((await body(await f(A, req("getBalance", 1, ["x"])))).result, 42);
+  assert.equal(h.delays.length, 1);
+  assert.equal(h.stopped(), 1, "the hedge timer is stopped");
+  h.fire();
+  await tick();
+  assert.deepEqual(hits, [A]);
+});
+test("a hedge that is rate limited rests as usual while the first endpoint's later answer is used", async () => {
+  const c = clock(), h = hedges(), store = memory(), hits: string[] = [];
+  const f = createRpcFetch(
+    (url) => {
+      hits.push(String(url));
+      if (String(url) === B) return Promise.resolve(new Response("busy", { status: 429 }));
+      h.fireSoon();
+      // A answers only after the hedge has been refused.
+      return new Promise((resolve) => setTimeout(() => resolve(ok()), 10));
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer, storage: store },
+  );
+  assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+  assert.deepEqual(store.saved(), { [B]: { restUntil: c.now() + 15_000, strikes: 1 } });
+  await f(A, req("getAccountInfo", 2, ["y"]));
+  assert.equal(hits[2], A, "A answered, so it is still preferred");
+});
+test("a server error before the hedge delay fails over as before", async () => {
+  const c = clock(), h = hedges(), store = memory(), hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return String(url) === A ? new Response("oops", { status: 500 }) : ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer, storage: store },
+  );
+  assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+  assert.equal(h.stopped(), h.delays.length, "no hedge timer is left running");
+  h.fire();
+  await tick();
+  assert.deepEqual(hits, [A, B]);
+  // An ordinary 15 s rest, not the 10-minute one.
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 15_000, strikes: 1 } });
+  c.advance(16_000);
+  await f(A, req("getAccountInfo", 2, ["y"]));
+  assert.equal(hits[2], A);
+});
+test("writes are never hedged", async () => {
+  const h = hedges(), hits: string[] = [];
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      return String(url) === B ? Promise.resolve(ok()) : silent(init);
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 20, sleep: async () => {}, hedgeTimer: h.hedgeTimer },
+  );
+  assert.equal((await body(await f(A, req("sendTransaction", 1)))).result, 42);
+  assert.deepEqual(hits, [A, B], "moved on only after A timed out");
+  assert.deepEqual(h.delays, []);
+});
+test("a single endpoint is never hedged", async () => {
+  for (const endpoints of [undefined, [A]]) {
+    const h = hedges(), hits: string[] = [];
+    const f = createRpcFetch(
+      (url, init) => {
+        hits.push(String(url));
+        return silent(init);
+      },
+      { intervalMs: 0, endpoints, timeoutMs: 20, sleep: async () => {}, hedgeTimer: h.hedgeTimer },
+    );
+    await assert.rejects(f(A, req("getAccountInfo", 1, ["x"])), { message: RPC_BUSY });
+    assert.deepEqual(hits, [A, A]);
+    assert.deepEqual(h.delays, []);
+  }
+});
+test("light reads are hedged after 2.5 s and heavy reads after 4 s", async () => {
+  const h = hedges();
+  const f = createRpcFetch(async () => ok(), {
+    intervalMs: 0,
+    endpoints: [A, B],
+    timeoutMs: 0,
+    sleep: async () => {},
+    hedgeTimer: h.hedgeTimer,
+  });
+  await f(A, req("getBalance", 1, ["x"]));
+  await f(A, req("getMultipleAccounts", 2, [["x"]]));
+  await f(A, req("getProgramAccounts", 3, ["p"]));
+  await f(A, req("getLatestBlockhash", 4));
+  assert.deepEqual(h.delays, [2500, 4000, 4000, 2500]);
+});
+test("the hedge delays can be set, and the built-in timer keeps to them", async () => {
+  // A answers after 60 ms: past the light delay, inside the heavy one.
+  const run = async (method: string, params: unknown) => {
+    const hits: string[] = [];
+    const f = createRpcFetch(
+      (url, init) => {
+        hits.push(String(url));
+        if (String(url) === B) return Promise.resolve(ok());
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve(ok()), 60);
+          init?.signal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new DOMException("aborted", "AbortError"));
+          });
+        });
+      },
+      { intervalMs: 0, endpoints: [A, B], timeoutMs: 0, sleep: async () => {}, hedgeMs: { light: 5, heavy: 1_000 } },
+    );
+    assert.equal((await body(await f(A, req(method, 1, params)))).result, 42);
+    return hits;
+  };
+  assert.deepEqual(await run("getAccountInfo", ["x"]), [A, B]);
+  assert.deepEqual(await run("getMultipleAccounts", [["x"]]), [A]);
+});
+test("the retry round is hedged too", async () => {
+  const c = clock(), h = hedges(), store = memory(), hits: string[] = [], waits: number[] = [];
+  let round = 1;
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      if (round === 1) return Promise.resolve(new Response("busy", { status: 429 }));
+      if (String(url) === B) return Promise.resolve(ok());
+      h.fireSoon();
+      return silent(init);
+    },
+    {
+      intervalMs: 0,
+      endpoints: [A, B],
+      now: c.now,
+      timeoutMs: 0,
+      hedgeTimer: h.hedgeTimer,
+      storage: store,
+      sleep: async (ms) => {
+        waits.push(ms);
+        round = 2;
+      },
+    },
+  );
+  assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42);
+  assert.deepEqual(waits, [4000]);
+  assert.deepEqual(hits, [A, B, A, B]);
+  // A lost the race in the retry round, so it rests 10 minutes and B not at all.
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 2 } });
+  c.advance(2 * MINUTE);
+  await f(A, req("getAccountInfo", 2, ["y"]));
+  assert.equal(hits[4], B);
+});
+test("when the quiet endpoint and its hedge both fail, the request moves on as before", async () => {
+  const C = "https://c.example";
+  const run = async (endpoints: string[]) => {
+    const c = clock(), h = hedges(), hits: string[] = [];
+    const f = createRpcFetch(
+      (url, init) => {
+        hits.push(String(url));
+        if (String(url) === C) return Promise.resolve(ok());
+        if (String(url) === B) return Promise.resolve(new Response("busy", { status: 429 }));
+        h.fireSoon();
+        return silent(init);
+      },
+      { intervalMs: 0, endpoints, now: c.now, timeoutMs: 20, sleep: async () => {}, hedgeTimer: h.hedgeTimer },
+    );
+    const answer = await f(A, req("getAccountInfo", 1, ["x"])).then(body, (e: Error) => e.message);
+    return { answer, hits };
+  };
+  // The hedge already asked B, so the next endpoint is C.
+  const three = await run([A, B, C]);
+  assert.equal((three.answer as { result: number }).result, 42);
+  assert.deepEqual(three.hits, [A, B, C]);
+  // With two, the read waits once, retries both (hedged again, A first as both rest
+  // equally long), then reports busy.
+  const two = await run([A, B]);
+  assert.equal(two.answer, RPC_BUSY);
+  assert.deepEqual(two.hits, [A, B, A, B]);
+});
+test("after the last endpoint of a pass, the hedge goes to the best of the others", async () => {
+  // A is still resting from an earlier page; B, asked alone, goes quiet.
+  const c = clock(), h = hedges(), hits: string[] = [];
+  const store = memory({ [A]: { restUntil: c.now() + 5 * MINUTE, strikes: 1 } });
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      if (String(url) === A) return Promise.resolve(ok());
+      h.fireSoon();
+      return silent(init);
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer, storage: store },
+  );
+  assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42);
+  assert.deepEqual(hits, [B, A]);
+  assert.deepEqual(store.saved(), { [B]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 } }, "A answered and is reset");
+});
+test("a hedge goes out without waiting for the pacing interval, and what follows is paced from it", async () => {
+  const c = clock(), h = hedges(), hits: string[] = [], waits: number[] = [];
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      if (String(url) === B) return Promise.resolve(ok());
+      queueMicrotask(() => {
+        c.advance(2_500);
+        h.fire();
+      });
+      return silent(init);
+    },
+    {
+      intervalMs: 1_000,
+      endpoints: [A, B],
+      now: c.now,
+      timeoutMs: 0,
+      hedgeTimer: h.hedgeTimer,
+      sleep: async (ms) => {
+        waits.push(ms);
+        c.advance(ms);
+      },
+    },
+  );
+  await f(A, req("getAccountInfo", 1, ["x"]));
+  assert.deepEqual(hits, [A, B]);
+  assert.deepEqual(waits, []);
+  c.advance(400);
+  await f(A, req("getAccountInfo", 2, ["y"]));
+  assert.deepEqual(waits, [600]);
+});
+test("concurrent identical reads share one hedged request and keep their IDs", async () => {
+  const h = hedges(), hits: string[] = [];
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      if (String(url) === B) return Promise.resolve(ok());
+      h.fireSoon();
+      return silent(init);
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer },
+  );
+  const [a, b] = await Promise.all([f(A, req("getAccountInfo", 1, ["x"])), f(A, req("getAccountInfo", 2, ["x"]))]);
+  assert.deepEqual(hits, [A, B]);
+  assert.equal((await body(a)).id, 1);
+  assert.equal((await body(b)).id, 2);
+});
+test("a caller's own signal: the read is not hedged, and its abort is not an endpoint failure", async () => {
+  const h = hedges(), hits: string[] = [];
+  const f = createRpcFetch(
+    (url, init) => {
+      hits.push(String(url));
+      return hits.length === 1 ? silent(init) : Promise.resolve(ok());
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer },
+  );
+  const controller = new AbortController();
+  const pending = f(A, { ...req("getAccountInfo", 1, ["x"]), signal: controller.signal });
+  await tick();
+  controller.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.deepEqual(h.delays, []);
+  await f(A, req("getAccountInfo", 2, ["x"]));
+  assert.deepEqual(hits, [A, A], "A was not rested");
+});
+
+// --- Rests kept between page loads ---
+test("a rest saved by an earlier page is honoured on creation, for at most 10 minutes", async () => {
+  const c = clock(), hits: string[] = [];
+  const store = memory({ [A]: { restUntil: c.now() + 24 * 60 * MINUTE, strikes: 1 } });
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: store },
+  );
+  await f(A, req("getSlot", 1));
+  assert.deepEqual(hits, [B]);
+  c.advance(10 * MINUTE - 1);
+  await f(A, req("getSlot", 2));
+  assert.deepEqual(hits, [B, B]);
+  c.advance(2);
+  await f(A, req("getSlot", 3));
+  assert.deepEqual(hits, [B, B, A]);
+  assert.deepEqual(store.saved(), {}, "A answered, so nothing is resting");
+});
+test("expired and malformed saved rests are ignored", async () => {
+  const c = clock();
+  const later = c.now() + MINUTE;
+  for (const saved of [
+    { [A]: { restUntil: c.now() - 1, strikes: 1 } },
+    { [A]: { restUntil: c.now(), strikes: 1 } },
+    { [A]: "resting" },
+    { [A]: null },
+    { [A]: { restUntil: String(later), strikes: 1 } },
+    { [A]: { restUntil: later } },
+    { [A]: { restUntil: later, strikes: -1 } },
+    { [A]: { restUntil: later, strikes: 1.5 } },
+    [{ restUntil: later, strikes: 1 }],
+    "not json",
+    "42",
+    "null",
+  ]) {
+    const hits: string[] = [];
+    const f = createRpcFetch(
+      async (url) => {
+        hits.push(String(url));
+        return ok();
+      },
+      { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: memory(saved) },
+    );
+    await f(A, req("getSlot", 1));
+    assert.deepEqual(hits, [A], JSON.stringify(saved));
+  }
+});
+test("an expired saved rest brings no strikes with it", async () => {
+  const c = clock(), store = memory({ [A]: { restUntil: c.now() - 1, strikes: 3 } });
+  const f = createRpcFetch(
+    async (url) => (String(url) === A ? new Response("busy", { status: 429 }) : ok()),
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: store },
+  );
+  await f(A, req("getSlot", 1));
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 15_000, strikes: 1 } });
+});
+test("a storage that throws does not break requests", async () => {
+  const c = clock(), hits: string[] = [];
+  const broken = {
+    getItem: (): string | null => {
+      throw new Error("SecurityError");
+    },
+    setItem: () => {
+      throw new Error("QuotaExceededError");
+    },
+  };
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return String(url) === A ? new Response("busy", { status: 429 }) : ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: broken },
+  );
+  assert.equal((await body(await f(A, req("getSlot", 1)))).result, 42);
+  await f(A, req("getSlot", 2));
+  assert.deepEqual(hits, [A, B, B], "rests still work in memory");
+});
+test("only endpoint URLs and numbers are saved, and a new client picks them up", async () => {
+  const c = clock(), store = memory(), hits: string[] = [];
+  const base = async (url: RequestInfo | URL) => {
+    hits.push(String(url));
+    return String(url) === A ? new Response("busy", { status: 429, headers: { "retry-after": "45" } }) : ok();
+  };
+  const options = { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: store };
+  await createRpcFetch(base, options)(A, req("getSlot", 1));
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 45_000, strikes: 1 } });
+  // The next page load starts with B.
+  c.advance(30_000);
+  await createRpcFetch(base, options)(A, req("getSlot", 2));
+  assert.deepEqual(hits, [A, B, B]);
+});
+test("without a window, localStorage is left alone", async () => {
+  let touched = false;
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      touched = true;
+      return memory();
+    },
+  });
+  try {
+    const f = createRpcFetch(
+      async (url) => (String(url) === A ? new Response("busy", { status: 429 }) : ok()),
+      { intervalMs: 0, endpoints: [A, B], timeoutMs: 0, sleep: async () => {} },
+    );
+    await f(A, req("getSlot", 1));
+    assert.equal(touched, false);
+  } finally {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  }
+});
