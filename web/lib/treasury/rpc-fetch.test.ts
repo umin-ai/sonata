@@ -610,6 +610,39 @@ test("after the last endpoint of a pass, the hedge goes to the best of the other
   assert.deepEqual(hits, [B, A]);
   assert.deepEqual(store.saved(), { [B]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 } }, "A answered and is reset");
 });
+test("a refusal ends another endpoint's 10-minute rest, and that one is asked before any wait", async () => {
+  // Only a rest longer than the ordinary maximum (60 s) is ended.
+  for (const [left, expected] of [
+    [10 * MINUTE, { hits: [B, A], waits: [] }],
+    [MINUTE, { hits: [B, A], waits: [10_000] }],
+  ] as const) {
+    const c = clock(), h = hedges(), hits: string[] = [], waits: number[] = [];
+    const store = memory({ [A]: { restUntil: c.now() + left, strikes: 1 } });
+    const f = createRpcFetch(
+      async (url) => {
+        hits.push(String(url));
+        return String(url) === B ? new Response("busy", { status: 429, headers: { "retry-after": "60" } }) : ok();
+      },
+      {
+        intervalMs: 0,
+        endpoints: [A, B],
+        now: c.now,
+        timeoutMs: 0,
+        hedgeTimer: h.hedgeTimer,
+        storage: store,
+        sleep: async (ms) => {
+          waits.push(ms);
+        },
+      },
+    );
+    assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42);
+    assert.deepEqual({ hits, waits }, expected, String(left));
+    // A answered, so it is preferred again and nothing of its rest is kept.
+    assert.deepEqual(store.saved(), { [B]: { restUntil: c.now() + 60_000, strikes: 1 } });
+    await f(A, req("getAccountInfo", 2, ["y"]));
+    assert.equal(hits.at(-1), A);
+  }
+});
 test("a hedge goes out without waiting for the pacing interval, and what follows is paced from it", async () => {
   const c = clock(), h = hedges(), hits: string[] = [], waits: number[] = [];
   const f = createRpcFetch(

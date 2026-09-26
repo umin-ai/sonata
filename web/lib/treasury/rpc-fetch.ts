@@ -17,10 +17,12 @@
  * answers first is used; the other request is cancelled. An error answer from
  * the second is used only if the first then fails. An endpoint that stayed
  * silent while the other answered rests for 10 minutes instead of seconds, also
- * when it timed out before that answer came. Writes are never sent twice. In a
- * browser the rests are kept in localStorage (endpoint URLs and times only), so
- * a new page load does not start with the endpoint that just went quiet. The
- * site's tabs share them, and each tab updates only the endpoints it asked.
+ * when it timed out before that answer came; that rest ends early when another
+ * endpoint refuses, and the request asks it before any wait. Writes are never
+ * sent twice. In a browser the rests are kept in localStorage (endpoint URLs and
+ * times only), so a new page load does not start with the endpoint that just
+ * went quiet. The site's tabs share them, and each tab updates only the
+ * endpoints it asked.
  */
 export const READS = new Set([
   "getAccountInfo",
@@ -177,13 +179,23 @@ export function createRpcFetch(
     const r = running(earlier[url]);
     if (r) health.set(url, { restUntil: Math.min(r.restUntil, now() + SLOW_REST_MS), strikes: r.strikes });
   }
-  const rest = (url: string, retryAfterMs?: number) => {
+  // `refused`: the endpoint said it is rate limited or answered with a server error.
+  const rest = (url: string, retryAfterMs?: number, refused = false) => {
     const h = state(url);
     h.strikes++;
     const backoff = Math.min(MAX_COOLDOWN_MS, BASE_COOLDOWN_MS * 2 ** (h.strikes - 1));
     // A quick failure does not cut short a longer rest that is still running.
     h.restUntil = Math.max(h.restUntil, now() + Math.max(backoff, Math.min(MAX_COOLDOWN_MS, retryAfterMs ?? 0)));
     save(url);
+    // An endpoint that refuses cannot take the traffic, so asking one that went
+    // quiet beats waiting: its long rest (only those run past MAX_COOLDOWN_MS) ends.
+    if (refused)
+      for (const other of kept) {
+        const o = health.get(other);
+        if (other === url || !o || o.restUntil - now() <= MAX_COOLDOWN_MS) continue;
+        o.restUntil = now();
+        save(other);
+      }
   };
   // `struck`: the endpoint's failure in this request was already counted by rest().
   const restSlow = (url: string, struck = false) => {
@@ -260,7 +272,7 @@ export function createRpcFetch(
     if (limited || response.status >= 500) {
       const header = Number(response.headers.get("retry-after"));
       const retryAfterMs = Number.isFinite(header) && header > 0 ? header * 1000 : undefined;
-      rest(url, retryAfterMs);
+      rest(url, retryAfterMs, true);
       return { retryAfterMs };
     }
     recover(url);
@@ -394,7 +406,15 @@ export function createRpcFetch(
           // resting, the one back soonest still gets this request.
           let ready = endpoints.filter((u) => state(u).restUntil <= now());
           if (!ready.length) ready = soonestFirst(endpoints).slice(0, 1);
-          const first = await pass(ready, endpoints, init, request.method, hedge, false);
+          let first = await pass(ready, endpoints, init, request.method, hedge, false);
+          // An endpoint whose rest ended meanwhile, as a long one does when another
+          // refuses (see rest()), is asked before any wait.
+          const freed = endpoints.filter((u) => !ready.includes(u) && state(u).restUntil <= now());
+          if (!("response" in first) && freed.length) {
+            const more = await pass(freed, endpoints, init, request.method, hedge, false);
+            if ("response" in more) return more.response;
+            first = { retryAfterMs: more.retryAfterMs ?? first.retryAfterMs };
+          }
           if ("response" in first) return first.response;
           // Writes stop here: a signed transaction resent elsewhere has the same
           // signature and cannot land twice, but the caller decides whether to retry.
