@@ -87,15 +87,20 @@ const home = await timed("/", "sonata-token-card");
 const homeCards = cards(home.body);
 check(home.status === 200, `/ answers 200`);
 check(homeCards.length === snapshot.entries.length, `/ has a card per market (${homeCards.length} of ${snapshot.entries.length})`);
-check(!home.body.includes("nm-market-skeleton"), "/ has no loading skeletons");
+check(!/class="nm-market-skeleton"/.test(home.body), "/ has no loading skeletons");
 const withData = snapshot.entries.filter((e) => e.data).length;
 check(homeCards.filter((c) => /MC <b>/.test(c)).length === withData, `every card with numbers shows its market cap (${withData})`);
+// /api/markets carries no extras; the cards show 24h stats for all markets (the snapshot had them) or none.
+const withStats = homeCards.filter((c) => c.includes("market-card-stats")).length;
 check(
-  homeCards.filter((c) => c.includes("market-card-stats")).length === (snapshot.stats ? homeCards.length : 0),
-  snapshot.stats ? "every card shows its 24h stats" : "no stats in the snapshot (the indexer's /stats was unavailable)",
+  withStats === homeCards.length || withStats === 0,
+  withStats ? "every card shows its 24h stats" : "no card shows 24h stats (the indexer's /stats was unavailable)",
 );
-const images = Object.values(snapshot.profiles ?? {}).filter((p) => p.image).length;
-check(images === 0 || /class="token-image"/.test(home.body), `card images are in the HTML (${images} profiles with an image)`);
+console.log(`     card images in the HTML: ${homeCards.filter((c) => /class="token-image"/.test(c)).length} of ${homeCards.length}`);
+// The first paint needs nothing but the HTML: the stylesheet is in it, and no image is preloaded ahead of the scripts.
+const homeHead = home.body.slice(0, home.body.indexOf("</head>"));
+check(!/rel="stylesheet"/.test(homeHead) && /<style/.test(homeHead), "/ carries its stylesheet in the HTML (no stylesheet request before the first paint)");
+check(!/as=["']?image/.test(home.headers.get("link") ?? ""), "/ preloads no images in its Link header");
 
 // ---- Market pages: a curve market, a graduated one and a Backed one ------------
 const pick = (label, test) => {

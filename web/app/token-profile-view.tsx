@@ -29,11 +29,12 @@ export function loadProfile(uri: string) {
 
 export function useTokenProfile(uri?: string) {
   // The server's market snapshot may already carry it (the /api/token-meta body),
-  // validated here the same way, so the first render needs no fetch.
+  // validated here the same way, so the first render needs no fetch; null there
+  // means the server could not read it lately, so it is not asked again.
   const seeded = useSnapshotProfile(uri);
   // Keyed by URI so a stale profile is never shown for a different token.
   const [loaded, setLoaded] = useState<{ uri: string; profile: TokenProfile | null } | null>(() =>
-    uri && seeded && isProfileUrl(uri) ? { uri, profile: parseProfile(seeded) } : null,
+    uri && seeded !== undefined && isProfileUrl(uri) ? { uri, profile: seeded ? parseProfile(seeded) : null } : null,
   );
   const known = !!uri && loaded?.uri === uri;
   useEffect(() => {

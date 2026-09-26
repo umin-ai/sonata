@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { headers } from "next/headers";
 import { after } from "next/server";
-import { LiveDirectory } from "@/app/onchain/live-workspace";
+import { LiveDirectory } from "@/app/onchain/live-directory";
 import { WelcomeGuide } from "@/app/onboarding/welcome-guide";
 import { marketSnapshots, requestLocale } from "@/lib/server/market-snapshot";
 

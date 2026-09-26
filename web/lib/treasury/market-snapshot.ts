@@ -37,8 +37,12 @@ export type HomeSnapshot = Served & {
   entries: SnapshotEntry[];
   /** Registered markets that could not be verified (not listed). */
   skipped: SkippedMarket[];
-  /** Token profiles by URI: image and fee model only. A URI missing here was not fetched yet. */
-  profiles: Record<string, ProfileBody>;
+  /**
+   * Token profiles by URI: image and fee model only. null: the server could not
+   * read it lately (the page shows no image and does not ask again). A URI
+   * missing here was not read yet, and the browser loads it itself.
+   */
+  profiles: Record<string, ProfileBody | null>;
   /** USD per quote stock symbol; missing means unknown. */
   prices: Record<string, number | null>;
   stats: RawStats | null;
@@ -50,10 +54,14 @@ export type MarketPageSnapshot = Served & {
   readAt: number;
   slot: number;
   entry: SnapshotEntry;
-  profile?: ProfileBody;
+  /** As in HomeSnapshot.profiles: null when it could not be read lately, missing when not read yet. */
+  profile?: ProfileBody | null;
   price?: number | null;
   locale: string;
 };
+
+/** What /api/markets serves: the chain part of the home snapshot, without the extras (no caller uses them). */
+export type MarketsAnswer = Omit<HomeSnapshot, "profiles" | "prices" | "stats" | "locale">;
 
 /** A snapshot younger than this at hydration is used as it is. */
 export const SNAPSHOT_FRESH_MS = 15_000;

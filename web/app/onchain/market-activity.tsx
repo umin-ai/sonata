@@ -8,17 +8,13 @@ import { explorer } from "@/lib/treasury/runtime";
 import { formatUnits } from "@/lib/treasury/units";
 import {
   INTERVALS,
-  change24h,
   fetchCandles,
-  fetchStats,
   fetchTrades,
   timeAgo,
   type Candle,
   type Interval,
-  type PoolStats,
   type Trade,
 } from "@/lib/market-data";
-import { useNumberLocale, useSnapshotStats } from "./snapshot-context";
 
 const QUOTE_DECIMALS = 8, BASE_DECIMALS = 6;
 const short = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`;
@@ -175,66 +171,6 @@ export function RecentTrades({ pool, symbol, quote, revision = 0 }: { pool: stri
           </span>
         </a>
       ))}
-    </div>
-  );
-}
-
-// 24h volume, trades and change for a market card. All cards share one
-// request, refreshed at most every 20 seconds.
-let statsCache: { at: number; promise: ReturnType<typeof fetchStats> } | null = null;
-function sharedStats() {
-  if (!statsCache || Date.now() - statsCache.at > 20_000) {
-    const promise = fetchStats();
-    statsCache = { at: Date.now(), promise };
-    promise.catch(() => {
-      statsCache = null;
-    });
-  }
-  return statsCache.promise;
-}
-
-export function MarketStats({ pool, quote }: { pool: string; quote: string }) {
-  // The server's snapshot carries the stats when it has them: nothing to fetch.
-  const seeded = useSnapshotStats();
-  const [fetched, setStats] = useState<PoolStats | null | undefined>(undefined);
-  useEffect(() => {
-    if (seeded) return;
-    let active = true;
-    void sharedStats()
-      .then((d) => {
-        if (active) setStats(d.pools.get(pool) ?? null);
-      })
-      .catch(() => {
-        if (active) setStats(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [pool, seeded]);
-  // Formatted as the server did until hydration, so the first render matches its HTML.
-  const locale = useNumberLocale();
-  const stats = seeded ? (seeded.get(pool) ?? null) : fetched;
-  if (!stats) return null;
-  const change = change24h(stats);
-  const volume = Number(formatUnits(stats.volume24h, QUOTE_DECIMALS));
-  const volumeLabel = volume > 0 && volume < 0.0001
-    ? "<0.0001"
-    : volume.toLocaleString(locale, { maximumFractionDigits: 4 });
-  return (
-    <div className="market-card-stats">
-      <span>
-        24h vol <strong>{volumeLabel} {quote}</strong>
-      </span>
-      <span>
-        {stats.trades24h} trade{stats.trades24h === 1 ? "" : "s"}
-        {change !== null && change !== 0 && (
-          <strong className={change > 0 ? "up" : "down"}>
-            {" "}
-            {change > 0 ? "+" : ""}
-            {(change * 100).toFixed(1)}%
-          </strong>
-        )}
-      </span>
     </div>
   );
 }

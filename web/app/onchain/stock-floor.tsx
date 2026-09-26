@@ -22,6 +22,7 @@ import { PAYOUT_BOT_V2 } from "@/lib/features";
 import { sinceText } from "@/lib/treasury/payout-timing";
 import { usePayoutLine } from "./payout-timer";
 import { useLive } from "./live-context";
+import { actionsEnabled } from "./panel-state";
 
 // A Backed token's backing (the program's Stock Floor): its share of net trading
 // fees, held by the treasury program, redeemable by any holder who burns tokens.
@@ -29,14 +30,14 @@ import { useLive } from "./live-context";
 // cards show it as an icon instead (market-badges.tsx).
 export function StockFloor({
   data,
-  verified = true,
+  verified,
   market,
   quote,
   held,
 }: {
   data: TreasurySnapshot | null;
-  /** False while `data` is the server snapshot's (display only): nothing can be sent until the live read. */
-  verified?: boolean;
+  /** Whether `data` is the live verified read; false while it is the server snapshot's (display only): nothing can be sent until the live read. Required, so no caller can leave it out. */
+  verified: boolean;
   market: Market;
   quote: string;
   held?: string;
@@ -61,7 +62,7 @@ export function StockFloor({
   // (readTreasury), which Collect & pay out adds the same way.
   const mode = (data?.mode ?? market.mode) === "standardFloor" ? "standardFloor" : "floor";
   const toAdd = data ? pendingFloor(BigInt(data.uncollected), BigInt(data.unallocated), mode) : 0n;
-  const enabled = !!address && !busy && !pending && !!data && verified;
+  const enabled = actionsEnabled({ address, busy, pending, data, verified });
   return (
     <div className="stock-floor">
       <div className="stock-floor-head">

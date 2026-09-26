@@ -1,7 +1,7 @@
 "use client";
 import { MeteoraLabel } from "@/app/protocol-identity";
 import { TokenName } from "@/app/token-identity";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, type CSSProperties } from "react";
 import Link from "@/app/plain-link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -24,7 +24,6 @@ import {
   market,
   explorer,
   meteoraPool,
-  type TreasurySnapshot,
   readTradingWallet,
   prepareTrade,
   prepareGraduation,
@@ -43,6 +42,7 @@ import { WalletConnectButton } from "./wallet-connect";
 import { TokenImage, TokenLinks, useTokenProfile } from "@/app/token-profile-view";
 import { LiveWallet, useLive } from "./live-session";
 import { useHydrated } from "./snapshot-context";
+import { panelInit, panelReducer, panelState } from "./panel-state";
 import type { Market } from "@/lib/treasury/runtime";
 import type { CardData } from "@/lib/treasury/market-snapshot";
 const short = (s: string) => `${s.slice(0, 5)}…${s.slice(-5)}`;
@@ -103,17 +103,21 @@ const sinceText = (seconds: number, now: number) => {
 };
 /**
  * One market's page. `initialData` is the server snapshot's card numbers (at
- * most a minute old), shown until the live read lands. Only the live read,
+ * most a minute old), shown until the live read lands or until
+ * `initialDeadline` (ms on the page's clock, performance.now()), when they
+ * reach a minute old and the page shows "Loading" again. Only the live read,
  * which passes readTreasury's binding check against the chain, enables
  * anything that trades or moves funds; if it fails, the snapshot's numbers are
- * cleared and its error shows.
+ * cleared and its error shows (panel-state.ts).
  */
 export function OnchainTreasury({
   selected = market,
   initialData = null,
+  initialDeadline,
 }: {
   selected?: Market;
   initialData?: CardData | null;
+  initialDeadline?: number;
 }) {
   const market = selected;
   const q = quoteSymbolOf(market.quoteMint);
@@ -121,13 +125,11 @@ export function OnchainTreasury({
   const [view, setView] = useState("trade");
   const { address, busy, pending, revision, labels, execute } = useLive();
   const hydrated = useHydrated();
-  // The live, verified read; the snapshot's numbers until it lands.
-  const [data, setData] = useState<TreasurySnapshot | null>(null),
-    [snap, setSnap] = useState<CardData | null>(initialData),
-    [receipts, setReceipts] = useState<
+  // The live, verified read (`data`); the snapshot's numbers (`snap`) until it lands.
+  const [{ live: data, snap, error }, dispatch] = useReducer(panelReducer, initialData, panelInit);
+  const [receipts, setReceipts] = useState<
       Awaited<ReturnType<typeof treasuryReceipts>>
     >([]),
-    [error, setError] = useState(""),
     [walletError, setWalletError] = useState(""),
     [walletBalances, setWalletBalances] = useState<Awaited<
       ReturnType<typeof readTradingWallet>
@@ -136,33 +138,37 @@ export function OnchainTreasury({
   // Whether a live read has been shown on this page (the first one prefetches the trade panel's pool).
   const shownLive = useRef(false);
   const refresh = useCallback(async () => {
-    setError("");
+    dispatch({ type: "reading" });
     try {
       // The binding check first: the page shows it as soon as it passes.
       const verified = await readTreasuryVerified(market);
-      setSnap(null);
-      if (!verified.migrated || !verified.dammPool) {
+      const partial = verified.migrated && !!verified.dammPool;
+      dispatch({ type: "verified", value: verified, partial });
+      if (!partial) {
         shownLive.current = true;
-        setData(verified);
         return;
       }
       // A graduated market's pool fees take a few more reads. The first time,
       // the verified read shows meanwhile, and the trade panel's pool read goes
       // first so trading is not held up by them; later, the last full read stays.
-      setData((last) => last ?? verified);
       const first = !shownLive.current;
       shownLive.current = true;
       if (first) await prefetchGraduatedPool(market);
-      setData(await withPoolFees(market, verified));
+      dispatch({ type: "complete", value: await withPoolFees(market, verified) });
     } catch (e) {
-      setData(null);
-      setSnap(null);
-      setError(e instanceof Error ? e.message : "Market data unavailable");
+      dispatch({ type: "failed", error: e instanceof Error ? e.message : "Market data unavailable" });
     }
   }, [market]);
   useEffect(() => {
     void refresh();
   }, [refresh, revision]);
+  // The snapshot's numbers go once they are a minute old, whether or not the live read has landed.
+  const expiring = !!snap && initialDeadline !== undefined;
+  useEffect(() => {
+    if (!expiring || initialDeadline === undefined) return;
+    const timer = setTimeout(() => dispatch({ type: "expired" }), Math.max(0, initialDeadline - performance.now()));
+    return () => clearTimeout(timer);
+  }, [expiring, initialDeadline]);
   // Receipts only while the Transactions tab is open.
   useEffect(() => {
     if (view !== "history") return;
@@ -192,13 +198,9 @@ export function OnchainTreasury({
     };
   }, [address, market, revision, refreshTick]);
   const balances = walletBalances?.wallet === address ? walletBalances : null;
-  // What is shown: the live read, else the snapshot's numbers (display only).
-  const shown = data ?? snap;
-  // What the fee and backing panels get: the live read once complete (a graduated
-  // market's with its pool fees: the snapshot's "uncollected" is the curve's), else
-  // a curve market's snapshot after hydration (their countdowns use the time now).
-  const feesReady = !!data && (!data.migrated || !data.dammPool || data.poolFees !== null);
-  const fees = data ? (feesReady ? data : null) : hydrated && snap && !snap.migrated ? snap : null;
+  // What is shown (the live read, else the snapshot's numbers: display only), what
+  // the fee and backing panels get, and whether it is verified (panel-state.ts).
+  const { shown, fees, verified } = panelState({ live: data, snap, hydrated });
   return (
     <>
       <div className="sr-heading">
@@ -243,7 +245,7 @@ export function OnchainTreasury({
       {/* As on other launchpads: the chart, the market's details and its trades on the left; the swap on the right, kept in view. */}
       <div className="terminal-trade-main">
         {/* One card: the chart, then the curve's details (the pair is already in the page header). */}
-        <Card className="sr-panel terminal-chart-card terminal-market-overview"><PriceChart pool={market.pool} quote={q} revision={revision} supply={shown ? Number(shown.baseSupply) / 1e6 : undefined} /><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{shown ? shown.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={shown} quote={q} />{shown?.airdrop && <AirdropRow pool={market.pool} migrated={shown.migrated} />}{shown?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={fees} verified={!!data} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
+        <Card className="sr-panel terminal-chart-card terminal-market-overview"><PriceChart pool={market.pool} quote={q} revision={revision} supply={shown ? Number(shown.baseSupply) / 1e6 : undefined} /><div className="sr-detail-row"><span>Status</span><Badge variant="outline">{shown ? shown.migrated ? "Graduated" : "Bonding curve" : "Loading"}</Badge></div><GraduationProgress data={shown} quote={q} />{shown?.airdrop && <AirdropRow pool={market.pool} migrated={shown.migrated} />}{shown?.volatilityFee && <div className="sr-detail-row"><span>Volatility fee</span><strong>Up to 20% more on fast moves</strong></div>}<StockFloor data={fees} verified={verified} market={market} quote={q} held={balances?.base} /><CreatorPosition data={data} market={market} quote={q} /><a className="sr-text-link" href={explorer("address", market.pool)} target="_blank" rel="noreferrer">View pool on explorer <ArrowUpRight size={15}/></a></Card>
       {shown?.migrated && (
         <Card className="sr-panel">
           <div className="sr-section-top">
@@ -337,7 +339,7 @@ export function OnchainTreasury({
       {walletError && <p className="swap-hint" data-tone="error">{walletError}</p>}
       </div></div>}
       {/* What this market has earned, where it goes and what is held: rows, one Collect button. */}
-      {view === "fees" && <FeesView market={market} data={fees} verified={!!data} quote={q} feeModel={tokenProfile?.feeModel} held={balances?.base} hasQuote={balances?.hasQuote} />}
+      {view === "fees" && <FeesView market={market} data={fees} verified={verified} quote={q} feeModel={tokenProfile?.feeModel} held={balances?.base} hasQuote={balances?.hasQuote} />}
       {view === "history" && <Card className="sr-panel">
         <div className="sr-section-top">
           <div>
