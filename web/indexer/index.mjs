@@ -9,11 +9,27 @@
 // (modules/market-accounts.mjs) and serves them at /api/index/accounts, from
 // which the web app server-renders the market list and market pages.
 //
+// With LIVE_PUSH=1 it also pushes live updates to open pages: new markets,
+// each market's curve and its trades within about a second
+// (modules/live.mjs, modules/market-store.mjs), over Server-Sent Events at
+// /api/index/stream (modules/stream.mjs). It decodes markets with the app's
+// own TypeScript (lib/treasury/snapshot-decode.ts), which needs Node started
+// with --experimental-strip-types (deploy/lightsail/sonata-indexer.service);
+// if that cannot load, the indexer runs on without live push.
+//
+// Every call to SOLANA_RPC_URL (public Devnet by default) shares one request
+// budget (modules/rpc-limiter.mjs), which keeps the indexer inside public
+// Devnet's per-IP limits with room for the payout crank.
+//
 // Env: DATABASE_URL (required), SOLANA_RPC_URL (default: public Devnet),
 //      INDEXER_PORT (default 8790), INDEXER_POLL_MS (default 20000),
 //      MARKET_ACCOUNTS_FALLBACK_RPC_URL, else GETBLOCK_DEVNET_URL (optional: a
-//      Devnet RPC the market accounts reader falls back to when SOLANA_RPC_URL
-//      keeps failing; it must take 100-key getMultipleAccounts calls).
+//      Devnet RPC the market accounts reader and live push fall back to when
+//      SOLANA_RPC_URL keeps failing; it must take 100-key getMultipleAccounts
+//      calls), LIVE_FALLBACK_CALLS_PER_DAY (default 5000: live push's own
+//      calls to that fallback), INDEXER_RPC_PER_SECOND and
+//      INDEXER_RPC_PER_METHOD_PER_SECOND (default 6 and 3: the request
+//      budget), LIVE_PUSH (1: live push on; anything else: off, as before).
 import http from "node:http";
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -27,6 +43,10 @@ import { amm, dbcClient, graduatedPool } from "./modules/meteora.mjs";
 import { migrateIndexerSchema } from "./modules/indexer-schema.mjs";
 import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
 import { MARKET_ACCOUNTS_INTERVAL_MS, marketAccountsReader } from "./modules/market-accounts.mjs";
+import { marketStore } from "./modules/market-store.mjs";
+import { dailyBudget, livePush } from "./modules/live.mjs";
+import { sseText, streamServer, STREAM_VERSION } from "./modules/stream.mjs";
+import { PRIORITY, RPC_PER_METHOD_PER_SECOND, RPC_PER_SECOND, rpcLimiter, rpcMethod } from "./modules/rpc-limiter.mjs";
 
 const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PORT = Number(process.env.INDEXER_PORT || 8790);
@@ -43,10 +63,34 @@ const TREASURY_DISCRIMINATOR = Buffer.from(
   treasuryIdl.accounts.find((a) => a.name === "Treasury").discriminator,
 );
 
+/**
+ * A Connection whose every call gives up after `ms` (a node that never answers
+ * cannot hold a loop up). Our own backoff handles the public RPC's rate limits.
+ * With `limiter`, each call first waits its turn in that budget at `priority`
+ * (the timeout starts once it goes out).
+ */
+const timedConnection = (url, ms, { limiter = null, priority = PRIORITY.background } = {}) =>
+  new Connection(url, {
+    commitment: "confirmed",
+    disableRetryOnRateLimit: true,
+    fetch: async (input, init) => {
+      if (limiter) await limiter.acquire(rpcMethod(init?.body), priority);
+      return fetch(input, { ...init, signal: AbortSignal.timeout(ms) });
+    },
+  });
+const envNumber = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+// Every call to the main RPC, from every part of the indexer: one budget.
+const limiter = rpcLimiter({
+  perSecond: envNumber("INDEXER_RPC_PER_SECOND", RPC_PER_SECOND),
+  perMethodPerSecond: envNumber("INDEXER_RPC_PER_METHOD_PER_SECOND", RPC_PER_METHOD_PER_SECOND),
+});
+const mainConnection = (ms, priority) => timedConnection(RPC, ms, { limiter, priority });
 // Neither connects until used, so importing this file (tests) opens nothing.
-const db = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
-// Our own backoff handles the public RPC's rate limits.
-const conn = new Connection(RPC, { commitment: "confirmed", disableRetryOnRateLimit: true });
+const db = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+const conn = mainConnection(15_000, PRIORITY.background);
 const SPACING_MS = Number(process.env.INDEXER_SPACING_MS || 350);
 const state = { startedAt: new Date().toISOString(), lastSync: null, lastError: null, pools: 0, trades: 0 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -247,13 +291,51 @@ const COLUMNS = {
 };
 
 /**
+ * What two syncers of one process share (syncerState), so they never read one
+ * address at the same time; `txGapMs` spaces every getTransaction call of both
+ * (0: no shared spacing), so together they stay inside public Devnet's
+ * per-method rate limit.
+ */
+export const syncerState = ({ txGapMs = 0 } = {}) => ({ locks: new Map(), lasts: new Map(), backfills: new Map(), txGapMs, txNext: 0 });
+
+/**
  * The sync loop over `db` (pg) and `conn` (a web3.js Connection). `now` is the
  * clock progress is stamped with; `txRetries` and `txRetryMs` bound the wait
  * for a listed transaction that the RPC does not serve yet; `backfillCap` is
  * BACKFILL_TRANSACTIONS. `between`, if given, runs after each address (the LP
- * readings' tick, so a long loop does not hold them up).
+ * readings' tick, so a long loop does not hold them up). `onTrade(row)` gets
+ * every trade row it inserts (live push), exactly once however many times
+ * its transaction is read.
+ *
+ * `shared` (syncerState()) lets a second syncer, live push's fast path
+ * (syncPool, woken when a market's pool changes, with its own connection and
+ * shorter waits), work on the same addresses: each address is read by one of
+ * them at a time, and each starts from the cursor the other left.
  */
-export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS, between = null }) {
+export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS, between = null, onTrade = null, shared = syncerState() }) {
+  // One read of an address at a time; the cursor each address was last moved to, by either syncer.
+  const { locks, lasts } = shared;
+  // getTransaction calls of both syncers, at most one per txGapMs.
+  async function txTurn() {
+    if (!shared.txGapMs) return;
+    const t = now(),
+      at = Math.max(t, shared.txNext);
+    shared.txNext = at + shared.txGapMs;
+    if (at > t) await sleep(at - t);
+  }
+  async function locked(address, fn) {
+    while (locks.has(address)) await locks.get(address);
+    let release;
+    locks.set(address, new Promise((r) => (release = r)));
+    try {
+      return await fn();
+    } finally {
+      locks.delete(address);
+      release();
+    }
+  }
+  const latest = (cursor) => ({ ...cursor, last: lasts.has(cursor.address) ? lasts.get(cursor.address) : cursor.last });
+
   // Markets are the pools that have a Sonata treasury.
   async function discoverPools() {
     const accounts = await conn.getProgramAccounts(TREASURY_PROGRAM, {
@@ -304,6 +386,7 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   // cursor before it, so its trades are read next loop, never skipped.
   async function transaction(signature) {
     for (let attempt = 0; ; attempt++) {
+      await txTurn();
       const tx = await rpc(() => conn.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }));
       if (tx) return tx;
       if (attempt >= txRetries) throw Error(`transaction ${signature} not served yet; read again next loop`);
@@ -311,8 +394,10 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
     }
   }
 
-  const saveCursor = ({ pool, venue }, signature) =>
-    db.query(`update pools set ${COLUMNS[venue].last} = $2, updated_at = now() where pool = $1`, [pool, signature]);
+  const saveCursor = async ({ pool, venue, address }, signature) => {
+    await db.query(`update pools set ${COLUMNS[venue].last} = $2, updated_at = now() where pool = $1`, [pool, signature]);
+    if (address) lasts.set(address, signature);
+  };
 
   // Files one transaction's swaps on the cursor's address under the market's
   // DBC pool, then moves the cursor to it. Returns the rows inserted.
@@ -329,6 +414,26 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
         [t.signature, t.ixIndex, pool, venue, t.slot, t.blockTime, t.side, t.trader, t.baseAmount, t.quoteAmount, t.fee, t.price],
       );
       inserted += r.rowCount;
+      // A row already there (read before, by either syncer) is not announced again.
+      if (r.rowCount === 1 && onTrade)
+        try {
+          onTrade({
+            pool,
+            signature: t.signature,
+            ix_index: t.ixIndex,
+            slot: Number(t.slot),
+            time: Number(t.blockTime),
+            side: t.side,
+            trader: t.trader,
+            base_amount: String(t.baseAmount),
+            quote_amount: String(t.quoteAmount),
+            fee: String(t.fee),
+            price: Number(t.price),
+            venue,
+          });
+        } catch (e) {
+          console.error("trade announcement failed:", String(e?.message ?? e).slice(0, 200));
+        }
     }
     await saveCursor(cursor, signature);
     // One transaction at a time: the public RPC limits getTransaction per caller.
@@ -361,7 +466,7 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   }
 
   // Backfills of addresses that have not caught up, in memory (after a
-  // restart one is listed again from the saved cursor). A backfill covers the
+  // restart one is listed again from the saved cursor), shared with the other syncer. A backfill covers the
   // signatures newer than the cursor when it started, listed once then:
   // `bounds` holds the first (newest) signature of each page of that listing,
   // newest first (bounds[0] is the head), and the signatures strictly between
@@ -369,7 +474,7 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   // turn comes. `pending` is the stretch being read, oldest first, ending with
   // its bound; `last` is the cursor as last saved (a backfill whose cursor was
   // moved otherwise is started again).
-  const backfills = new Map();
+  const { backfills } = shared;
 
   async function startBackfill({ address, last }, startedAt) {
     const bounds = [];
@@ -460,39 +565,43 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
     const errors = [];
     const fail = (cursor, e) => errors.push(`${cursor.venue} ${cursor.address}: ${String(e?.message ?? e)}`);
     for (const row of rows) {
-      for (const cursor of cursorsOf(row)) {
+      for (const listed of cursorsOf(row)) {
         try {
-          // Each address's own start, taken before any read of it, so its
-          // progress never claims more than was read, and an address synced
-          // late in a long loop is not stamped with the loop's start.
-          const startedAt = now();
-          // Until its DAMM v2 pool is recorded, a market's DBC progress also
-          // stands for its DAMM v2 trades (none can predate the migration), so
-          // it is stamped only if the pool is still on the curve, read after
-          // startedAt; a pool that migrated keeps its earlier progress. If that
-          // read fails (after rpc's retries), the pool's trades are still read
-          // and only its stamp waits for a later loop.
-          let stamp = cursor.venue === "damm" || row.damm_pool != null;
-          if (!stamp && !waiting.has(row.pool)) {
-            try {
-              stamp = !(await migratedNow(row.pool));
-            } catch (e) {
-              fail(cursor, `graduation check failed, trades read but progress not stamped: ${String(e?.message ?? e)}`);
+          await locked(listed.address, async () => {
+            // The cursor as last moved, by this loop or the fast path.
+            const cursor = latest(listed);
+            // Each address's own start, taken before any read of it, so its
+            // progress never claims more than was read, and an address synced
+            // late in a long loop is not stamped with the loop's start.
+            const startedAt = now();
+            // Until its DAMM v2 pool is recorded, a market's DBC progress also
+            // stands for its DAMM v2 trades (none can predate the migration), so
+            // it is stamped only if the pool is still on the curve, read after
+            // startedAt; a pool that migrated keeps its earlier progress. If that
+            // read fails (after rpc's retries), the pool's trades are still read
+            // and only its stamp waits for a later loop.
+            let stamp = cursor.venue === "damm" || row.damm_pool != null;
+            if (!stamp && !waiting.has(row.pool)) {
+              try {
+                stamp = !(await migratedNow(row.pool));
+              } catch (e) {
+                fail(cursor, `graduation check failed, trades read but progress not stamped: ${String(e?.message ?? e)}`);
+              }
             }
-          }
-          let r = await syncCursor(cursor, startedAt);
-          state.trades += r.inserted;
-          if (r.startedAt !== undefined) {
-            // A backfill that has read its head covers everything confirmed
-            // before its listing started. What is newer than the head is read
-            // now, uncapped, as for a caught-up address.
-            if (stamp) await synced(cursor, r.newest, r.startedAt);
-            r = await readAll({ ...cursor, last: r.last });
+            let r = await syncCursor(cursor, startedAt);
             state.trades += r.inserted;
-          }
-          if (r.complete && stamp) await synced(cursor, r.newest, startedAt);
+            if (r.startedAt !== undefined) {
+              // A backfill that has read its head covers everything confirmed
+              // before its listing started. What is newer than the head is read
+              // now, uncapped, as for a caught-up address.
+              if (stamp) await synced(cursor, r.newest, r.startedAt);
+              r = await readAll({ ...cursor, last: r.last });
+              state.trades += r.inserted;
+            }
+            if (r.complete && stamp) await synced(cursor, r.newest, startedAt);
+          });
         } catch (e) {
-          fail(cursor, e);
+          fail(listed, e);
         }
         await sleep(200);
         if (between) await between();
@@ -503,7 +612,36 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
     if (errors.length) console.error("sync incomplete:", state.lastError);
   }
 
-  return { discoverPools, findGraduated, syncCursor, syncAll };
+  /**
+   * Live push's fast path: reads one market's new transactions now (its DBC
+   * pool, and its DAMM v2 pool once recorded; `venues`, a Set of "dbc" and
+   * "damm", limits it to the ones that changed), without waiting for the
+   * loop. Progress stamps are left to the loop (syncAll), which checks
+   * graduation before it stamps. Returns the rows inserted.
+   */
+  async function syncPool(pool, venues = null) {
+    const { rows: [row] } = await db.query(
+      "select pool, last_signature, damm_pool, damm_last_signature, synced_at, damm_synced_at from pools where pool = $1",
+      [pool],
+    );
+    if (!row) return 0;
+    let inserted = 0;
+    for (const listed of cursorsOf(row).filter((c) => !venues || venues.has(c.venue)))
+      inserted += await locked(listed.address, async () => {
+        const cursor = latest(listed);
+        let r = await syncCursor(cursor);
+        let n = r.inserted;
+        if (r.startedAt !== undefined) {
+          r = await readAll({ ...cursor, last: r.last });
+          n += r.inserted;
+        }
+        return n;
+      });
+    state.trades += inserted;
+    return inserted;
+  }
+
+  return { discoverPools, findGraduated, syncCursor, syncAll, syncPool };
 }
 
 // ---- LP Farm readings between crank passes -----------------------------------
@@ -632,6 +770,23 @@ function allowed(ip) {
 
 const seconds = (v) => (v === null || v === undefined ? null : Number(v));
 
+// Each market's 24h stats (the /stats row), for every pool or one.
+const statsSql = (where = "") => `
+  select p.pool,
+         (select price from trades t where t.pool = p.pool order by block_time desc, signature desc, ix_index desc limit 1) as last_price,
+         (select price from trades t where t.pool = p.pool and block_time <= now() - interval '24 hours'
+            order by block_time desc, signature desc, ix_index desc limit 1) as price_24h_ago,
+         coalesce((select sum(quote_amount) from trades t where t.pool = p.pool and block_time > now() - interval '24 hours'), 0)::text as volume_24h,
+         (select count(*) from trades t where t.pool = p.pool and block_time > now() - interval '24 hours')::int as trades_24h,
+         (select count(*) from trades t where t.pool = p.pool)::int as trades_total
+    from pools p ${where}`;
+/** Every market's 24h stats rows. */
+export const allStats = async (db) => (await db.query(statsSql())).rows;
+/** One market's 24h stats row, or null if it has no pools row. */
+export const statsFor = async (db, pool) => (await db.query(statsSql("where p.pool = $1"), [pool])).rows[0] ?? null;
+/** How long /stats answers from memory: every card on every page asks for it. */
+export const STATS_CACHE_MS = 5_000;
+
 /**
  * The last Top Buyer round from its payout rows' details: its end and each
  * winner paid in it with their rank (1-3; null for a row written without
@@ -668,9 +823,27 @@ export class RawJson {
 
 /**
  * The read-only API over `db`; `state` is the sync loop's, for /health;
- * `accountsJson()` is the market accounts reader's last read as JSON (null before one).
+ * `accountsJson()` is the market accounts reader's last read as JSON (null
+ * before one), or with live push the live store's view; `live()` is live
+ * push's health for /health (null when off). `now` dates the stats cache.
  */
-export function api({ db, state, accountsJson = () => null }) {
+export function api({ db, state, accountsJson = () => null, live = () => null, now = Date.now }) {
+  // /stats from memory for STATS_CACHE_MS, one query at a time however many ask.
+  let statsCache = null,
+    statsQuery = null;
+  async function cachedStats() {
+    if (statsCache && now() - statsCache.at < STATS_CACHE_MS && now() >= statsCache.at) return statsCache.rows;
+    statsQuery ??= allStats(db)
+      .then((rows) => {
+        statsCache = { at: now(), rows };
+        return rows;
+      })
+      .finally(() => {
+        statsQuery = null;
+      });
+    return statsQuery;
+  }
+
   // What the market's fee module has done, from confirmed rows only.
   async function moduleDetail(pool, fm) {
     if (fm?.fee_model === "buyback") {
@@ -793,7 +966,10 @@ export function api({ db, state, accountsJson = () => null }) {
 
   async function route(url) {
     const q = url.searchParams;
-    if (url.pathname === "/api/index/health") return { ok: true, ...state };
+    if (url.pathname === "/api/index/health") {
+      const push = live();
+      return { ok: true, ...state, ...(push ? { live: push } : {}) };
+    }
     // Every market's raw accounts (modules/market-accounts.mjs); 503 until the first read.
     if (url.pathname === "/api/index/accounts") {
       const text = accountsJson();
@@ -801,8 +977,9 @@ export function api({ db, state, accountsJson = () => null }) {
     }
     if (url.pathname === "/api/index/trades") {
       if (!isPool(q.get("pool"))) return 400;
+      // ix_index tells apart two swaps in one transaction; slot orders rows against live pushes.
       const { rows } = await db.query(
-        `select signature, extract(epoch from block_time)::bigint as time, side, trader,
+        `select signature, ix_index, slot::float8 as slot, extract(epoch from block_time)::bigint as time, side, trader,
                 base_amount::text, quote_amount::text, fee::text, price, venue
            from trades where pool = $1 order by block_time desc, signature desc, ix_index desc limit $2`,
         [q.get("pool"), limitOf(q.get("limit"), 100, 30)],
@@ -812,30 +989,30 @@ export function api({ db, state, accountsJson = () => null }) {
     if (url.pathname === "/api/index/candles") {
       const interval = INTERVALS[q.get("interval") ?? "15m"];
       if (!isPool(q.get("pool")) || !interval) return 400;
-      const { rows } = await db.query(
-        `select extract(epoch from date_bin($2::interval, block_time, timestamptz 'epoch'))::bigint as time,
-                (array_agg(price order by block_time, signature, ix_index))[1] as open,
-                max(price) as high, min(price) as low,
-                (array_agg(price order by block_time desc, signature desc, ix_index desc))[1] as close,
-                sum(quote_amount)::text as volume, count(*)::int as trades
-           from trades where pool = $1 group by 1 order by 1 desc limit $3`,
+      // The candles, oldest first, and the trades they cover (the newest slot and the
+      // trades in it), so a page adding pushed trades to them (live push) never counts
+      // one twice nor misses one: one statement, so both come from one snapshot of the table.
+      const { rows: [r] } = await db.query(
+        `with c as (
+           select extract(epoch from date_bin($2::interval, block_time, timestamptz 'epoch'))::bigint as time,
+                  (array_agg(price order by block_time, signature, ix_index))[1] as open,
+                  max(price) as high, min(price) as low,
+                  (array_agg(price order by block_time desc, signature desc, ix_index desc))[1] as close,
+                  sum(quote_amount)::text as volume, count(*)::int as trades
+             from trades where pool = $1 group by 1 order by 1 desc limit $3
+         ), newest as (
+           select slot::float8 as slot, signature, ix_index from trades
+            where pool = $1 and slot = (select max(slot) from trades where pool = $1)
+         )
+         select coalesce((select json_agg(c order by c.time) from c), '[]'::json) as candles,
+                coalesce((select json_agg(newest) from newest), '[]'::json) as newest`,
         [q.get("pool"), interval, limitOf(q.get("limit"), 500, 200)],
       );
-      return { pool: q.get("pool"), interval: q.get("interval") ?? "15m", supply: SUPPLY_TOKENS, candles: rows.reverse() };
+      const newest = r?.newest ?? [];
+      const through = newest.length ? { slot: Number(newest[0].slot), trades: newest.map((t) => `${t.signature}:${t.ix_index}`) } : { slot: 0, trades: [] };
+      return { pool: q.get("pool"), interval: q.get("interval") ?? "15m", supply: SUPPLY_TOKENS, candles: r?.candles ?? [], through };
     }
-    if (url.pathname === "/api/index/stats") {
-      const { rows } = await db.query(
-        `select p.pool,
-                (select price from trades t where t.pool = p.pool order by block_time desc, signature desc, ix_index desc limit 1) as last_price,
-                (select price from trades t where t.pool = p.pool and block_time <= now() - interval '24 hours'
-                   order by block_time desc, signature desc, ix_index desc limit 1) as price_24h_ago,
-                coalesce((select sum(quote_amount) from trades t where t.pool = p.pool and block_time > now() - interval '24 hours'), 0)::text as volume_24h,
-                (select count(*) from trades t where t.pool = p.pool and block_time > now() - interval '24 hours')::int as trades_24h,
-                (select count(*) from trades t where t.pool = p.pool)::int as trades_total
-           from pools p`,
-      );
-      return { supply: SUPPLY_TOKENS, pools: rows };
-    }
+    if (url.pathname === "/api/index/stats") return { supply: SUPPLY_TOKENS, pools: await cachedStats() };
     // Reward token payouts (confirmed transactions only), in quote atoms, and the
     // market's fee module with what it has done.
     if (url.pathname === "/api/index/rewards") {
@@ -898,29 +1075,82 @@ const isMain = (() => {
   }
 })();
 
+/**
+ * Live push's parts (modules/market-store.mjs, live.mjs, stream.mjs) around
+ * the app's own decoder (lib/treasury/snapshot-decode.ts) and profile reader
+ * (lib/server/token-meta.ts), loaded through scripts/node-hooks.mjs. Throws if
+ * they cannot load (e.g. Node without --experimental-strip-types); the caller
+ * then runs without live push.
+ */
+export async function startLivePush({ reader, conn: pollConn, readConn = pollConn, fallback = null, fallbackBudget = null }) {
+  if (!process.features?.typescript) throw Error("Node runs without TypeScript support (start it with --experimental-strip-types)");
+  const { register } = await import("node:module");
+  register(new URL("../scripts/node-hooks.mjs", import.meta.url));
+  const [{ snapshotFromAccounts }, { fetchProfileBody }] = await Promise.all([
+    import("../lib/treasury/snapshot-decode.ts"),
+    import("../lib/server/token-meta.ts"),
+  ]);
+  const programId = TREASURY_PROGRAM.toBase58();
+  const store = marketStore({ decode: snapshotFromAccounts, programId });
+  const push = livePush({
+    store,
+    reader,
+    conn: pollConn,
+    readConn,
+    fallback,
+    fallbackBudget,
+    programId,
+    fetchProfile: (uri) => fetchProfileBody(uri, AbortSignal.timeout(2_000)),
+  });
+  const stream = streamServer({ store });
+  return { store, push, stream };
+}
+
+/**
+ * The answer to a stream request while live push is not running: `loading`
+ * (it is starting): a hello that is not ready, and the browser's EventSource
+ * reconnects by itself a second later; otherwise (off, or it could not load)
+ * `off`, which pages take as "stay as before live push".
+ */
+export function streamUnavailable(res, { loading }) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(
+    loading
+      ? `retry: 1000\n\n${sseText("hello", { v: STREAM_VERSION, ready: false, resumed: false, loading: true })}`
+      : `retry: 60000\n\n${sseText("off", { v: STREAM_VERSION })}`,
+  );
+}
+
 if (isMain) {
   // Market accounts for the app's server-rendered pages, on their own connection
   // with a per-call timeout, so a silent RPC never holds a read (or the sync loop)
   // up, and a fallback provider for when that RPC keeps failing. Its URL carries
   // an access key: it is never logged.
-  const timed = (url, ms) =>
-    new Connection(url, {
-      commitment: "confirmed",
-      disableRetryOnRateLimit: true,
-      fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(ms) }),
-    });
   const fallbackUrl = process.env.MARKET_ACCOUNTS_FALLBACK_RPC_URL || process.env.GETBLOCK_DEVNET_URL || "";
+  let live = null,
+    liveLoading = process.env.LIVE_PUSH === "1";
   const accounts = marketAccountsReader({
-    conn: timed(RPC, 4_000),
-    fallback: fallbackUrl ? timed(fallbackUrl, 8_000) : null,
+    conn: mainConnection(4_000, PRIORITY.reader),
+    fallback: fallbackUrl ? timedConnection(fallbackUrl, 8_000) : null,
     programId: TREASURY_PROGRAM.toBase58(),
     discriminator: TREASURY_DISCRIMINATOR,
     quoteMints: new Set(
       JSON.parse(readFileSync(new URL("../lib/treasury/quote-assets.json", import.meta.url), "utf8")).assets.map((a) => a.mint),
     ),
+    onRead: (read) => live?.push.onRead(read),
   });
   console.error(`market accounts: fallback RPC ${fallbackUrl ? "configured" : "not configured"}`);
-  const { route } = api({ db, state, accountsJson: accounts.currentJson });
+  const { route } = api({
+    db,
+    state,
+    // With live push, the live store's view: the last full read kept current between reads.
+    accountsJson: () => (live ? live.store.view() : accounts.currentJson()),
+    live: () => (live ? { ...live.push.health(), stream: live.stream.health() } : null),
+  });
   http
     .createServer(async (req, res) => {
       const send = (status, body, cache = status === 200 ? "public, max-age=5" : "no-store") => {
@@ -933,9 +1163,16 @@ if (isMain) {
       };
       try {
         if (req.method !== "GET") return send(405, { error: "Read-only." });
-        const ip = String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress).split(",")[0].trim();
-        if (!allowed(ip)) return send(429, { error: "Too many requests." });
+        const forwarded = req.headers["x-forwarded-for"];
+        const ip = String(forwarded ?? req.socket.remoteAddress).split(",")[0].trim();
         const url = new URL(req.url, "http://localhost");
+        // The live stream has its own limits (modules/stream.mjs): reconnects must not use up the page's API budget.
+        if (url.pathname === "/api/index/stream")
+          return live ? live.stream.handle(req, res, url, ip) : streamUnavailable(res, { loading: liveLoading });
+        // The server listens on loopback only and Caddy always sets X-Forwarded-For, so a request
+        // without it comes from this machine (the app's server rendering pages): not rate limited,
+        // or any visitor could use up the budget every page's snapshot shares.
+        if (forwarded !== undefined && !allowed(ip)) return send(429, { error: "Too many requests." });
         const out = await route(url);
         if (out === 400) return send(400, { error: "Bad request." });
         if (out === 404) return send(404, { error: "Not found." });
@@ -947,13 +1184,33 @@ if (isMain) {
         }
         send(200, out);
       } catch {
-        send(500, { error: "Market data unavailable." });
+        if (!res.headersSent) send(500, { error: "Market data unavailable." });
+        else res.end();
       }
     })
     .listen(PORT, "127.0.0.1", () => console.log(`indexer API on 127.0.0.1:${PORT}`));
 
   if (!process.env.DATABASE_URL) throw Error("DATABASE_URL is required.");
   if ((await conn.getGenesisHash()) !== DEVNET_GENESIS) throw Error("Not Devnet.");
+  if (process.env.LIVE_PUSH === "1") {
+    try {
+      // The 1 s poll gives up on a call after 2.5 s: the next poll is a second away. It goes
+      // first in the request budget; live push's other reads come next.
+      live = await startLivePush({
+        reader: accounts,
+        conn: mainConnection(2_500, PRIORITY.poll),
+        readConn: mainConnection(2_500, PRIORITY.live),
+        fallback: fallbackUrl ? timedConnection(fallbackUrl, 2_500) : null,
+        fallbackBudget: dailyBudget(envNumber("LIVE_FALLBACK_CALLS_PER_DAY", 5_000)),
+      });
+      live.push.start();
+      console.error("live push: on");
+    } catch (e) {
+      live = null;
+      console.error("live push unavailable, running without it:", String(e?.message ?? e).slice(0, 300));
+    }
+  }
+  liveLoading = false;
   // Needs no database, so it starts before the migration.
   void accounts.tick();
   setInterval(accounts.tick, MARKET_ACCOUNTS_INTERVAL_MS);
@@ -974,7 +1231,35 @@ if (isMain) {
       .catch((e) => console.error("LP reading failed:", String(e?.message ?? e).slice(0, 300)))
       .finally(() => (reading = null)));
   setInterval(tick, 15_000);
-  const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: tick });
+  // Both syncers announce the trades they insert to live push, never read one
+  // address at once, and together make at most 2.5 getTransaction calls a second.
+  const shared = syncerState({ txGapMs: 400 });
+  const onTrade = (row) => live?.push.onTrade(row);
+  const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: tick, onTrade, shared });
+  if (live) {
+    // Live push's fast path: a market's new trades read as soon as its pool changes,
+    // with short timeouts and waits; anything it misses the loop reads.
+    const fast = syncer({
+      db,
+      conn: mainConnection(5_000, PRIORITY.live),
+      rpc: retrying(sleep, { attempts: 1 }),
+      sleep,
+      state,
+      spacingMs: 0,
+      txRetries: 6,
+      txRetryMs: 300,
+      onTrade,
+      shared,
+    });
+    live.push.attach({
+      syncPool: fast.syncPool,
+      insertPool: (pool, treasury) =>
+        db.query("insert into pools (pool, treasury) values ($1, $2) on conflict (pool) do nothing", [pool, treasury]),
+      recordGraduation: () => fast.findGraduated(),
+      statsFor: (pool) => statsFor(db, pool),
+      allStats: () => allStats(db),
+    });
+  }
   for (;;) {
     try {
       await syncAll();

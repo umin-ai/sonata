@@ -1,7 +1,7 @@
 "use client";
 // The market list (the home page), in its own module so the home page loads
 // only what the list needs, not the market page, portfolio or charts.
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import Link from "@/app/plain-link";
 import { ArrowUpRight, ArrowRight, Plus, RefreshCw, Search, Sprout, Gift, AudioLines, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -18,19 +18,33 @@ import { GraduationProgress } from "./graduation-progress";
 import { MarketBadges } from "./market-badges";
 import { MarketStats } from "./market-stats";
 import { useMarkets } from "./use-markets";
+import { LiveStreamProvider, useLiveProfiles, useLiveStreamInstance } from "./live-stream";
 const href = (m: Pick<Market, "pool">) => `/onchain?pool=${m.pool}`;
 
 export function LiveDirectory({ initial = null }: { initial?: HomeSnapshot | null }) {
-  const { list, error, loading, refresh } = useMarkets(initial);
-  // The snapshot's 24h stats cover the markets it listed.
+  // New markets and card numbers pushed from the indexer, when the snapshot carries a stream position.
+  const live = useLiveStreamInstance({ scope: "list", since: initial?.stream ?? null });
+  const { list, error, loading, refresh } = useMarkets(initial, live);
+  // The snapshot's 24h stats cover the markets it listed (the stream's cover the rest, market-stats.tsx).
   const statsPools = useMemo(() => initial?.entries.map((e) => e.market.pool), [initial]);
+  // Token images of markets added live come with them, so no card asks for its own.
+  // A body the server rendered is never replaced by the stream's "none yet".
+  const liveProfiles = useLiveProfiles(live);
+  const profiles = useMemo(() => {
+    const shown = initial?.profiles;
+    if (!Object.keys(liveProfiles).length) return shown;
+    const merged = { ...shown };
+    for (const [uri, body] of Object.entries(liveProfiles)) if (body || !merged[uri]) merged[uri] = body;
+    return merged;
+  }, [initial, liveProfiles]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<"all" | "floor">("all");
   const filtered = list.filter(({ market: m }) =>
     `${m.symbol} ${m.name} ${quoteSymbolOf(m.quoteMint)}`.toLowerCase().includes(query.toLowerCase()) && (category === "all" || hasFloor(m.mode)),
   );
   return (
-    <SnapshotProvider profiles={initial?.profiles} prices={initial?.prices} stats={initial?.stats} statsPools={statsPools} locale={initial?.locale}>
+    <LiveStreamProvider value={live}>
+    <SnapshotProvider profiles={profiles} prices={initial?.prices} stats={initial?.stats} statsPools={statsPools} locale={initial?.locale}>
       <div className="sonata-welcome"><div><span className="sonata-kicker">SONATA / DISCOVER</span><h1>The marketplace<span>.</span></h1></div></div>
       <div className="sonata-lobby sonata-command-lobby">
         <section className="sonata-command-banner" aria-labelledby="sonata-feature-title">
@@ -137,12 +151,14 @@ export function LiveDirectory({ initial = null }: { initial?: HomeSnapshot | nul
       ].map(([symbol,name]) => isDeployableQuote(symbol) ? <Link key={symbol} href={`/create?quote=${symbol}`} className="sonata-pair"><TokenName symbol={symbol} size={30}/><span>{name}</span><small>Launch <ArrowUpRight size={12} /></small></Link> : <div key={symbol} className="sonata-pair" aria-disabled="true"><TokenName symbol={symbol} size={30}/><span>{name}</span><small>Coming soon</small></div>)}</div></section>
       <p className="sonata-market-note">Community tokens are distinct from the stocks they trade against and do not convey stock ownership.</p>
     </SnapshotProvider>
+    </LiveStreamProvider>
   );
 }
 
-// One market's card. Its numbers come with the list (the server's snapshot or
-// the list's batched read), checked exactly as readTreasury checks them.
-function MarketCard({ market: m, card }: { market: MarketIdentity; card: Pick<SnapshotEntry, "data" | "error"> }) {
+// One market's card. Its numbers come with the list (the server's snapshot,
+// the live stream or the list's batched read), checked exactly as readTreasury
+// checks them. Memoized: a live update of one card re-renders only that card.
+const MarketCard = memo(function MarketCard({ market: m, card }: { market: MarketIdentity; card: Pick<SnapshotEntry, "data" | "error"> }) {
   const data = card.data,
     error = card.data ? "" : (card.error ?? "");
   const tokenProfile = useTokenProfile(m.uri);
@@ -169,4 +185,4 @@ function MarketCard({ market: m, card }: { market: MarketIdentity; card: Pick<Sn
       {error && <p className="sonata-token-error">Chain data unavailable · <Link href={href(m)}>Open market to retry</Link></p>}
     </Card>
   );
-}
+});

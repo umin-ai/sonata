@@ -1,17 +1,15 @@
 import "server-only";
-import { Buffer } from "buffer";
-import { PublicKey, type AccountInfo } from "@solana/web3.js";
-import { cardsFromAccounts, identityOf, treasuryEntries } from "@/lib/treasury/runtime";
 import { quoteSymbolOf } from "@/lib/treasury/quote-assets";
-import {
-  stableOrder,
-  type HomeSnapshot,
-  type MarketPageSnapshot,
-  type ProfileBody,
-  type RawStats,
-  type SkippedMarket,
-  type SnapshotEntry,
+import type {
+  HomeSnapshot,
+  MarketPageSnapshot,
+  ProfileBody,
+  RawStats,
+  SkippedMarket,
+  SnapshotEntry,
+  StreamPosition,
 } from "@/lib/treasury/market-snapshot";
+import { decodedByIndexer, snapshotFromAccounts, streamOf, type RawMarketAccounts } from "@/lib/treasury/snapshot-decode";
 import { fetchProfileBody } from "./token-meta";
 import { cachedStockPrice, isPricedSymbol, resolveStockPrice } from "./stock-price";
 import { cleanStats } from "@/lib/market-data";
@@ -25,21 +23,27 @@ import { cleanStats } from "@/lib/market-data";
 // Chain data: the indexer reads every market's raw accounts every 10 seconds
 // (indexer/modules/market-accounts.mjs, /api/index/accounts on loopback). This
 // module fetches that at most every 2 seconds per process and checks it with
-// the browser's own code (treasuryEntries, marketsFromAccounts,
-// treasuryFromAccounts), so the listing rule and the card checks are the same
-// ones. Chain data older than 3 minutes is never served; pages then fall back
-// to the browser reading the chain, as before.
+// the browser's own code (lib/treasury/snapshot-decode.ts: treasuryEntries,
+// marketsFromAccounts, treasuryFromAccounts), so the listing rule and the card
+// checks are the same ones. With live push the indexer also keeps the accounts
+// current between its reads and sends the entries it decoded with that same
+// code, with the stream position they were taken at (`stream`): pages carry
+// it, and open the live stream (/api/index/stream) from there. Chain data
+// older than 3 minutes is never served; pages then fall back to the browser
+// reading the chain, as before.
 //
 // Stale-while-revalidate: a request that finds usable data (chain data under 3
 // minutes old, an extra under its max age) never waits for its refresh; the
 // refresh starts in that request and runs on through `schedule` (after(), so
 // the Workers runtime lets it finish after the response), and the next request
 // gets its result. A request waits only for what it cannot serve at all: chain
-// data in a fresh process or after a long idle (up to 1.5 s), and extras never
-// read or expired (up to a short budget). Extras whose source failed are
-// retried in the background only, so a broken source costs no visitor a wait.
-// A request only ever awaits work it started itself: the Workers runtime does
-// not let one request wait on another's I/O.
+// data in a fresh process or after a long idle (up to 1.5 s), a market page
+// whose market is not in the copy in memory (one fresh read, up to 1.5 s: it
+// may have launched a moment ago), and extras never read or expired (up to a
+// short budget). Extras whose source failed are retried in the background
+// only, so a broken source costs no visitor a wait. A request only ever awaits
+// work it started itself: the Workers runtime does not let one request wait on
+// another's I/O.
 //
 // Extras, each in its own cache of plain values: token profiles (kept for good
 // once read: their files are content-addressed; retried 5 minutes after a
@@ -47,63 +51,7 @@ import { cleanStats } from "@/lib/market-data";
 // seconds, served up to 5 minutes) and the indexer's 24h stats (refreshed after
 // 20 seconds, served up to 2 minutes, malformed rows dropped).
 
-type RawAccount = { owner: string; lamports: number; executable: boolean; data: string; slot: number } | null;
-/** The indexer's /api/index/accounts answer. */
-export type RawMarketAccounts = {
-  v: 1;
-  readAt: number;
-  slot: number;
-  treasuries: string[];
-  accounts: Record<string, RawAccount>;
-};
-type Info = AccountInfo<Buffer> | null;
-
-/**
- * The listed markets and their card numbers from the indexer's raw accounts,
- * checked with the browser's code. An account the indexer did not read fails
- * that market (it shows an error), never the list. `previous` keeps the order.
- */
-export function snapshotFromAccounts(raw: RawMarketAccounts, previous?: readonly SnapshotEntry[]) {
-  if (
-    raw?.v !== 1 ||
-    typeof raw.readAt !== "number" ||
-    !Array.isArray(raw.treasuries) ||
-    !raw.accounts ||
-    typeof raw.accounts !== "object"
-  )
-    throw Error("Unexpected market accounts answer.");
-  const decoded = new Map<string, Info>();
-  const info = (key: string): Info => {
-    if (decoded.has(key)) return decoded.get(key)!;
-    if (!Object.hasOwn(raw.accounts, key)) throw Error(`Account ${key} was not read.`);
-    const a = raw.accounts[key];
-    const value =
-      a &&
-      ({
-        owner: new PublicKey(a.owner),
-        lamports: Number(a.lamports),
-        executable: a.executable === true,
-        data: Buffer.from(String(a.data), "base64"),
-        rentEpoch: 0,
-      } as AccountInfo<Buffer>);
-    decoded.set(key, value);
-    return value;
-  };
-  const listed = treasuryEntries(
-    raw.treasuries.filter((k) => typeof k === "string"),
-    info,
-  );
-  const { cards, skipped } = cardsFromAccounts(listed.entries, info, (k) => raw.accounts[k]?.slot ?? raw.slot);
-  const entries = cards.map(
-    (c): SnapshotEntry => ({ market: identityOf(c.market), data: c.data, ...(c.error ? { error: c.error } : {}) }),
-  );
-  return {
-    readAt: raw.readAt,
-    slot: Number(raw.slot) || 0,
-    entries: stableOrder(previous, entries),
-    skipped: [...listed.skipped, ...skipped],
-  };
-}
+export { snapshotFromAccounts, type RawMarketAccounts };
 
 /** The visitor's number locale from Accept-Language: its first tag Intl supports, else en-US. */
 export function requestLocale(headers: Pick<Headers, "get">) {
@@ -141,6 +89,13 @@ export const ACCOUNTS_RETRY_MS = 10_000;
 /** The indexer answers 503 until its first read after a (re)start: asked again this soon. */
 export const ACCOUNTS_NOT_READY_RETRY_MS = 1_000;
 export const ACCOUNTS_TIMEOUT_MS = 1_500;
+/**
+ * A market page whose market is not in the copy in memory asks the indexer
+ * again, at most this often for the whole process, never while the indexer is
+ * failing, and once per copy for a given pool (MISSES_KEPT pools remembered).
+ */
+export const MISS_REFETCH_MS = 1_000;
+const MISSES_KEPT = 1_000;
 /** Chain data older than this is not served. */
 export const SNAPSHOT_MAX_AGE_MS = 3 * 60_000;
 /** A time up to this far ahead of the clock counts as now; further, as unknown (a clock that stepped back). */
@@ -157,6 +112,7 @@ const PROFILE_TIMEOUT_MS = 2_000,
 // Work another request started is left to it for this long before it counts as lost.
 const PENDING_MS = 10_000;
 
+const POOL = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 /** The HTTP status an error carries (getJson's), if any. */
 const statusOf = (e: unknown) => (e && typeof e === "object" && "status" in e ? Number(e.status) : undefined);
 
@@ -166,7 +122,8 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
   const timeout = deps.timeout ?? ((ms: number) => AbortSignal.timeout(ms));
   const log = deps.log ?? ((line: string) => console.log(line));
 
-  let chain: ReturnType<typeof snapshotFromAccounts> | null = null;
+  type Chain = ReturnType<typeof snapshotFromAccounts> & { stream: StreamPosition | null };
+  let chain: Chain | null = null;
   // When the indexer may be asked next (2 s after an answer, 10 s after a failure), how many reads
   // are out, and the order they were started in (a read that ends after a later one is dropped).
   let nextAskAt = -Infinity,
@@ -175,6 +132,10 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
     applied = 0;
   let lastSummary = "";
   let failing = false;
+  // When a market page last asked the indexer again for a market it did not find, and
+  // the pools such an extra read did not find, with the copy it did not find them in.
+  let missAskedAt = -Infinity;
+  const missed = new Map<string, Chain>();
   // Stats, and when a fetch started (undefined: none out) or last failed (undefined: not since the last success).
   let stats: { value: RawStats; at: number } | null = null;
   let statsPending: number | undefined, statsFailedAt: number | undefined;
@@ -203,9 +164,13 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
       const raw = await deps.fetchAccounts(timeout(ACCOUNTS_TIMEOUT_MS));
       if (id < applied) return;
       applied = id;
-      // A new read is one with another read time, earlier or later: a clock can step back.
-      if (!chain || raw?.readAt !== chain.readAt) {
-        const decoded = snapshotFromAccounts(raw, chain?.entries);
+      // A new read is one with another read time, earlier or later (a clock can
+      // step back), or, with live push, another stream position (live changes
+      // between the indexer's reads).
+      const stream = streamOf(raw);
+      if (!chain || raw?.readAt !== chain.readAt || stream?.epoch !== chain.stream?.epoch || stream?.seq !== chain.stream?.seq) {
+        // The indexer's own decode (the same function) when it sends one; else decoded here.
+        const decoded: Chain = { ...(decodedByIndexer(raw) ?? snapshotFromAccounts(raw)), stream };
         chain = decoded;
         const errors = decoded.entries.filter((e) => !e.data).length;
         const summary = `${decoded.entries.length} listed, ${decoded.skipped.length} skipped, ${errors} without numbers`;
@@ -250,6 +215,27 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
     }
     await read;
     return usable();
+  }
+
+  /**
+   * The chain data after one more indexer read, for a market page whose market
+   * the copy in memory does not have (launched moments ago): at most one such
+   * read every MISS_REFETCH_MS for the whole process, awaited by the request
+   * that started it (up to the indexer timeout). A request that finds one just
+   * started by another watches memory for its result for up to `waitMs`.
+   * `asked`: whether this request made the read.
+   */
+  async function freshChain(waitMs: number) {
+    // An indexer that failed is asked again only once its backoff is over (chainData).
+    if (failing && now() < nextAskAt) return { c: usable(), asked: false };
+    if (now() - missAskedAt >= MISS_REFETCH_MS || missAskedAt - now() > MISS_REFETCH_MS) {
+      missAskedAt = now();
+      await refreshChain();
+      return { c: usable(), asked: true };
+    }
+    const before = chain;
+    for (let waited = 0; reading && chain === before && waited < waitMs; waited += 50) await sleep(50);
+    return { c: usable(), asked: false };
   }
 
   // ---- Extras ----------------------------------------------------------------
@@ -413,16 +399,32 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
         profiles: shownProfiles,
         prices: shownPrices,
         stats: servedStats(),
+        ...(c.stream ? { stream: c.stream } : {}),
       };
     },
-    /** One market's entry with its full profile and price, or null if it is not in young enough chain data. */
+    /**
+     * One market's entry with its full profile and price, or null if it is not
+     * in young enough chain data. A market the copy in memory does not have is
+     * looked for in one more indexer read first (freshChain): a market page
+     * opened moments after its launch is then rendered complete too.
+     */
     async marketPage(
       pool: string,
       { schedule, budgetMs = 500 }: { schedule: Schedule; budgetMs?: number },
     ): Promise<Omit<MarketPageSnapshot, "locale"> | null> {
-      const c = await chainData(schedule, ACCOUNTS_TIMEOUT_MS);
-      // A pool that is not listed starts no work: the pool comes from the URL.
-      const entry = c?.entries.find((e) => e.market.pool === pool);
+      let c = await chainData(schedule, ACCOUNTS_TIMEOUT_MS);
+      let entry = c?.entries.find((e) => e.market.pool === pool);
+      // Not asked again for a pool an extra read already missed in this same copy.
+      if (c && !entry && POOL.test(pool) && missed.get(pool) !== c) {
+        const fresh = await freshChain(ACCOUNTS_TIMEOUT_MS);
+        c = fresh.c;
+        entry = c?.entries.find((e) => e.market.pool === pool);
+        if (c && !entry && fresh.asked) {
+          if (missed.size >= MISSES_KEPT) missed.clear();
+          missed.set(pool, c);
+        }
+      }
+      // A pool that is not listed starts no other work: the pool comes from the URL.
       if (!c || !entry) return null;
       const symbol = quoteSymbolOf(entry.market.quoteMint);
       const work: Work = { wait: [], background: [] };
@@ -439,11 +441,20 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
         entry,
         ...(profile !== undefined ? { profile } : {}),
         ...(price !== undefined ? { price } : {}),
+        ...(c.stream ? { stream: c.stream } : {}),
       };
     },
+    /**
+     * Where the chain data in memory sits in the indexer's live stream, when
+     * it pushes live updates and the data is young enough: a market page
+     * without its market (launched moments ago) still opens the stream from
+     * here, and switches over when the market is listed.
+     */
+    streamPosition: (): StreamPosition | null => usable()?.stream ?? null,
     /** For logs and tests. */
     status: () => ({
       readAt: chain?.readAt ?? null,
+      stream: chain?.stream ?? null,
       nextAskAt: Number.isFinite(nextAskAt) ? nextAskAt : null,
       profiles: profiles.size,
       prices: prices.size,

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
-import { BACKFILL_TRANSACTIONS, LP_READING_GAP_SECONDS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, lpReadings, migratedState, retrying, syncer } from "./index.mjs";
+import { BACKFILL_TRANSACTIONS, LP_READING_GAP_SECONDS, STATS_CACHE_MS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, lpReadings, migratedState, retrying, syncer, syncerState, streamUnavailable } from "./index.mjs";
 import { HEAD_LAG_SECONDS, indexProgress } from "./modules/indexer-schema.mjs";
 import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
 import { BN, dammPoolAccount, dammSwapTx, dbcAccounts, editPosition, key, lpReadingDb, payoutLedger, positionAccounts } from "./modules/testkit.mjs";
@@ -35,6 +35,8 @@ function memDb() {
       if (p && !p.damm_pool) p.damm_pool = args[1];
       return { rows: [], rowCount: 1 };
     }
+    if (s.startsWith("select pool, last_signature, damm_pool, damm_last_signature, synced_at, damm_synced_at from pools where pool = $1"))
+      return { rows: pools.has(args[0]) ? [{ ...pools.get(args[0]) }] : [] };
     if (s.startsWith("select pool, last_signature, damm_pool, damm_last_signature, synced_at, damm_synced_at from pools")) return { rows: sorted().map((p) => ({ ...p })) };
     if (s.startsWith("insert into trades")) {
       const k = `${args[0]}/${args[1]}`;
@@ -781,4 +783,170 @@ test("a stretch listed again with a different count (an RPC node that does not k
   } while (db.pools.get(g.pool.toBase58()).damm_synced_at == null && loops < 200);
   assert.ok(lagged, "the lagging answer was served");
   assert.equal(db.trades.size, 3000, "every trade is read");
+});
+
+// ---- Live push's fast path ---------------------------------------------------
+
+test("live push's fast path reads a market's new trades at once, announcing each row once however many times either syncer reads it", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const m = market(chain, { pool: new PublicKey("9iuQLtqQETzEjGrPVycWFoANL22W9s3MoNfTt2dfxong") });
+  const announced = [];
+  const shared = syncerState();
+  const onTrade = (row) => announced.push(row);
+  const run = loop(chain, db, clock, { onTrade, shared });
+  const fast = loop(chain, db, clock, { onTrade, shared });
+  chain.land("b1", [m.pool], quietTx(T - 100));
+  await run.syncAll();
+  // A buy lands: the fast path reads it before the loop comes round.
+  chain.land("b2", [m.pool], fixture("app-buy.json"));
+  assert.equal(await fast.syncPool(m.pool.toBase58()), 1);
+  assert.equal(announced.length, 1);
+  assert.deepEqual(
+    { ...announced[0], trader: "t" },
+    { pool: m.pool.toBase58(), signature: "b2", ix_index: announced[0].ix_index, slot: announced[0].slot, time: announced[0].time, side: "buy", trader: "t", base_amount: announced[0].base_amount, quote_amount: "2000000", fee: announced[0].fee, price: announced[0].price, venue: "dbc" },
+  );
+  assert.equal(db.pools.get(m.pool.toBase58()).last_signature, "b2");
+  // The loop starts from the cursor the fast path left: nothing read twice, nothing announced twice.
+  chain.calls.length = 0;
+  await run.syncAll();
+  assert.ok(!chain.calls.includes("getTransaction b2"));
+  // Even a transaction read again (a cursor moved back) is not announced again.
+  db.pools.get(m.pool.toBase58()).last_signature = "b1";
+  shared.lasts.clear();
+  await fast.syncPool(m.pool.toBase58());
+  assert.equal(announced.length, 1);
+  assert.equal(db.trades.size, 1);
+  // A pool with no pools row yet reads nothing.
+  assert.equal(await fast.syncPool(key().toBase58()), 0);
+});
+
+test("the fast path and the loop never read one address at the same time", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const m = market(chain);
+  chain.land("q1", [m.pool], quietTx(T - 10));
+  let inside = 0,
+    most = 0,
+    release;
+  const gate = new Promise((r) => (release = r));
+  const slowConn = {
+    ...chain.conn,
+    getSignaturesForAddress: async (...a) => {
+      inside++;
+      most = Math.max(most, inside);
+      await gate;
+      inside--;
+      return chain.conn.getSignaturesForAddress(...a);
+    },
+  };
+  const shared = syncerState();
+  const run = syncer({ db, conn: slowConn, rpc: (fn) => fn(), sleep: async () => {}, state: { pools: 0, trades: 0 }, now: () => clock.now * 1000, txRetries: 0, txRetryMs: 0, shared });
+  const fast = syncer({ db, conn: slowConn, rpc: (fn) => fn(), sleep: async () => {}, state: { pools: 0, trades: 0 }, now: () => clock.now * 1000, txRetries: 0, txRetryMs: 0, shared });
+  await run.discoverPools();
+  const both = Promise.all([run.syncAll(), fast.syncPool(m.pool.toBase58()), fast.syncPool(m.pool.toBase58())]);
+  await new Promise((r) => setTimeout(r, 20));
+  release();
+  await both;
+  assert.equal(most, 1);
+});
+
+test("a fast path whose transaction is not served yet waits a little and reads it; if it never comes, the cursor stays and the loop reads it later", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const m = market(chain, { pool: new PublicKey("9iuQLtqQETzEjGrPVycWFoANL22W9s3MoNfTt2dfxong") });
+  const shared = syncerState();
+  const run = loop(chain, db, clock, { shared });
+  chain.land("b1", [m.pool], quietTx(T - 100));
+  await run.syncAll();
+  chain.land("b2", [m.pool], fixture("app-buy.json"));
+  chain.unserved.add("b2");
+  let waits = 0;
+  const fast = loop(chain, db, clock, {
+    shared,
+    txRetries: 6,
+    txRetryMs: 300,
+    sleep: async (ms) => {
+      if (ms === 300 && ++waits === 2) chain.unserved.delete("b2");
+    },
+  });
+  assert.equal(await fast.syncPool(m.pool.toBase58()), 1);
+  assert.equal(waits, 2);
+  // Never served: the fast path gives up and the cursor stays before it.
+  chain.land("b3", [m.pool], fixture("app-buy.json"));
+  chain.unserved.add("b3");
+  const giveUp = loop(chain, db, clock, { shared, txRetries: 2, txRetryMs: 0 });
+  await assert.rejects(giveUp.syncPool(m.pool.toBase58()), /not served yet/);
+  assert.equal(db.pools.get(m.pool.toBase58()).last_signature, "b2");
+  assert.equal(shared.lasts.get(m.pool.toBase58()), "b2");
+});
+
+test("GET /api/index/stats answers from memory for 5 s, one query however many ask; /health carries live push's state", async () => {
+  let t = 1_000_000,
+    queries = 0;
+  const db = { query: async () => (queries++, await new Promise((r) => setTimeout(r, 5)), { rows: [{ pool: "p", trades_24h: 1 }] }) };
+  const { route } = api({ db, state: { lastSync: null }, now: () => t, live: () => ({ running: true }) });
+  const url = new URL("http://localhost/api/index/stats");
+  const answers = await Promise.all(Array.from({ length: 20 }, () => route(url)));
+  assert.equal(queries, 1);
+  assert.deepEqual(answers[19].pools, [{ pool: "p", trades_24h: 1 }]);
+  t += STATS_CACHE_MS - 1;
+  await route(url);
+  assert.equal(queries, 1);
+  t += 1;
+  await route(url);
+  assert.equal(queries, 2);
+  assert.deepEqual((await route(new URL("http://localhost/api/index/health"))).live, { running: true });
+  const off = api({ db, state: {} });
+  assert.equal("live" in (await off.route(new URL("http://localhost/api/index/health"))), false);
+});
+
+test("with a shared getTransaction gap, the loop and the fast path together make at most one call per gap", async () => {
+  const chain = memChain(), db = memDb();
+  const a = market(chain), b = market(chain);
+  const times = [];
+  const conn = { ...chain.conn, getTransaction: async (sig) => (times.push(performance.now()), chain.conn.getTransaction(sig)) };
+  // Real time, with a short gap: two syncers read two addresses at once.
+  const shared = syncerState({ txGapMs: 25 });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const mk = () => syncer({ db, conn, rpc: (fn) => fn(), sleep, state: { pools: 0, trades: 0 }, now: () => performance.now(), txRetries: 0, txRetryMs: 0, spacingMs: 0, shared });
+  const run = mk(), fast = mk();
+  await run.discoverPools();
+  for (let i = 0; i < 3; i++) {
+    chain.land(`a${i}`, [a.pool], quietTx(T - 10 + i));
+    chain.land(`b${i}`, [b.pool], quietTx(T - 10 + i));
+  }
+  await Promise.all([run.syncPool(a.pool.toBase58()), fast.syncPool(b.pool.toBase58())]);
+  assert.equal(times.length, 6);
+  // Six calls take at least five gaps (timers may fire late under load, never early).
+  const sorted = [...times].sort((x, y) => x - y);
+  assert.ok(sorted.at(-1) - sorted[0] >= 5 * 25 - 2, `span ${Math.round(sorted.at(-1) - sorted[0])} ms`);
+});
+
+test("the fast path reads only the venue that changed: a graduated market's DAMM v2 pool without its frozen DBC pool", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const m = market(chain, { migrated: true });
+  chain.land("m1", [m.pool, m.damm], quietTx(T - 500));
+  const run = loop(chain, db, clock);
+  await run.syncAll();
+  const fast = loop(chain, db, clock, { shared: syncerState() });
+  chain.land("d1", [m.damm], dammSwapTx({ direction: 1, pool: m.damm, blockTime: T - 10, slot: 9 }));
+  chain.calls.length = 0;
+  assert.equal(await fast.syncPool(m.pool.toBase58(), new Set(["damm"])), 1);
+  assert.deepEqual(chain.calls.filter((c) => c.startsWith("getSignaturesForAddress")), [`getSignaturesForAddress ${m.damm.toBase58()}`]);
+  // Without venues: both, as before.
+  chain.calls.length = 0;
+  await fast.syncPool(m.pool.toBase58());
+  assert.equal(chain.calls.filter((c) => c.startsWith("getSignaturesForAddress")).length, 2);
+});
+
+test("a stream request while live push is starting gets a hello that is not ready (the browser retries in a second); with live push off, `off`", async () => {
+  const answer = (loading) => {
+    const res = { head: null, body: "", writeHead(status, headers) { this.head = { status, headers }; }, end(text) { this.body = text; } };
+    streamUnavailable(res, { loading });
+    return res;
+  };
+  const starting = answer(true);
+  assert.equal(starting.head.status, 200);
+  assert.match(starting.head.headers["Content-Type"], /text\/event-stream/);
+  assert.match(starting.body, /^retry: 1000\n\nevent: hello\ndata: \{"v":1,"ready":false/);
+  const off = answer(false);
+  assert.match(off.body, /event: off\n/);
 });

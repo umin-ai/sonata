@@ -1,13 +1,29 @@
 // Market data from Sonata's trade indexer (indexer/index.mjs), served at
 // /api/index/*. Display only: nothing here feeds a transaction.
 export type Candle = { time: number; open: number; high: number; low: number; close: number; volume: bigint; trades: number };
-export type Trade = { signature: string; time: number; side: "buy" | "sell"; trader: string; base: bigint; quote: bigint; fee: bigint; price: number };
+/** One swap; `ixIndex` tells apart two swaps in one transaction, `slot` orders it against live pushes. */
+export type Trade = {
+  signature: string;
+  ixIndex: number;
+  slot: number;
+  time: number;
+  side: "buy" | "sell";
+  trader: string;
+  base: bigint;
+  quote: bigint;
+  fee: bigint;
+  price: number;
+};
+/** The trades a candles answer covers: its newest slot, and the trades (signature:ixIndex) in that slot. */
+export type Covered = { slot: number; trades: string[] };
 export type PoolStats = { pool: string; lastPrice: number | null; price24hAgo: number | null; volume24h: bigint; trades24h: number; tradesTotal: number };
 export const INTERVALS = ["5m", "1h", "4h", "1d"] as const;
 export type Interval = (typeof INTERVALS)[number];
 
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const r = await fetch(`/api/index/${path}`, { signal });
+// `cache`: "no-store" for what a live page merges pushed trades into (trades,
+// candles), so a reload never brings back an answer older than what it shows.
+async function get<T>(path: string, signal?: AbortSignal, cache?: RequestCache): Promise<T> {
+  const r = await fetch(`/api/index/${path}`, { signal, ...(cache ? { cache } : {}) });
   if (!r.ok) throw Error("Market data unavailable.");
   return (await r.json()) as T;
 }
@@ -15,25 +31,59 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 type Raw = Record<string, string | number | null>;
 
 export async function fetchCandles(pool: string, interval: Interval, signal?: AbortSignal) {
-  const d = await get<{ supply: number; candles: Raw[] }>(`candles?pool=${pool}&interval=${interval}`, signal);
+  const d = await get<{ supply: number; candles: Raw[]; through?: { slot?: unknown; trades?: unknown } }>(
+    `candles?pool=${pool}&interval=${interval}`,
+    signal,
+    "no-store",
+  );
+  const through: Covered = {
+    slot: Number(d.through?.slot) || 0,
+    trades: Array.isArray(d.through?.trades) ? d.through.trades.map(String) : [],
+  };
   return {
     supply: d.supply,
     candles: d.candles.map((c): Candle => ({
       time: Number(c.time), open: Number(c.open), high: Number(c.high), low: Number(c.low),
       close: Number(c.close), volume: BigInt(String(c.volume)), trades: Number(c.trades),
     })),
+    through,
   };
 }
 
+const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{32,90}$/;
+/**
+ * One /trades row (or a live push's trade, which has the same fields), or
+ * null when it is malformed.
+ */
+export function parseTrade(t: unknown): Trade | null {
+  if (!t || typeof t !== "object") return null;
+  const r = t as Raw;
+  try {
+    const trade: Trade = {
+      signature: String(r.signature),
+      ixIndex: Number(r.ix_index ?? 0),
+      slot: Number(r.slot ?? 0),
+      time: Number(r.time),
+      side: r.side === "sell" ? "sell" : "buy",
+      trader: String(r.trader),
+      base: BigInt(String(r.base_amount)),
+      quote: BigInt(String(r.quote_amount)),
+      fee: BigInt(String(r.fee)),
+      price: Number(r.price),
+    };
+    if (!SIGNATURE.test(trade.signature) || !Number.isFinite(trade.time) || !Number.isFinite(trade.price)) return null;
+    if (!Number.isSafeInteger(trade.ixIndex) || !Number.isFinite(trade.slot)) return null;
+    return trade;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchTrades(pool: string, limit = 20, signal?: AbortSignal) {
-  const d = await get<{ supply: number; trades: Raw[] }>(`trades?pool=${pool}&limit=${limit}`, signal);
+  const d = await get<{ supply: number; trades: Raw[] }>(`trades?pool=${pool}&limit=${limit}`, signal, "no-store");
   return {
     supply: d.supply,
-    trades: d.trades.map((t): Trade => ({
-      signature: String(t.signature), time: Number(t.time), side: t.side === "sell" ? "sell" : "buy",
-      trader: String(t.trader), base: BigInt(String(t.base_amount)), quote: BigInt(String(t.quote_amount)),
-      fee: BigInt(String(t.fee)), price: Number(t.price),
-    })),
+    trades: d.trades.map(parseTrade).filter((t): t is Trade => t !== null),
   };
 }
 

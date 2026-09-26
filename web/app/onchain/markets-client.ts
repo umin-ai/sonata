@@ -44,7 +44,12 @@ export const listFromSnapshot = (s: Pick<MarketsAnswer, "entries" | "skipped">):
 export async function readLive(): Promise<MarketList> {
   const { cards, skipped } = await readMarketsAndCards();
   return {
-    entries: cards.map((c) => ({ market: c.market, data: c.data, ...(c.error ? { error: c.error } : {}) })),
+    entries: cards.map((c) => ({
+      market: c.market,
+      data: c.data,
+      ...(c.error ? { error: c.error } : {}),
+      ...(c.launchedAt !== undefined ? { launchedAt: c.launchedAt } : {}),
+    })),
     skipped: skipped.length,
   };
 }

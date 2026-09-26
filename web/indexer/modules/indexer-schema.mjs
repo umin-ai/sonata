@@ -50,6 +50,8 @@ export async function migrateIndexerSchema(db) {
     alter table pools add column if not exists damm_synced_through timestamptz;
     alter table pools add column if not exists damm_synced_at timestamptz;
     create unique index if not exists pools_damm_pool on pools (damm_pool);
+    -- A market's newest slot, for the trades a candles answer covers (/api/index/candles).
+    create index if not exists trades_pool_slot on trades (pool, slot desc);
   `);
 }
 

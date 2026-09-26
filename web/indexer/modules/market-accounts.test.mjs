@@ -183,3 +183,113 @@ test("when the primary RPC fails twice in a row, reads go through the fallback e
   assert.equal(r.current(), last);
   assert.equal(logs.filter((l) => l.includes("failed too")).length, 1);
 });
+
+// ---- Bounded, never older, and on request (live push) ---------------------------
+
+test("each read asks for no older state than the last listing, or than the caller saw land; a node behind is asked again", async () => {
+  const { fakeRpc, readerOver } = await import("./livekit.mjs");
+  const chain = fakeRpc();
+  const reads = [];
+  const r = readerOver(chain, { onRead: (read) => reads.push(read) });
+  await r.tick();
+  assert.equal(chain.calls[0].config.withContext, true);
+  assert.equal(chain.calls[0].config.minContextSlot, undefined, "nothing seen yet");
+  chain.calls.length = 0;
+  await r.tick();
+  assert.equal(chain.calls[0].config.minContextSlot, fixture.slot, "the last listing's slot");
+  assert.equal(chain.calls[1].config.minContextSlot, fixture.slot, "and the account reads too");
+  // Asked for a later slot (a registration seen at it): a node that has not reached it is asked again, 200 ms apart.
+  let behindFor = 2;
+  const conn = chain.conn;
+  const slowConn = {
+    ...conn,
+    getProgramAccounts: async (...a) => (behindFor-- > 0 ? Promise.reject(Object.assign(Error("Minimum context slot has not been reached"), { code: -32016 })) : conn.getProgramAccounts(...a)),
+  };
+  const waits = [];
+  const again = readerOver({ conn: slowConn }, { sleep: async (ms) => void waits.push(ms), onRead: (read) => reads.push(read) });
+  await again.tick({ minContextSlot: fixture.slot });
+  assert.deepEqual(waits, [200, 200]);
+  assert.ok(again.current());
+  assert.equal(reads.length, 3, "every complete read goes to onRead");
+});
+
+test("with more markets registered than a read covers, it reads the newest (by activation point, 8 bytes each, read once)", async () => {
+  const { fakeRpc, readerOver } = await import("./livekit.mjs");
+  const chain = fakeRpc();
+  const r = readerOver(chain, { maxMarkets: 2 });
+  const read = await r.read();
+  // BACKED and RWDCHK are the newest launches in the capture.
+  const pools = read.treasuries.map((t) => fixture.golden.markets.find((m) => m.treasury === t).symbol);
+  assert.deepEqual(pools.sort(), ["BACKED", "RWDCHK"]);
+  assert.equal(read.registered, 4);
+  const slices = chain.calls.filter((c) => c.method === "getMultipleAccountsInfo");
+  assert.equal(slices.length, 1);
+  assert.deepEqual(slices[0].config.dataSlice, { offset: 296, length: 8 });
+  chain.calls.length = 0;
+  await r.read();
+  assert.equal(chain.calls.filter((c) => c.method === "getMultipleAccountsInfo").length, 0, "launch times are read once");
+});
+
+test("request(): a read now, or right after the running one, shared by every request made meanwhile, at the highest slot asked", async () => {
+  const { fakeRpc, readerOver } = await import("./livekit.mjs");
+  const chain = fakeRpc();
+  let release;
+  const gate = new Promise((res) => (release = res));
+  const conn = chain.conn;
+  let listings = 0;
+  const gated = { ...conn, getProgramAccounts: async (...a) => (listings++ === 0 && (await gate), conn.getProgramAccounts(...a)) };
+  const r = readerOver({ conn: gated });
+  const first = r.tick();
+  const a = r.request(fixture.slot - 1),
+    b = r.request(fixture.slot);
+  assert.equal(a, b);
+  release();
+  await first;
+  await a;
+  assert.equal(listings, 2, "one more read after the running one");
+  assert.equal(chain.calls.filter((c) => c.method === "getProgramAccounts").at(-1).config.minContextSlot, fixture.slot);
+  await r.request(0);
+  assert.equal(listings, 3, "with nothing running, a read at once");
+});
+
+test("readNew(): the markets registered since the last read, and only those: one keys-only listing, then a new treasury and its market's accounts", async () => {
+  const listed = fixture.programAccounts.slice(1);
+  const conn = fakeConn({ programAccounts: listed });
+  const r = reader(conn);
+  assert.equal(await r.readNew(), null, "before a complete read: the caller reads everything instead");
+  await r.tick();
+  conn.calls.length = 0;
+  const none = await r.readNew(5);
+  assert.deepEqual(none.treasuries, []);
+  assert.deepEqual(conn.calls.map((c) => c.method), ["getProgramAccounts"]);
+  assert.deepEqual(conn.calls[0].config.dataSlice, { offset: 0, length: 0 });
+  // A registration: its treasury, then its market's accounts.
+  const [fresh] = fixture.programAccounts;
+  listed.unshift(fresh);
+  conn.calls.length = 0;
+  const one = await r.readNew(5);
+  assert.deepEqual(one.treasuries, [fresh.pubkey]);
+  assert.deepEqual(conn.calls.map((c) => c.method), ["getProgramAccounts", "getMultipleAccounts", "getMultipleAccounts"]);
+  assert.deepEqual(conn.calls[1].keys, [fresh.pubkey]);
+  const full = (await reader(fakeConn()).read()).accounts;
+  const t = fixture.golden.markets.find((m) => m.treasury === fresh.pubkey);
+  for (const k of [t.pool, t.config, t.treasury, t.baseMint, t.treasuryQuote, t.payoutQuote, t.quoteMint, fixture.treasuryProgram])
+    assert.deepEqual(one.accounts[k], full[k], k);
+  // Seen now: not read again.
+  conn.calls.length = 0;
+  assert.deepEqual((await r.readNew()).treasuries, []);
+  assert.equal(conn.calls.length, 1);
+});
+
+test("readNew(): when the main RPC fails, the fallback at once, within the budget it is given", async () => {
+  const conn = fakeConn();
+  const fallback = fakeConn();
+  const r = reader(conn, { fallback });
+  await r.tick();
+  conn.fail = "429 Too Many Requests";
+  let left = 1;
+  const budget = { take: () => left-- > 0 };
+  const answer = await r.readNew(0, { budget });
+  assert.equal(answer.source, "fallback");
+  await assert.rejects(r.readNew(0, { budget }), /429/);
+});

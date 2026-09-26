@@ -1,6 +1,6 @@
 "use client";
 import { TokenFallback } from "@/app/token-identity";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshotProfile } from "@/app/onchain/snapshot-context";
 import { Globe, Send } from "lucide-react";
 import {
@@ -30,8 +30,11 @@ export function loadProfile(uri: string) {
 export function useTokenProfile(uri?: string) {
   // The server's market snapshot may already carry it (the /api/token-meta body),
   // validated here the same way, so the first render needs no fetch; null there
-  // means the server could not read it lately, so it is not asked again.
+  // means the server could not read it lately (or, for a market the live stream
+  // just added, not yet), so it is not asked again. A body that arrives later
+  // (the live stream's) is shown when it comes.
   const seeded = useSnapshotProfile(uri);
+  const seededProfile = useMemo(() => (uri && seeded && isProfileUrl(uri) ? parseProfile(seeded) : null), [uri, seeded]);
   // Keyed by URI so a stale profile is never shown for a different token.
   const [loaded, setLoaded] = useState<{ uri: string; profile: TokenProfile | null } | null>(() =>
     uri && seeded !== undefined && isProfileUrl(uri) ? { uri, profile: seeded ? parseProfile(seeded) : null } : null,
@@ -47,7 +50,7 @@ export function useTokenProfile(uri?: string) {
       active = false;
     };
   }, [uri, known]);
-  return loaded && loaded.uri === uri ? loaded.profile : null;
+  return seededProfile ?? (loaded && loaded.uri === uri ? loaded.profile : null);
 }
 
 function XMark({ size = 14 }: { size?: number }) {

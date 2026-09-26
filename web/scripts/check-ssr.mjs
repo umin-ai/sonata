@@ -2,13 +2,18 @@
 // HTML, and that nothing on a market page can be sent before the browser's own
 // live read, then times the pages. Read-only: plain GET requests.
 //
-//   node scripts/check-ssr.mjs <base-url> [runs]
+//   node scripts/check-ssr.mjs <base-url> [runs] [--stream]
 //   node scripts/check-ssr.mjs http://127.0.0.1:5190 10
 //
 // Exits non-zero when a check fails. Timings are medians over `runs` requests:
 // time to first byte, and from the first byte to the last market card's bytes.
-const base = (process.argv[2] || "http://localhost:5173").replace(/\/+$/, "");
-const runs = Math.max(1, Number(process.argv[3] || 5));
+// With --stream it also checks the live stream (/api/index/stream, live push):
+// an event stream, not compressed, `hello` within a second and a ping within
+// 20 seconds (so it takes up to 20 s longer).
+const args = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const checkStream = process.argv.includes("--stream");
+const base = (args[0] || "http://localhost:5173").replace(/\/+$/, "");
+const runs = Math.max(1, Number(args[1] || 5));
 const failures = [];
 const check = (ok, label) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${label}`);
@@ -125,6 +130,36 @@ for (const { label, entry } of pages) {
     /Review burn|Withdraw|add now|Send it now|Graduate|Claim fees|^Buy |^Sell /.test(b.label),
   );
   check(actions.every((b) => b.disabled), `${label}: every action is disabled in the HTML (${actions.map((b) => b.label).join(", ") || "none rendered"})`);
+}
+
+// ---- The live stream (--stream) ----------------------------------------------------
+if (checkStream) {
+  const started = performance.now();
+  const controller = new AbortController();
+  const r = await fetch(`${base}/api/index/stream?scope=list`, { headers: { "accept-encoding": "gzip, br" }, signal: controller.signal });
+  check(r.status === 200 && (r.headers.get("content-type") ?? "").startsWith("text/event-stream"), `/api/index/stream is an event stream (HTTP ${r.status})`);
+  check(!r.headers.get("content-encoding"), "the stream is not compressed");
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  const seen = new Map();
+  let buffer = "";
+  const deadline = setTimeout(() => controller.abort(), 20_000);
+  try {
+    while (!seen.has("ping")) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (const [, event] of buffer.matchAll(/^event: (\w+)$/gm)) if (!seen.has(event)) seen.set(event, performance.now() - started);
+    }
+  } catch {
+    /* timed out: reported below */
+  } finally {
+    clearTimeout(deadline);
+    controller.abort();
+  }
+  check(seen.get("hello") < 1_000, `hello within 1 s (${Math.round(seen.get("hello") ?? NaN)} ms)`);
+  check(seen.has("snapshot") && /^id: [0-9a-z]+-\d+$/m.test(buffer), `a snapshot carrying its position (${Math.round(seen.get("snapshot") ?? NaN)} ms)`);
+  check(seen.has("ping"), `a ping within 20 s (${Math.round(seen.get("ping") ?? NaN)} ms)`);
 }
 
 // ---- Timings -------------------------------------------------------------------

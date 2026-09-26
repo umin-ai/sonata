@@ -1,4 +1,4 @@
-// node --import ./scripts/test-register.mjs: test-only resolution for app modules (scripts/test-hooks.mjs).
+// node --import ./scripts/test-register.mjs: module resolution for app modules in tests (scripts/node-hooks.mjs).
 import { register } from "node:module";
 
-register("./test-hooks.mjs", import.meta.url);
+register("./node-hooks.mjs", import.meta.url);

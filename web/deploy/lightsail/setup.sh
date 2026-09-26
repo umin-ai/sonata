@@ -95,8 +95,10 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q ca-certificates curl gnupg git openssl postgresql debian-keyring debian-archive-keyring apt-transport-https
 
-# Node.js 22 (NodeSource) and Caddy (official repository).
-if ! node -v 2>/dev/null | grep -q '^v22'; then
+# Node.js 22.13 or later in 22.x (NodeSource): package.json's engines, and the
+# indexer's --experimental-strip-types (sonata-indexer.service) needs 22.6 or
+# later. Caddy from its official repository.
+if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a === 22 && b >= 13 ? 0 : 1)' 2>/dev/null; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y -q nodejs
 fi
@@ -135,10 +137,13 @@ echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" >>
 echo "INDEXER_URL=http://127.0.0.1:8790/api/index" >> $WEB_DIR/dist/server/.dev.vars
 # The indexer needs the database, and takes a fallback Devnet RPC for its market
 # accounts reader from sonata.env when there is one (MARKET_ACCOUNTS_FALLBACK_RPC_URL,
-# else the relay's GETBLOCK_DEVNET_URL). Its own overrides live in
-# indexer-overrides.env, which this script never rewrites.
+# else the relay's GETBLOCK_DEVNET_URL). Live push (new markets, curves and trades
+# pushed to open pages, /api/index/stream) is on; to turn it off, put LIVE_PUSH=0
+# in indexer-overrides.env and restart sonata-indexer (see README.md). Its own
+# overrides live in indexer-overrides.env, which this script never rewrites.
 install -o sonata -g sonata -m 600 /dev/null $HOME_DIR/indexer.env
 echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" > $HOME_DIR/indexer.env
+echo "LIVE_PUSH=1" >> $HOME_DIR/indexer.env
 grep -E '^(MARKET_ACCOUNTS_FALLBACK_RPC_URL|GETBLOCK_DEVNET_URL)=' $HOME_DIR/sonata.env >> $HOME_DIR/indexer.env || true
 
 # Creator payout crank: its own fee-payer key, generated here once and never
