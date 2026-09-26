@@ -144,7 +144,8 @@ echo "INDEXER_URL=http://127.0.0.1:8790/api/index" >> $WEB_DIR/dist/server/.dev.
 install -o sonata -g sonata -m 600 /dev/null $HOME_DIR/indexer.env
 echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" > $HOME_DIR/indexer.env
 echo "LIVE_PUSH=1" >> $HOME_DIR/indexer.env
-grep -E '^(MARKET_ACCOUNTS_FALLBACK_RPC_URL|GETBLOCK_DEVNET_URL)=' $HOME_DIR/sonata.env >> $HOME_DIR/indexer.env || true
+# CHAINSTACK_DEVNET_URL, when set, is the second RPC the live poll alternates with.
+grep -E '^(MARKET_ACCOUNTS_FALLBACK_RPC_URL|GETBLOCK_DEVNET_URL|CHAINSTACK_DEVNET_URL)=' $HOME_DIR/sonata.env >> $HOME_DIR/indexer.env || true
 
 # Creator payout crank: its own fee-payer key, generated here once and never
 # printed. It can only pay network fees, so it needs a little Devnet SOL.

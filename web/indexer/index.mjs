@@ -1082,7 +1082,7 @@ const isMain = (() => {
  * they cannot load (e.g. Node without --experimental-strip-types); the caller
  * then runs without live push.
  */
-export async function startLivePush({ reader, conn: pollConn, readConn = pollConn, fallback = null, fallbackBudget = null, pollMs }) {
+export async function startLivePush({ reader, conn: pollConn, readConn = pollConn, fallback = null, fallbackBudget = null, altConn = null, altBudget = null, pollMs }) {
   if (!process.features?.typescript) throw Error("Node runs without TypeScript support (start it with --experimental-strip-types)");
   const { register } = await import("node:module");
   register(new URL("../scripts/node-hooks.mjs", import.meta.url));
@@ -1099,6 +1099,8 @@ export async function startLivePush({ reader, conn: pollConn, readConn = pollCon
     readConn,
     fallback,
     fallbackBudget,
+    altConn,
+    altBudget,
     ...(pollMs ? { pollMs } : {}),
     programId,
     fetchProfile: (uri) => fetchProfileBody(uri, AbortSignal.timeout(2_000)),
@@ -1195,13 +1197,19 @@ if (isMain) {
   if ((await conn.getGenesisHash()) !== DEVNET_GENESIS) throw Error("Not Devnet.");
   if (process.env.LIVE_PUSH === "1") {
     try {
-      // The poll runs every LIVE_POLL_MS (2 s by default: at public Devnet's measured
-      // 1 call per method a second it uses half, which leaves the rest for trades; a
-      // paid RPC can poll every second). It gives up on a call after 2.5 s, goes first
-      // in the request budget, and live push's other reads come next.
+      // The poll runs every LIVE_POLL_MS: every 2 s by default, since public Devnet allows
+      // about 1 call per method a second and that leaves half for trades. With a second
+      // RPC (LIVE_POLL_ALT_RPC_URL, else CHAINSTACK_DEVNET_URL) every other poll goes to
+      // it, so the default is every second: 1 poll (2 calls) every 2 s on each, about
+      // 2.6M calls a month on the second one, within LIVE_ALT_POLLS_PER_DAY. It gives up
+      // on a call after 2.5 s, goes first in the request budget, and live push's other
+      // reads come next.
+      const altUrl = process.env.LIVE_POLL_ALT_RPC_URL || process.env.CHAINSTACK_DEVNET_URL || "";
       live = await startLivePush({
         reader: accounts,
-        pollMs: envNumber("LIVE_POLL_MS", 2_000),
+        pollMs: envNumber("LIVE_POLL_MS", altUrl ? 1_000 : 2_000),
+        altConn: altUrl ? timedConnection(altUrl, 2_500) : null,
+        altBudget: altUrl ? dailyBudget(envNumber("LIVE_ALT_POLLS_PER_DAY", 45_000)) : null,
         conn: mainConnection(2_500, PRIORITY.poll),
         readConn: mainConnection(2_500, PRIORITY.live),
         fallback: fallbackUrl ? timedConnection(fallbackUrl, 2_500) : null,

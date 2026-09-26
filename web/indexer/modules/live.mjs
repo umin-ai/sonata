@@ -115,6 +115,9 @@ export function livePush({
   readConn = conn,
   fallback = null,
   fallbackBudget = null,
+  // A second RPC the poll alternates with (every other poll), within `altBudget` polls a day.
+  altConn = null,
+  altBudget = null,
   programId,
   fetchProfile = null,
   now = Date.now,
@@ -172,6 +175,7 @@ export function livePush({
     polls: 0,
     pollErrors: 0,
     fallbackPolls: 0,
+    altPolls: 0,
     triggers: 0,
     newReads: 0,
     poolChanges: 0,
@@ -293,8 +297,8 @@ export function livePush({
 
   // ---- The poll -------------------------------------------------------------
 
-  async function checkSignatures() {
-    const list = await conn.getSignaturesForAddress(program, { limit: 5 }, "confirmed");
+  async function checkSignatures(c = conn) {
+    const list = await c.getSignaturesForAddress(program, { limit: 5 }, "confirmed");
     const newest = list[0];
     // The first poll only notes where things stand (the first full read covers what came before).
     if (!baseline) {
@@ -320,10 +324,10 @@ export function livePush({
   }
 
   // The poll's pools, through `conn`, or through the fallback once `conn` keeps failing (paced, within its budget).
-  async function poolAccounts(keys) {
+  async function poolAccounts(keys, c = conn) {
     const pubkeys = keys.map((k) => new PublicKey(k.key));
     try {
-      const answer = await conn.getMultipleAccountsInfoAndContext(pubkeys, "confirmed");
+      const answer = await c.getMultipleAccountsInfoAndContext(pubkeys, "confirmed");
       poolFailures = 0;
       return answer;
     } catch (e) {
@@ -340,10 +344,10 @@ export function livePush({
     }
   }
 
-  async function readPools() {
+  async function readPools(c = conn) {
     const keys = store.pollKeys(maxPollKeys);
     if (!keys.length) return;
-    const { context, value } = await poolAccounts(keys);
+    const { context, value } = await poolAccounts(keys, c);
     const patches = [],
       woken = new Map();
     keys.forEach((k, i) => {
@@ -367,9 +371,15 @@ export function livePush({
   }
 
   /** One poll. Resolves to whether the next should wait longer (a rate limit or a timeout). */
+  let altTurn = false;
   async function pollOnce() {
     const started = now();
-    const [sigs, pools] = await Promise.allSettled([checkSignatures(), readPools()]);
+    // With a second RPC, every other poll goes to it (while its daily budget lasts).
+    altTurn = !altTurn;
+    const useAlt = !!altConn && altTurn && (!altBudget || altBudget.take());
+    if (useAlt) counts.altPolls++;
+    const via = useAlt ? altConn : conn;
+    const [sigs, pools] = await Promise.allSettled([checkSignatures(via), readPools(via)]);
     counts.polls++;
     lastPollAt = now();
     timing.poll.add(lastPollAt - started);

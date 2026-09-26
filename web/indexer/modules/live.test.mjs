@@ -439,3 +439,17 @@ test("attaching the database after the first read wakes nothing: the sync loop c
   await settle();
   assert.deepEqual(db.calls.filter((c) => c[0] !== "allStats"), []);
 });
+
+test("with a second RPC every other poll goes to it, only while its daily budget lasts", async () => {
+  let target = null,
+    altCalls = 0;
+  // Serves the same chain as the main connection, counting its calls.
+  const alt = new Proxy({}, { get: (_, k) => (...a) => (altCalls++, target[k](...a)) });
+  const { chain, push } = await setup({ altConn: alt, altBudget: dailyBudget(2) });
+  target = chain.conn;
+  for (let i = 0; i < 6; i++) await push.pollOnce();
+  // Polls 1 and 3 go to the second RPC; poll 5 would, but its budget of 2 is spent.
+  assert.equal(push.health().altPolls, 2);
+  assert.equal(altCalls, 4);
+  assert.equal(push.health().pollErrors, 0);
+});
