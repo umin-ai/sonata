@@ -1,6 +1,6 @@
 {
   "network": "solana:devnet",
-  "checkedAt": "2026-09-24T15:11:08.849Z",
+  "checkedAt": "2026-09-26T14:47:36.450Z",
   "method": "sha256 of ProgramData bytes [45, 45 + local length), remainder required to be zero",
   "results": [
     {
@@ -27,34 +27,6 @@
         "bytes": 329552,
         "sha256": "b1893d824722dd70256291c65d75f6f95117ddf2e514e7c3344f2d61cf9d7f04",
         "deployedWindowSha256": "b1893d824722dd70256291c65d75f6f95117ddf2e514e7c3344f2d61cf9d7f04",
-        "tailIsZero": true,
-        "matches": true
-      }
-    },
-    {
-      "name": "stockroom_credit",
-      "program": "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH",
-      "programData": "FTZUKzvbLETJf1ZQ6Pwfes5uqwQqVbmaf686y9iHz4dH",
-      "upgradeAuthority": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
-      "local": {
-        "path": "target/deploy/stockroom_credit.so",
-        "bytes": 401448,
-        "sha256": "fea21c4700e89d1cea3917dc2554d3bc74ef4d4f5bb14698f30741a62ff23566",
-        "deployedWindowSha256": "fea21c4700e89d1cea3917dc2554d3bc74ef4d4f5bb14698f30741a62ff23566",
-        "tailIsZero": true,
-        "matches": true
-      }
-    },
-    {
-      "name": "demo_oracle",
-      "program": "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg",
-      "programData": "2dPKzL6voWLKK1bm19mabNaRQUUNTAnNRwHN2etGFzqj",
-      "upgradeAuthority": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
-      "local": {
-        "path": "target/deploy/demo_oracle.so",
-        "bytes": 147464,
-        "sha256": "50d5e020a6c3a2517bc47d485279fcd6131bd7bbc696aca9fb5f96d7bcfe4199",
-        "deployedWindowSha256": "50d5e020a6c3a2517bc47d485279fcd6131bd7bbc696aca9fb5f96d7bcfe4199",
         "tailIsZero": true,
         "matches": true
       }

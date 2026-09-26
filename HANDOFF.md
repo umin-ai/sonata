@@ -220,7 +220,7 @@ Every signature below was queried on 24 September with `getSignatureStatuses` an
 | Backed token: second buy | [`qVe6QVyh…bsTFBPfW`](https://explorer.solana.com/tx/qVe6QVyhe5sqLpDbCtvbxh4HSGiH1YpVoehtX2HH1JZ57YzF3z4NiDxswbNq8aLR3pEJ4aF9J8q4SFbbsTFBPfW?cluster=devnet) | The deployer buys 1 mQQQ on [`6NhcSQHy…NARJS7A7`](https://explorer.solana.com/address/6NhcSQHyze4MjXiAEEdzzyukaiR4kMwJpxCLNARJS7A7?cluster=devnet) (StandardFloor, 125 bps) |
 | Backed token: claim and split | [`645WAXkV…SCih2eFU`](https://explorer.solana.com/tx/645WAXkVyJfXZC4znAySNMKykMEAjtWpqPPmaogMX9jxNtjNsN2TFKXbQLF5MfD1Jdk8htnVf6pJVc86SCih2eFU?cluster=devnet) | 2,000,000 atoms from Meteora's pool authority: 500,000 to the creator's payout wallet `5uxAKbby…`, 500,000 into treasury custody (the floor), 1,000,000 to the Vault admin `vb4pmin…` |
 | Backed token: holder burns | [`5edtEvbU…HQnFEwtX`](https://explorer.solana.com/tx/5edtEvbUWF2LrhTzyeapDEHs1wcgA8MuQa2JoS3tvZKimsZvvKaXMWXcmhET8nW2i5LDNafdWCXV6wSXHQnFEwtX?cluster=devnet) | `Redeem` burns 50,000,000 tokens and pays 25,000 atoms = 500,000 × 50,000,000 ÷ 1,000,000,000 |
-| Deployed bytes vs builds, upgrade authority | read-only | `scripts/verify-deployed-bytes.mjs` → `artifacts/deployed-bytes-check.json` (24 September run: all four programs then checked matched, two of them now retired) |
+| Deployed bytes vs builds, upgrade authority | read-only | `scripts/verify-deployed-bytes.mjs` → `artifacts/deployed-bytes-check.json` (26 September run: both programs match) |
 
 The separate DAMM v2 pool is directly seeded. It is **not** the graduated form of any DBC pool.
 

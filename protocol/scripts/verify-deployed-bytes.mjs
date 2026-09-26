@@ -20,7 +20,7 @@ const PROGRAMS = [
 const HEADER = 45;
 const sha256 = (b) => createHash("sha256").update(b).digest("hex");
 
-const conn = new Connection("https://api.devnet.solana.com", "confirmed");
+const conn = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com", "confirmed");
 assert.equal(
   await conn.getGenesisHash(),
   "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",

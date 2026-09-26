@@ -19,7 +19,7 @@ const checkLinks = args.includes("--links");
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const file = args.find((a) => !a.startsWith("--")) ?? resolve(repoRoot, "HANDOFF.md");
 const text = readFileSync(file, "utf8");
-const conn = new Connection("https://api.devnet.solana.com", "confirmed");
+const conn = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com", "confirmed");
 assert.equal(await conn.getGenesisHash(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", "Not Devnet.");
 
 const re = /\[`([^`]+)`\]\((https:\/\/explorer\.solana\.com\/(tx|address)\/([1-9A-HJ-NP-Za-km-z]+)\?cluster=devnet)\)/g;
