@@ -1488,8 +1488,29 @@ export async function discoverMarkets(conn: Connection = connection, { maxPerCal
   if (!markets.length && skipped.length) throw Error(skipped[0].reason);
   return markets;
 }
-/** A listed market and its card numbers (readTreasury's, without pool fees), or why they are unavailable. */
-export type MarketCard = { market: Market; data: TreasuryState | null; error?: string };
+/**
+ * When a market's pool opened for trading, in unix seconds, from its DBC pool
+ * and config accounts: the pool's activation point when its config activates
+ * by timestamp (every Sonata launch does, lib/treasury/dbc-preview.ts), else
+ * null. The market list sorts by it, newest first. Reads nothing.
+ */
+export function launchedAtOf(pool: Info, config: Info): number | null {
+  try {
+    if (!pool?.owner.equals(pk(dbc.program)) || !config?.owner.equals(pk(dbc.program))) return null;
+    const { activationType } = coder.decode<{ activationType: number }>("poolConfig", config.data);
+    if (activationType !== 1) return null;
+    const decoded = coder.decode<{ poolState?: { activationPoint: BN }; activationPoint?: BN }>("virtualPool", pool.data);
+    const at = Number((decoded.poolState ?? decoded).activationPoint?.toString());
+    return Number.isSafeInteger(at) && at > 0 ? at : null;
+  } catch {
+    return null;
+  }
+}
+/**
+ * A listed market and its card numbers (readTreasury's, without pool fees), or
+ * why they are unavailable, and when it launched (launchedAtOf) when known.
+ */
+export type MarketCard = { market: Market; data: TreasuryState | null; error?: string; launchedAt?: number };
 /**
  * The listed markets with every card's numbers, from accounts already read:
  * the listing rule (marketsFromAccounts), then each market's checks and
@@ -1503,6 +1524,13 @@ export function cardsFromAccounts(
 ) {
   const { markets, skipped } = marketsFromAccounts(entries, info);
   const cards = markets.map((market): MarketCard => {
+    let launchedAt: number | null = null;
+    try {
+      launchedAt = launchedAtOf(info(market.pool), info(market.config));
+    } catch {
+      /* Unknown: listed last. */
+    }
+    const launch = launchedAt === null ? {} : { launchedAt };
     try {
       return {
         market,
@@ -1511,9 +1539,10 @@ export function cardsFromAccounts(
           TREASURY_ACCOUNTS.map((k) => info(market[k])),
           slotOf(market.pool),
         ),
+        ...launch,
       };
     } catch (e) {
-      return { market, data: null, error: errorText(e, "Chain data unavailable") };
+      return { market, data: null, error: errorText(e, "Chain data unavailable"), ...launch };
     }
   });
   return { cards, skipped };

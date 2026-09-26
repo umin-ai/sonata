@@ -57,14 +57,22 @@ async function indexerAnswer(readAt = 1_000_000): Promise<RawMarketAccounts> {
   return (await reader.read()) as unknown as RawMarketAccounts;
 }
 
-test("the indexer's accounts, checked with the browser's code, give the golden markets and card numbers", async () => {
+// The fixture's markets, newest launch first (their pools' activation points).
+const NEWEST_FIRST = ["BACKED", "RWDCHK", "FPT", "ROOM"];
+const bySymbol = (symbol: string) => golden.markets.find((m) => m.symbol === symbol)!;
+
+test("the indexer's accounts, checked with the browser's code, give the golden markets and card numbers, newest first", async () => {
   const snapshot = snapshotFromAccounts(await indexerAnswer());
   assert.deepEqual(snapshot.skipped, []);
-  assert.deepEqual(clone(snapshot.entries.map((e) => e.market)), golden.markets.map((m) => clone(identityOf(m))));
+  assert.deepEqual(clone(snapshot.entries.map((e) => e.market)), NEWEST_FIRST.map((s) => clone(identityOf(bySymbol(s)))));
   for (const e of snapshot.entries) {
     assert.ok(e.data, e.error);
     assert.deepEqual(comparable(clone(e.data)), comparable(golden.treasuries[e.market.pool]), e.market.symbol);
+    // Each entry is dated by its accounts' newest slot, and knows when its pool opened.
+    assert.equal(e.version, fixture.slot);
+    assert.ok(e.launchedAt! > 1_789_000_000 && e.launchedAt! < 1_791_000_000);
   }
+  assert.deepEqual(snapshot.entries.map((e) => e.launchedAt), [1790248048, 1790246238, 1790155702, 1789665187]);
   // Plain JSON all the way: what the page carries is what the browser gets.
   assert.deepEqual(clone(snapshot.entries), snapshot.entries.map((e) => ({ ...e, data: clone(e.data) })));
 });
@@ -78,7 +86,7 @@ test("an account the indexer did not read fails only its market; a foreign treas
   raw.treasuries.push(fake);
   raw.accounts[fake] = { owner: "11111111111111111111111111111111", lamports: 1, executable: false, data: "", slot: 1 };
   const snapshot = snapshotFromAccounts(raw);
-  assert.deepEqual(snapshot.entries.map((e) => e.market.symbol), ["FPT", "RWDCHK", "BACKED"]);
+  assert.deepEqual(snapshot.entries.map((e) => e.market.symbol), ["BACKED", "RWDCHK", "FPT"]);
   const fpt = snapshot.entries.find((e) => e.market.symbol === "FPT")!;
   assert.equal(fpt.data, null);
   assert.match(fpt.error ?? "", /was not read/);
@@ -88,7 +96,7 @@ test("an account the indexer did not read fails only its market; a foreign treas
 
 test("the listing rule on the server: a non-standard config, or one not owned by DBC, is not listed", async () => {
   const floor = golden.markets.find((m) => m.mode === "floor")!;
-  const others = golden.markets.filter((m) => m !== floor).map((m) => m.symbol);
+  const others = NEWEST_FIRST.filter((s) => s !== floor.symbol);
   const nonStandard = await indexerAnswer();
   const config = nonStandard.accounts[floor.config]!;
   nonStandard.accounts[floor.config] = {
@@ -447,7 +455,7 @@ test("a clock that steps back is neither stuck nor served as fresh", async () =>
   assert.equal(next?.ageMs, 3_000);
 });
 
-test("a newer indexer read keeps the order already shown and appends new markets", async () => {
+test("a newer indexer read lists the markets newest first, whatever order the indexer lists them in", async () => {
   const h = harness();
   const first = await h.home();
   const next = await indexerAnswer(h.clock.now() + 1_000);
@@ -665,4 +673,76 @@ test("the market page gets its entry with the full profile and price; an unknown
   assert.equal(await h.snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule }), null);
   assert.equal(h.counts.profiles.length, before.profiles);
   assert.equal(h.counts.prices.length, before.prices);
+});
+
+// ---- Live push --------------------------------------------------------------------
+
+test("with live push the indexer's own decode is used, a new stream position counts as new data, and pages carry the position", async () => {
+  const h = harness();
+  const raw = await indexerAnswer(h.clock.now());
+  const decoded = snapshotFromAccounts(raw);
+  let seq = 7;
+  // The indexer's entries, marked so the test can tell they were used as they are.
+  const answer = () => ({ ...structuredClone(raw), epoch: "lq3k9x", seq, entries: decoded.entries.map((e) => ({ ...e, market: { ...e.market, name: `${e.market.name}*` } })), skipped: [] });
+  h.setAnswer(null);
+  const snapshots = createMarketSnapshots({
+    fetchAccounts: async () => (h.counts.accounts++, answer() as unknown as RawMarketAccounts),
+    fetchStats: async () => ({ supply: 0, pools: [] }),
+    fetchProfile: async () => ({}),
+    fetchPrice: async () => null,
+    now: h.clock.now,
+    sleep: async () => {},
+    timeout: () => new AbortController().signal,
+    log: () => {},
+  });
+  const home = await snapshots.home({ schedule: h.schedule });
+  assert.ok(home?.entries.every((e) => e.market.name.endsWith("*")), "the indexer's decode, not decoded again");
+  assert.deepEqual(home?.stream, { epoch: "lq3k9x", seq: 7 });
+  assert.deepEqual(snapshots.streamPosition(), { epoch: "lq3k9x", seq: 7 });
+  // Same read time, a later position (a live change between the indexer's reads): taken.
+  seq = 9;
+  h.clock.advance(2_000);
+  await snapshots.home({ schedule: h.schedule });
+  await Promise.all(h.scheduled);
+  const later = await snapshots.marketPage(bySymbol("FPT").pool, { schedule: h.schedule });
+  assert.deepEqual(later?.stream, { epoch: "lq3k9x", seq: 9 });
+  // Without live push: no position, and the server decodes the raw accounts itself.
+  const plain = harness();
+  const off = await plain.home();
+  assert.equal(off?.stream, undefined);
+  assert.equal(plain.snapshots.streamPosition(), null);
+});
+
+test("a market page whose market is not in the copy in memory asks the indexer once more (launched a moment ago)", async () => {
+  const h = harness();
+  const raw = await indexerAnswer(h.clock.now());
+  const [newest, ...older] = raw.treasuries;
+  let listed = older;
+  const snapshots = createMarketSnapshots({
+    fetchAccounts: async () => (h.counts.accounts++, { ...structuredClone(raw), treasuries: listed, readAt: h.clock.now() }),
+    fetchStats: async () => ({ supply: 0, pools: [] }),
+    fetchProfile: async () => ({}),
+    fetchPrice: async () => null,
+    now: h.clock.now,
+    sleep: async () => {},
+    timeout: () => new AbortController().signal,
+    log: () => {},
+  });
+  assert.equal((await snapshots.home({ schedule: h.schedule }))?.entries.length, 3);
+  const pool = golden.markets.find((m) => m.treasury === newest)!.pool;
+  // Registered since: the page asks again at once (not 2 s later) and renders it.
+  listed = raw.treasuries;
+  h.clock.advance(100);
+  const page = await snapshots.marketPage(pool, { schedule: h.schedule });
+  assert.equal(page?.entry.market.pool, pool);
+  assert.equal(h.counts.accounts, 2);
+  // A pool that is not a market asks again at most every 250 ms, and not for something that is not an address.
+  await snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule });
+  assert.equal(h.counts.accounts, 2, "within 250 ms of the last extra read");
+  h.clock.advance(250);
+  await snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule });
+  await snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule });
+  assert.equal(h.counts.accounts, 3);
+  await snapshots.marketPage("not-a-pool", { schedule: h.schedule });
+  assert.equal(h.counts.accounts, 3);
 });

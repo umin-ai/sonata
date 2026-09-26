@@ -1,8 +1,13 @@
-// Test-only module resolution, loaded by scripts/test-register.mjs, so node:test
-// can import app modules written for Vite: extensionless relative imports
-// resolve to .ts or .tsx, "@/..." resolves to the web root, JSON loads with the
-// import attribute Node requires, and "server-only" (a Vite build guard) is an
-// empty module. Nothing else changes; the app build never uses this file.
+// Module resolution for running the app's TypeScript modules in Node without a
+// build step: extensionless relative imports resolve to .ts or .tsx, "@/..."
+// resolves to the web root, JSON loads with the import attribute Node requires,
+// and "server-only" (a Vite build guard) is an empty module. Nothing else
+// changes; the app build never uses this file.
+//
+// Used by the tests (scripts/test-register.mjs registers it for node:test) and
+// by the indexer's live push (indexer/index.mjs registers it before importing
+// lib/treasury/snapshot-decode.ts, the market list's decoder). Both run Node
+// with --experimental-strip-types.
 import { existsSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
