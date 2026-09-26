@@ -203,3 +203,15 @@ test("trade syncs: one per market at a time (a wake during one runs it again aft
   await settle();
   assert.deepEqual(started.slice(4), [backed.pool]);
 });
+
+test("the very first transaction on a program with none before is news too", async () => {
+  const [first, ...rest] = fixture.programAccounts.map((p) => p.pubkey);
+  const { chain, frames, push } = await setup({ treasuries: rest });
+  await push.pollOnce();
+  chain.slot += 2;
+  chain.treasuries = [first, ...rest];
+  chain.land(PROGRAM, "register", chain.slot);
+  await push.pollOnce();
+  await settle();
+  assert.equal(frames.filter((f) => f.data.kind === "added").at(-1).data.entry.market.treasury, first);
+});

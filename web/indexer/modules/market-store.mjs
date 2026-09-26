@@ -94,6 +94,8 @@ export function marketStore({
   let order = [];
   let info = { readAt: 0, slot: 0, ms: 0, calls: 0, source: null, registered: 0 };
   let ready = false,
+    // Whether every market's stats have been loaded once (a full set can then be sent).
+    statsLoaded = false,
     liveAt = 0,
     seq = 0,
     evictedThrough = 0,
@@ -375,8 +377,14 @@ export function marketStore({
       return { events, suspects };
     },
 
-    /** 24h stats rows (the indexer's /stats shape): each row that changed is pushed. */
-    setStats(rows) {
+    /**
+     * 24h stats rows (the indexer's /stats shape): each row that changed is
+     * pushed. `full`: every market's rows (from then on snapshots and replays
+     * carry the whole set; before, they carry none, and pages keep the stats
+     * their server snapshot had).
+     */
+    setStats(rows, { full = false } = {}) {
+      if (full) statsLoaded = true;
       for (const row of rows) {
         if (!row?.pool) continue;
         const text = JSON.stringify(row);
@@ -421,7 +429,8 @@ export function marketStore({
       if (!m) return null;
       return { keys: m.keys, slot: Math.max(0, ...m.keys.map((k) => accounts.get(k)?.seen ?? 0)) };
     },
-    statsRows: () => [...stats.values()],
+    /** Every market's stats rows, or null before they were first loaded in full. */
+    statsRows: () => (statsLoaded ? [...stats.values()] : null),
 
     /**
      * The accounts each 1 s read should cover, at most `max`: per listed
@@ -464,7 +473,7 @@ export function marketStore({
       if (scope === "market") {
         const entry = entryOf(pool);
         const profile = profileOf(entry?.market.uri);
-        return { seq, pool, entry, stats: stats.get(pool) ?? null, ...(profile !== undefined ? { profile } : {}) };
+        return { seq, pool, entry, stats: statsLoaded ? (stats.get(pool) ?? null) : null, ...(profile !== undefined ? { profile } : {}) };
       }
       const listed = entries();
       const shownProfiles = {};
@@ -472,7 +481,7 @@ export function marketStore({
         const p = profileOf(e.market.uri);
         if (p !== undefined) shownProfiles[e.market.uri] = p;
       }
-      return { seq, entries: listed, skipped: [...skipped.values()].flat().length, stats: [...stats.values()], profiles: shownProfiles };
+      return { seq, entries: listed, skipped: [...skipped.values()].flat().length, stats: statsLoaded ? [...stats.values()] : null, profiles: shownProfiles };
     },
 
     /**
@@ -499,8 +508,10 @@ export function marketStore({
         out.push(e ? { event: "market", data: addedPayload(e) } : { event: "removed", data: { pool: p, reason: "not listed" } });
       }
       for (const t of trades) out.push({ event: "trade", data: t });
-      const rows = scope === "market" ? (stats.has(pool) ? [stats.get(pool)] : []) : [...stats.values()];
-      out.push({ event: "stats", data: { full: true, pools: rows } });
+      if (statsLoaded) {
+        const rows = scope === "market" ? (stats.has(pool) ? [stats.get(pool)] : []) : [...stats.values()];
+        out.push({ event: "stats", data: { full: true, pools: rows } });
+      }
       return out;
     },
 

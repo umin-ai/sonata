@@ -82,6 +82,8 @@ export function livePush({
   const program = new PublicKey(programId);
   let db = null,
     running = false,
+    // The newest treasury program transaction seen, once the first poll has looked (`baseline`).
+    baseline = false,
     lastSig = null,
     lastSigSlot = 0,
     pendingSuspects = new Set(),
@@ -175,15 +177,15 @@ export function livePush({
   async function checkSignatures() {
     const list = await conn.getSignaturesForAddress(program, { limit: 5 }, "confirmed");
     const newest = list[0];
-    if (!newest) return;
-    // A node that answers with an older view does not count as news.
-    if (newest.slot < lastSigSlot) return;
-    if (lastSig === null) {
-      lastSig = newest.signature;
-      lastSigSlot = newest.slot;
+    // The first poll only notes where things stand (the first full read covers what came before).
+    if (!baseline) {
+      baseline = true;
+      lastSig = newest?.signature ?? null;
+      lastSigSlot = newest?.slot ?? 0;
       return;
     }
-    if (newest.signature === lastSig) return;
+    // Nothing, or a node that answers with an older view: no news.
+    if (!newest || newest.slot < lastSigSlot || newest.signature === lastSig) return;
     const fresh = [];
     for (const s of list) {
       if (s.signature === lastSig) break;
@@ -287,7 +289,7 @@ export function livePush({
   async function allStats() {
     if (!db) return;
     try {
-      store.setStats(await db.allStats());
+      store.setStats(await db.allStats(), { full: true });
     } catch (e) {
       log("live: stats failed:", errorText(e));
     }

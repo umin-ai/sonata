@@ -129,15 +129,12 @@ export function streamServer({
     c.dirty.clear();
     for (const f of c.trades) parts.push(frameText(f));
     c.trades = [];
-    if (c.dirtyStats) parts.push(sseText("stats", { seq: store.seq, t: now(), ...statsPayload(c) }));
+    const rows = c.dirtyStats ? store.statsRows() : null;
+    if (rows) parts.push(sseText("stats", { seq: store.seq, t: now(), full: true, pools: c.scope === "market" ? rows.filter((r) => r.pool === c.pool) : rows }));
     c.dirtyStats = false;
     parts.push(pingText(true));
     send(c, parts.join(""));
   }
-  const statsPayload = (c) => {
-    const rows = store.statsRows();
-    return { full: true, pools: c.scope === "market" ? rows.filter((r) => r.pool === c.pool) : rows };
-  };
 
   function remember(c, f) {
     if (f.event === "trade") {

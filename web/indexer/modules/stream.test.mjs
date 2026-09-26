@@ -111,6 +111,7 @@ test("a fresh connection: SSE headers, its own retry delay, hello, then a snapsh
 
 test("a page that resumes within the buffer gets what it missed, compacted, and a ping with the new position; Last-Event-ID wins over since", async () => {
   const { connect, store, poolChange } = await setup();
+  store.setStats([{ pool: bySymbol("FPT").pool, trades_24h: 1 }], { full: true });
   const since = store.seq;
   poolChange("BACKED", fixture.slot + 3);
   const res = connect("scope=list&since=e1-0", { headers: { "last-event-id": `e1-${since}` } });

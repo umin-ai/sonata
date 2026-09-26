@@ -166,7 +166,7 @@ test("replay: what a page missed, compacted; null once the buffer no longer cove
   clock.advance(1_000);
   const backed = bySymbol("BACKED"),
     fpt = bySymbol("FPT");
-  store.setStats([{ pool: backed.pool, trades_24h: 1 }]);
+  store.setStats([{ pool: backed.pool, trades_24h: 1 }], { full: true });
   const since = store.seq;
   for (let i = 1; i <= 2; i++) {
     chain.edit(backed.pool, bought());
@@ -222,7 +222,10 @@ test("stats and profiles are pushed only when they change; snapshots carry them"
   await read();
   frames.length = 0;
   const room = golden.markets.find((m) => m.uri);
-  store.setStats([{ pool: room.pool, trades_24h: 1 }]);
+  // Before every market's stats were loaded once, snapshots carry none (pages keep their server snapshot's).
+  assert.equal(store.snapshot("list").stats, null);
+  assert.equal(store.replay(store.seq, "list").length, 0);
+  store.setStats([{ pool: room.pool, trades_24h: 1 }], { full: true });
   store.setStats([{ pool: room.pool, trades_24h: 1 }]);
   assert.equal(frames.length, 1);
   store.setProfile(room.uri, { image: "https://x/i.png" });
