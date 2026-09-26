@@ -91,6 +91,52 @@ configured`) at start, and each switch to and from the fallback. The app logs
 `market snapshot: N listed, N skipped, …` when the counts change and
 `indexer accounts unavailable` when it cannot reach the indexer.
 
+### Live push
+
+Open pages update without reloading: a new market appears on every open
+market list, and each market's curve (price, market cap, progress,
+graduation), trades, chart and 24h stats update on its page, within about
+1–2 seconds. `setup.sh` turns it on (`LIVE_PUSH=1` in `indexer.env`).
+
+- The indexer polls once a second, with a timeout on every call: the treasury
+  program's newest transactions (a new one, e.g. a market's registration,
+  triggers an immediate full read of every market's accounts) and up to 100
+  markets' pools in one call (`indexer/modules/live.mjs`). A pool that changed
+  is decoded and pushed at once, and its new trades are read right away
+  instead of on the sync loop's next pass. Anything beyond the newest 100
+  markets, and everything else on the cards, still comes from the 10 s read.
+  Public Devnet from the server's address must answer `getMultipleAccounts`
+  and `getSignaturesForAddress` about once a second each; watch `live` in
+  `/api/index/health` after a deploy.
+- It decodes markets with the app's own code (`lib/treasury/snapshot-decode.ts`,
+  the function the app's server uses), which needs Node started with
+  `--experimental-strip-types` (`sonata-indexer.service`; `setup.sh` makes sure
+  Node is 22.13 or later). If that cannot load, the indexer logs `live push
+  unavailable, running without it` and serves everything else as before.
+- Pages open one Server-Sent Events stream each at `/api/index/stream`
+  (`indexer/modules/stream.mjs`), outside Caddy's compression (see the
+  `Caddyfile`). A page that loses it reconnects and resumes where it left
+  off; after 60 s without it, the page polls `/api/markets` instead. Nothing
+  pushed can enable trading: the page's own chain read still verifies a
+  market before anything can be sent.
+- Limits: 64 open streams and 120 new ones a minute per client address, 2,000
+  in all (`LimitNOFILE` is raised in the unit for them).
+
+Checks after a deploy (read-only):
+
+    curl -sN -H 'Accept-Encoding: gzip' 'https://sonata.umin.ai/api/index/stream?scope=list' | head -c 600
+    curl -s https://sonata.umin.ai/api/index/health | jq .live
+    journalctl -u sonata-indexer | grep -E "live (push|poll)"
+
+The first shows `event: hello` at once, then `event: snapshot` (and no
+`Content-Encoding` header with `-D -`), and `event: ping` within 15 seconds.
+`/api/index/accounts` carries `epoch` and `seq` only with live push on.
+
+To turn it off: `echo LIVE_PUSH=0 | sudo tee -a /opt/sonata/indexer-overrides.env`
+and `sudo systemctl restart sonata-indexer`. Pages already open fall back to
+polling `/api/markets` on their own, and new ones load as they did before live
+push (no app deploy needed). Remove the line and restart to turn it back on.
+
 ### Moving an existing instance to the monorepo layout
 
 An instance set up before the app moved into `web/` has the app at the root

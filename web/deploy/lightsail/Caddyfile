@@ -1,6 +1,5 @@
 # HTTPS with an automatic Let's Encrypt certificate, then proxy to the app.
 __HOST__ {
-	encode zstd gzip
 	# The app never trusts these, but strip them at the edge as well.
 	request_header -Oai-Authenticated-User-Id
 	request_header -Oai-Authenticated-User-Email
@@ -16,11 +15,22 @@ __HOST__ {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}
-	# Read-only market data from the trade indexer.
-	handle /api/index/* {
+	# Live market updates from the trade indexer (Server-Sent Events). Outside
+	# `encode`: the stream is written once for every client, not compressed per
+	# client. reverse_proxy flushes text/event-stream responses at once; no
+	# flush_interval -1, which would keep the indexer's side open after the
+	# browser leaves.
+	handle /api/index/stream {
 		reverse_proxy 127.0.0.1:8790
 	}
 	handle {
-		reverse_proxy 127.0.0.1:8787
+		encode zstd gzip
+		# Read-only market data from the trade indexer.
+		handle /api/index/* {
+			reverse_proxy 127.0.0.1:8790
+		}
+		handle {
+			reverse_proxy 127.0.0.1:8787
+		}
 	}
 }

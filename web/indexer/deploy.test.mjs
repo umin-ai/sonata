@@ -135,3 +135,21 @@ test("setup.sh's order: timer stopped and disabled, code pulled and built, index
   assert.ok(main.indexOf("await migrate();") < migrated && main.indexOf("await migrateIndexerSchema(db);") < migrated);
   assert.ok(migrated < main.indexOf("syncer({"));
 });
+
+test("live push's deploy: the stream outside compression, Node with type stripping and file handles to spare, the flag on", () => {
+  const caddy = readFileSync(new URL("../deploy/lightsail/Caddyfile", import.meta.url), "utf8");
+  const stream = caddy.indexOf("handle /api/index/stream {");
+  const encode = caddy.indexOf("encode zstd gzip");
+  const index = caddy.indexOf("handle /api/index/* {");
+  assert.ok(stream > 0 && encode > stream && index > encode, "the stream's handle comes first, and encode only wraps the rest");
+  // The stream's block proxies to the indexer and nothing else; no flush_interval -1 (it would keep orphaned streams).
+  assert.match(caddy.slice(stream, caddy.indexOf("}", stream) + 1), /^handle \/api\/index\/stream \{\s*reverse_proxy 127\.0\.0\.1:8790\s*\}$/);
+  assert.ok(!/^\s*flush_interval/m.test(caddy));
+  assert.equal(caddy.match(/encode /g).length, 1);
+  const unit = readFileSync(new URL("../deploy/lightsail/sonata-indexer.service", import.meta.url), "utf8");
+  assert.match(unit, /^ExecStart=\/usr\/bin\/node --experimental-strip-types --no-warnings indexer\/index\.mjs$/m);
+  assert.match(unit, /^LimitNOFILE=65536$/m);
+  assert.match(script, /^echo "LIVE_PUSH=1" >> \$HOME_DIR\/indexer\.env$/m);
+  // indexer-overrides.env is read after indexer.env, so LIVE_PUSH=0 there turns it off.
+  assert.ok(unit.indexOf("EnvironmentFile=/opt/sonata/indexer.env") < unit.indexOf("EnvironmentFile=-/opt/sonata/indexer-overrides.env"));
+});
