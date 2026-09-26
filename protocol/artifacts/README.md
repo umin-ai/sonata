@@ -5,7 +5,7 @@ Evidence written by the scripts in `scripts/`, all on Solana Devnet. HANDOFF.md 
 | File | What it records | Written by |
 | --- | --- | --- |
 | `build.json` | Source and binary hashes of the last local build | `scripts/build.mjs` |
-| `deployed-bytes-check.json` | Deployed program bytes vs. the local build, and the upgrade authority | `scripts/verify-deployed-bytes.mjs` |
+| `deployed-bytes-check.json` | Deployed program bytes vs. the local build, and the upgrade authority. The committed run is from 24 September, when the script also checked the two retired programs | `scripts/verify-deployed-bytes.mjs` |
 | `handoff-check.json` | Status of every transaction and account HANDOFF.md links | `scripts/verify-handoff.mjs` |
 | `stockroom-treasury-deployment.json` | Treasury deployment on 17 September and the rebuild mismatch (HANDOFF.md §1) | `scripts/stockroom-treasury-deploy.mjs` |
 | `stockroom-rewards-deployment.json` | Rewards deployment on 17 September and its byte proof. `deploySignature` was copied by hand from `holder-deployment-log.txt` (removed; at commit `0d9046a`); the script now keeps it on a rerun and replaces it only when it deploys. Later redeploys are in HANDOFF.md §6.1 | `scripts/rewards-deploy.mjs` |
