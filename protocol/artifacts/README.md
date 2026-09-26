@@ -1,6 +1,6 @@
 # Artifacts
 
-Evidence written by the scripts in `scripts/`, all on Solana Devnet. HANDOFF.md cites these files; each transaction in them can be opened on https://explorer.solana.com with `?cluster=devnet`.
+Evidence written by the scripts in `scripts/`, all on Solana Devnet. HANDOFF.md cites most of these files; each transaction in them can be opened on https://explorer.solana.com with `?cluster=devnet`.
 
 | File | What it records | Written by |
 | --- | --- | --- |

@@ -60,7 +60,7 @@ Each of these checks the Devnet genesis hash before sending anything. HANDOFF.md
 | [`sdk/idl/`](sdk/idl/) | Generated IDLs for both programs, copied there by the build |
 | [`scripts/`](scripts/) | Build, deploy, Devnet proof and read-only verification scripts |
 | [`scripts/program-proof.mjs`](scripts/program-proof.mjs) | Compares network program bytes with local binaries; used by the deploy scripts |
-| [`artifacts/`](artifacts/README.md) | Evidence the scripts wrote, cited from HANDOFF.md |
+| [`artifacts/`](artifacts/README.md) | Evidence the scripts wrote; HANDOFF.md cites most of it |
 | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Dependencies and licenses |
 
 License: **GPL-3.0-or-later** (see [LICENSE](LICENSE)), with dependency notes in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
