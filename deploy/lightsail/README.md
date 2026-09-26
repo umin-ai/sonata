@@ -13,8 +13,9 @@ upload-only key. Nothing secret is stored in this repository.
 1. Put the server-only settings in `/opt/sonata/sonata.env` on the instance
    (owner `sonata`, mode 600). Allowed keys: `PYTH_PRO_API_KEY`,
    `JUPITER_API_KEY`, `AWS_REGION`, `SONATA_ASSETS_BUCKET`, `SONATA_ASSETS_CDN`,
-   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `QUICKNODE_DEVNET_URL` (the
-   fallback Devnet RPC's full URL, token included). Never add
+   `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `QUICKNODE_DEVNET_URL` and
+   `GETBLOCK_DEVNET_URL` (the fallback Devnet RPCs' full URLs, tokens included).
+   Never add
    `STOCKROOM_DEMO_AUTHORITY` or `SONATA_ENABLE_DEVNET_SPONSOR` on a public host.
 2. Copy this folder to the instance and run
    `sudo bash setup.sh sonata.umin.ai 34-255-123-10.sslip.io`.
