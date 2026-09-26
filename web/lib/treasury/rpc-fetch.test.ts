@@ -162,6 +162,40 @@ test("network errors and server errors fail over too", async () => {
   await f(A, req("getBalance", 2, ["y"]));
   assert.deepEqual(hits, [A, B, A, B]);
 });
+test("a 403 or 401 is a refusal: the endpoint rests and the request moves on", async () => {
+  for (const status of [403, 401]) {
+    const c = clock(), hits: string[] = [];
+    const f = createRpcFetch(
+      async (url) => {
+        hits.push(String(url));
+        return String(url) === A
+          ? Response.json({ code: status, message: "Your IP or provider is blocked from this endpoint" }, { status })
+          : ok();
+      },
+      { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {} },
+    );
+    assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42, `status ${status}`);
+    assert.deepEqual(hits, [A, B]);
+    // A rests like a rate-limited endpoint: the next request goes straight to B.
+    await f(A, req("getAccountInfo", 2, ["y"]));
+    assert.deepEqual(hits, [A, B, B]);
+    c.advance(16_000);
+    await f(A, req("getAccountInfo", 3, ["z"]));
+    assert.equal(hits[3], A);
+  }
+});
+test("a write refused with 403 moves to the next endpoint once", async () => {
+  const hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return String(url) === A ? new Response("forbidden", { status: 403 }) : ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], timeoutMs: 0, sleep: async () => {} },
+  );
+  assert.equal((await body(await f(A, req("sendTransaction", 1, ["tx"])))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+});
 test("a hung endpoint times out and the request moves on", async () => {
   const hits: string[] = [];
   const f = createRpcFetch(
@@ -413,8 +447,9 @@ test("a first endpoint that times out or fails to connect after the hedge went o
   }
 });
 test("a hedge's error answer does not beat the first endpoint, and is used only if that one fails", async () => {
-  // A JSON-RPC error with HTTP 200 (as a provider's plan restriction comes through the relay), or an HTTP error.
-  for (const status of [200, 403])
+  // A JSON-RPC error with HTTP 200 (as a provider's plan restriction comes through the relay), or an HTTP
+  // error that is not a refusal (401, 403 and 429 are refusals: the endpoint rests).
+  for (const status of [200, 400])
     for (const first of ["answers", "500", "throw", "throws before the error answer"]) {
       const c = clock(), h = hedges(), store = memory(), hits: string[] = [];
       const early = first === "throws before the error answer";

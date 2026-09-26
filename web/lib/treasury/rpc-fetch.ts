@@ -3,10 +3,12 @@
  * Solana RPC traffic. Never caches account values.
  *
  * Requests go to the first endpoint in `endpoints` that is not resting. An
- * endpoint that answers "rate limited", a server error, or times out or fails
- * to connect rests for a cooldown (15 s doubling to 60 s, or its Retry-After if
- * longer) and the same request moves on to the next endpoint, so one busy
- * provider does not surface as an error. A read that every endpoint refused
+ * endpoint that answers "rate limited", "unauthorized" or "forbidden" (HTTP 401
+ * or 403: public Devnet answers 403 to addresses and providers it blocks), a
+ * server error, or times out or fails to connect rests for a cooldown (15 s
+ * doubling to 60 s, or its Retry-After if longer) and the same request moves on
+ * to the next endpoint, so one busy or blocked provider does not surface as an
+ * error. A read that every endpoint refused
  * waits once (Retry-After, else 4 s) and tries them all again; after that, and
  * for writes at once, the caller gets RPC_BUSY.
  *
@@ -179,7 +181,7 @@ export function createRpcFetch(
     const r = running(earlier[url]);
     if (r) health.set(url, { restUntil: Math.min(r.restUntil, now() + SLOW_REST_MS), strikes: r.strikes });
   }
-  // `refused`: the endpoint said it is rate limited or answered with a server error.
+  // `refused`: the endpoint said it is rate limited, refused us (401/403) or answered with a server error.
   const rest = (url: string, retryAfterMs?: number, refused = false) => {
     const h = state(url);
     h.strikes++;
@@ -269,7 +271,10 @@ export function createRpcFetch(
       } catch {}
     }
     const limited = response.status === 429 || code === 429;
-    if (limited || response.status >= 500) {
+    // A 401 or 403 is a refusal, not an answer: this endpoint will not serve us,
+    // so it rests like a busy one and the request moves on.
+    const blocked = response.status === 401 || response.status === 403;
+    if (limited || blocked || response.status >= 500) {
       const header = Number(response.headers.get("retry-after"));
       const retryAfterMs = Number.isFinite(header) && header > 0 ? header * 1000 : undefined;
       rest(url, retryAfterMs, true);
