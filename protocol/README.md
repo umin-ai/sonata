@@ -20,7 +20,7 @@ An earlier credit prototype (`stockroom_credit` and `demo_oracle`) is retired. I
 
 ## Build and test
 
-Toolchain used: Rust **1.90.0**, Anchor CLI/Rust **1.0.2**, Agave **3.1.13** (SBF platform tools **v1.52**), Node **22.14.0**. Pin versions through the [official Anchor installation guide](https://www.anchor-lang.com/docs/installation) and [Agave releases](https://github.com/anza-xyz/agave/releases/tag/v3.1.13). Rustup reads the checked-in `rust-toolchain.toml`. `scripts/build.mjs` uses `../.tools/stockroom/anchor` (a git-ignored `.tools/` folder at the repository root) and its Agave release when present, otherwise `anchor` on your PATH, and pins the host Rust used for IDL generation without changing your global Rust default.
+Toolchain used: Rust **1.90.0**, Anchor CLI/Rust **1.0.2**, Agave **3.1.13** (SBF platform tools **v1.52**), Node **22.14.0**. Pin versions through the [official Anchor installation guide](https://www.anchor-lang.com/docs/installation) and [Agave releases](https://github.com/anza-xyz/agave/releases/tag/v3.1.13). Rustup reads the checked-in `rust-toolchain.toml`. `scripts/build.mjs` uses `../.tools/stockroom/anchor` (a git-ignored `.tools/` folder at the repository root) and its Agave release when present, otherwise `anchor` on your PATH, and pins the host Rust used for IDL generation without changing your global Rust default. It stops before building unless it finds Anchor 1.0.2 and Agave 3.1.13 with platform tools v1.52, the versions it records in `artifacts/build.json`.
 
 Run these in `protocol/`:
 

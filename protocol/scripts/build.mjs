@@ -9,6 +9,11 @@ import {
   copyFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
+// The toolchain artifacts/build.json records; the build refuses any other.
+const ANCHOR = "1.0.2";
+const AGAVE = "3.1.13";
+const PLATFORM_TOOLS = "v1.52";
+const HOST_RUST = "1.90.0";
 const bin = resolve("../.tools/stockroom");
 const anchor = existsSync(resolve(bin, "anchor"))
   ? resolve(bin, "anchor")
@@ -16,10 +21,33 @@ const anchor = existsSync(resolve(bin, "anchor"))
 const env = {
   ...process.env,
   PATH: resolve(bin, "solana-release/bin") + ":" + process.env.PATH,
-  RUSTUP_TOOLCHAIN: "1.90.0",
+  RUSTUP_TOOLCHAIN: HOST_RUST,
   CARGO_BUILD_JOBS: "2",
   CARGO_PROFILE_DEV_DEBUG: "0",
 };
+function versionOf(command) {
+  const result = spawnSync(command, ["--version"], { encoding: "utf8", env });
+  return (
+    `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() ||
+    (result.error?.message ?? "no output")
+  );
+}
+const anchorVersion = versionOf(anchor);
+const sbfVersion = versionOf("cargo-build-sbf");
+const sbfLines = sbfVersion.split("\n");
+if (
+  anchorVersion !== `anchor-cli ${ANCHOR}` ||
+  sbfLines[0] !== `solana-cargo-build-sbf ${AGAVE}` ||
+  !sbfLines.includes(`platform-tools ${PLATFORM_TOOLS}`)
+) {
+  console.error(
+    `scripts/build.mjs needs Anchor ${ANCHOR} and Agave ${AGAVE} (platform tools ${PLATFORM_TOOLS}), ` +
+      `at ${bin} (.tools/stockroom at the repository root) or on your PATH. Found:\n` +
+      `  anchor --version: ${anchorVersion}\n` +
+      `  cargo-build-sbf --version: ${sbfVersion.replace(/\n/g, "; ")}`,
+  );
+  process.exit(1);
+}
 function run(args) {
   const result = spawnSync(anchor, args, {
     encoding: "utf8",
@@ -84,10 +112,10 @@ writeFileSync(
     {
       sources,
       builtAt: new Date().toISOString(),
-      anchor: "1.0.2",
-      agave: "3.1.13",
-      hostRust: "1.90.0",
-      platformTools: "v1.52",
+      anchor: ANCHOR,
+      agave: AGAVE,
+      hostRust: HOST_RUST,
+      platformTools: PLATFORM_TOOLS,
       binaries,
     },
     null,
