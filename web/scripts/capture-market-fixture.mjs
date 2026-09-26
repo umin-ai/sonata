@@ -19,7 +19,6 @@ import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from "@solana/sp
 import bs58 from "bs58";
 import treasuryIdl from "../lib/treasury/stockroom_treasury.json" with { type: "json" };
 import market from "../lib/treasury/market.json" with { type: "json" };
-import quoteAssets from "../lib/treasury/quote-assets.json" with { type: "json" };
 
 const RPC = process.argv[2] || process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const OUT = new URL("../lib/treasury/fixtures/devnet-markets.json", import.meta.url);
