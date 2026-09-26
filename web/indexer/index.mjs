@@ -965,24 +965,28 @@ export function api({ db, state, accountsJson = () => null, live = () => null, n
     if (url.pathname === "/api/index/candles") {
       const interval = INTERVALS[q.get("interval") ?? "15m"];
       if (!isPool(q.get("pool")) || !interval) return 400;
-      const { rows } = await db.query(
-        `select extract(epoch from date_bin($2::interval, block_time, timestamptz 'epoch'))::bigint as time,
-                (array_agg(price order by block_time, signature, ix_index))[1] as open,
-                max(price) as high, min(price) as low,
-                (array_agg(price order by block_time desc, signature desc, ix_index desc))[1] as close,
-                sum(quote_amount)::text as volume, count(*)::int as trades
-           from trades where pool = $1 group by 1 order by 1 desc limit $3`,
+      // The candles, oldest first, and the trades they cover (the newest slot and the
+      // trades in it), so a page adding pushed trades to them (live push) never counts
+      // one twice nor misses one: one statement, so both come from one snapshot of the table.
+      const { rows: [r] } = await db.query(
+        `with c as (
+           select extract(epoch from date_bin($2::interval, block_time, timestamptz 'epoch'))::bigint as time,
+                  (array_agg(price order by block_time, signature, ix_index))[1] as open,
+                  max(price) as high, min(price) as low,
+                  (array_agg(price order by block_time desc, signature desc, ix_index desc))[1] as close,
+                  sum(quote_amount)::text as volume, count(*)::int as trades
+             from trades where pool = $1 group by 1 order by 1 desc limit $3
+         ), newest as (
+           select slot::float8 as slot, signature, ix_index from trades
+            where pool = $1 and slot = (select max(slot) from trades where pool = $1)
+         )
+         select coalesce((select json_agg(c order by c.time) from c), '[]'::json) as candles,
+                coalesce((select json_agg(newest) from newest), '[]'::json) as newest`,
         [q.get("pool"), interval, limitOf(q.get("limit"), 500, 200)],
       );
-      // The trades these candles cover, as the newest slot and the trades in it, so a
-      // page adding pushed trades to them (live push) never counts one twice.
-      const { rows: newest } = await db.query(
-        `select slot::float8 as slot, signature, ix_index from trades
-          where pool = $1 and slot = (select max(slot) from trades where pool = $1)`,
-        [q.get("pool")],
-      );
+      const newest = r?.newest ?? [];
       const through = newest.length ? { slot: Number(newest[0].slot), trades: newest.map((t) => `${t.signature}:${t.ix_index}`) } : { slot: 0, trades: [] };
-      return { pool: q.get("pool"), interval: q.get("interval") ?? "15m", supply: SUPPLY_TOKENS, candles: rows.reverse(), through };
+      return { pool: q.get("pool"), interval: q.get("interval") ?? "15m", supply: SUPPLY_TOKENS, candles: r?.candles ?? [], through };
     }
     if (url.pathname === "/api/index/stats") return { supply: SUPPLY_TOKENS, pools: await cachedStats() };
     // Reward token payouts (confirmed transactions only), in quote atoms, and the

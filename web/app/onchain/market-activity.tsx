@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { Area, Bar, CartesianGrid, ComposedChart, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
@@ -17,7 +17,16 @@ import {
   type Interval,
   type Trade,
 } from "@/lib/market-data";
-import { applyTrade, applyTradeToCandles, cover, covers, INTERVAL_SECONDS } from "@/lib/live-events";
+import {
+  applyTrade,
+  applyTradeToCandles,
+  candlesWithPushed,
+  cover,
+  covers,
+  INTERVAL_SECONDS,
+  keepPushed,
+  tradesWithPushed,
+} from "@/lib/live-events";
 import { useLiveEvent, useLiveResync, useLiveStream, useStreamStatus } from "./live-stream";
 
 const QUOTE_DECIMALS = 8, BASE_DECIMALS = 6;
@@ -37,6 +46,25 @@ function usePolling() {
   return { stream, polling: !stream || status === "off" || status === "fallback", resync: useLiveResync(stream) };
 }
 
+/**
+ * This pool's trades pushed since the page opened (the last PUSHED_TRADES_KEPT),
+ * each passed to `onTrade` as it comes: every load merges them into its
+ * answer, so a trade pushed while a load was on its way (or before the first
+ * one landed) is never dropped by it.
+ */
+function usePushedTrades(pool: string, onTrade: (trade: Trade) => void) {
+  const stream = useLiveStream();
+  const kept = useRef<{ pool: string; trades: Trade[] }>({ pool, trades: [] });
+  useLiveEvent(stream, "trade", (ev) => {
+    const trade = ev.pool === pool ? parseTrade(ev.trade) : null;
+    if (!trade) return;
+    kept.current = { pool, trades: keepPushed(kept.current.pool === pool ? kept.current.trades : [], trade) };
+    onTrade(trade);
+  });
+  return kept;
+}
+const keptFor = (kept: { pool: string; trades: Trade[] }, pool: string) => (kept.pool === pool ? kept.trades : []);
+
 // Market cap over time, in the quote stock, from indexed DBC trades, with
 // pushed trades added as they come (else refreshed every 20 seconds). `supply`
 // is the token's current supply in whole tokens, which Stock Floor burns
@@ -48,7 +76,15 @@ export function PriceChart({ pool, quote, revision = 0, supply, liveCap }: { poo
   const [interval, setIntervalValue] = useState<Interval>("1h");
   const [data, setData] = useState<{ candles: Candle[]; supply: number; at: number; through: Covered } | null>(null);
   const [error, setError] = useState(false);
-  const { stream, polling, resync } = usePolling();
+  const { polling, resync } = usePolling();
+  // A pushed trade goes into its candle unless the candles loaded already count it.
+  const pushed = usePushedTrades(pool, (trade) =>
+    setData((d) =>
+      d && !covers(d.through, trade)
+        ? { ...d, candles: applyTradeToCandles(d.candles, trade, INTERVAL_SECONDS[interval]), through: cover(d.through, trade), at: Date.now() }
+        : d,
+    ),
+  );
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -56,7 +92,7 @@ export function PriceChart({ pool, quote, revision = 0, supply, liveCap }: { poo
       fetchCandles(pool, interval, controller.signal)
         .then((d) => {
           if (active) {
-            setData({ ...d, at: Date.now() });
+            setData({ ...candlesWithPushed(d, keptFor(pushed.current, pool), INTERVAL_SECONDS[interval]), at: Date.now() });
             setError(false);
           }
         })
@@ -70,17 +106,7 @@ export function PriceChart({ pool, quote, revision = 0, supply, liveCap }: { poo
       controller.abort();
       clearInterval(timer);
     };
-  }, [pool, interval, revision, polling, resync]);
-  // A pushed trade goes into its candle unless the candles loaded already count it.
-  useLiveEvent(stream, "trade", (ev) => {
-    const trade = ev.pool === pool ? parseTrade(ev.trade) : null;
-    if (!trade) return;
-    setData((d) =>
-      d && !covers(d.through, trade)
-        ? { ...d, candles: applyTradeToCandles(d.candles, trade, INTERVAL_SECONDS[interval]), through: cover(d.through, trade), at: Date.now() }
-        : d,
-    );
-  });
+  }, [pool, interval, revision, polling, resync, pushed]);
   const points = (data?.candles ?? []).map((c) => ({
     time: c.time * 1000,
     cap: c.close * (supply ?? data?.supply ?? 0),
@@ -162,11 +188,8 @@ export function PriceChart({ pool, quote, revision = 0, supply, liveCap }: { poo
 export function RecentTrades({ pool, symbol, quote, revision = 0 }: { pool: string; symbol: string; quote: string; revision?: number }) {
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [error, setError] = useState(false);
-  const { stream, polling, resync } = usePolling();
-  useLiveEvent(stream, "trade", (ev) => {
-    const trade = ev.pool === pool ? parseTrade(ev.trade) : null;
-    if (trade) setTrades((list) => (list ? applyTrade(list, trade, 15) : list));
-  });
+  const { polling, resync } = usePolling();
+  const pushed = usePushedTrades(pool, (trade) => setTrades((list) => (list ? applyTrade(list, trade, 15) : list)));
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -174,7 +197,7 @@ export function RecentTrades({ pool, symbol, quote, revision = 0 }: { pool: stri
       fetchTrades(pool, 15, controller.signal)
         .then((d) => {
           if (active) {
-            setTrades(d.trades);
+            setTrades(tradesWithPushed(d.trades, keptFor(pushed.current, pool), 15));
             setError(false);
           }
         })
@@ -188,7 +211,7 @@ export function RecentTrades({ pool, symbol, quote, revision = 0 }: { pool: stri
       controller.abort();
       clearInterval(timer);
     };
-  }, [pool, revision, polling, resync]);
+  }, [pool, revision, polling, resync, pushed]);
   if (error && !trades) return <p className="sr-note">Recent trades unavailable right now.</p>;
   if (!trades) return <p className="sr-note">Loading trades…</p>;
   if (!trades.length) return <p className="sr-note">No trades yet.</p>;

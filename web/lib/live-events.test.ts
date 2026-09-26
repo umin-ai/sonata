@@ -5,7 +5,19 @@ import assert from "node:assert/strict";
 import fixtureJson from "./treasury/fixtures/devnet-markets.json" with { type: "json" };
 import { identityOf, type Market, type TreasurySnapshot } from "./treasury/runtime.ts";
 import { mergeList, newestFirst, type CardData, type SnapshotEntry } from "./treasury/market-snapshot.ts";
-import { applyMarketEvent, applyTrade, applyTradeToCandles, cover, covers, entryAfter, removeMarket, type MarketEvent } from "./live-events.ts";
+import {
+  applyMarketEvent,
+  applyTrade,
+  applyTradeToCandles,
+  candlesWithPushed,
+  cover,
+  covers,
+  entryAfter,
+  keepPushed,
+  removeMarket,
+  tradesWithPushed,
+  type MarketEvent,
+} from "./live-events.ts";
 import type { Candle, Trade } from "./market-data.ts";
 
 const golden = (fixtureJson as unknown as { golden: { markets: Market[]; treasuries: Record<string, TreasurySnapshot> } }).golden;
@@ -123,4 +135,28 @@ test("candles take a pushed trade in its interval's bucket, a new bucket, or an 
   const after = cover(through, trade({ signature: "B".repeat(64) }));
   assert.equal(covers(after, trade({ signature: "B".repeat(64) })), true, "a replay of a trade already added");
   assert.deepEqual(cover(after, trade({ slot: 101 })).slot, 101);
+});
+
+test("a load merges the trades pushed while it was on its way: none is lost, none counted twice", () => {
+  const a = trade({ signature: "A".repeat(64), slot: 100, time: 10 }),
+    b = trade({ signature: "B".repeat(64), slot: 101, time: 11 }),
+    c = trade({ signature: "C".repeat(64), slot: 102, time: 12 });
+  // Pushed trades are kept (each once, the oldest beyond the cap dropped).
+  let kept = keepPushed([], b);
+  kept = keepPushed(kept, c);
+  assert.equal(keepPushed(kept, c), kept);
+  assert.deepEqual(keepPushed(kept, a, 2).map((t) => t.signature[0]), ["C", "A"]);
+  // The list: an answer read before B and C were inserted still shows them; one that has them does not repeat them.
+  assert.deepEqual(tradesWithPushed([a], kept).map((t) => t.signature[0]), ["C", "B", "A"]);
+  assert.deepEqual(tradesWithPushed([c, b, a], kept).map((t) => t.signature[0]), ["C", "B", "A"]);
+  assert.equal(tradesWithPushed([c, b, a], kept, 2).length, 2);
+  // Candles: an answer through slot 101 (B counted) gets only C.
+  const candle = (time: number): Candle => ({ time, open: 1, high: 1, low: 1, close: 1, volume: 100n, trades: 1 });
+  const loaded = { candles: [candle(0)], through: { slot: 101, trades: [`${"B".repeat(64)}:0`] }, supply: 1 };
+  const merged = candlesWithPushed(loaded, kept, 3_600);
+  assert.equal(merged.candles[0].trades, 2, "C only");
+  assert.equal(merged.through.slot, 102);
+  assert.equal(merged.supply, 1);
+  // Everything counted: the answer as it is.
+  assert.equal(candlesWithPushed(merged, kept, 3_600), merged);
 });

@@ -20,8 +20,10 @@ export type PoolStats = { pool: string; lastPrice: number | null; price24hAgo: n
 export const INTERVALS = ["5m", "1h", "4h", "1d"] as const;
 export type Interval = (typeof INTERVALS)[number];
 
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const r = await fetch(`/api/index/${path}`, { signal });
+// `cache`: "no-store" for what a live page merges pushed trades into (trades,
+// candles), so a reload never brings back an answer older than what it shows.
+async function get<T>(path: string, signal?: AbortSignal, cache?: RequestCache): Promise<T> {
+  const r = await fetch(`/api/index/${path}`, { signal, ...(cache ? { cache } : {}) });
   if (!r.ok) throw Error("Market data unavailable.");
   return (await r.json()) as T;
 }
@@ -29,7 +31,11 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 type Raw = Record<string, string | number | null>;
 
 export async function fetchCandles(pool: string, interval: Interval, signal?: AbortSignal) {
-  const d = await get<{ supply: number; candles: Raw[]; through?: { slot?: unknown; trades?: unknown } }>(`candles?pool=${pool}&interval=${interval}`, signal);
+  const d = await get<{ supply: number; candles: Raw[]; through?: { slot?: unknown; trades?: unknown } }>(
+    `candles?pool=${pool}&interval=${interval}`,
+    signal,
+    "no-store",
+  );
   const through: Covered = {
     slot: Number(d.through?.slot) || 0,
     trades: Array.isArray(d.through?.trades) ? d.through.trades.map(String) : [],
@@ -74,7 +80,7 @@ export function parseTrade(t: unknown): Trade | null {
 }
 
 export async function fetchTrades(pool: string, limit = 20, signal?: AbortSignal) {
-  const d = await get<{ supply: number; trades: Raw[] }>(`trades?pool=${pool}&limit=${limit}`, signal);
+  const d = await get<{ supply: number; trades: Raw[] }>(`trades?pool=${pool}&limit=${limit}`, signal, "no-store");
   return {
     supply: d.supply,
     trades: d.trades.map(parseTrade).filter((t): t is Trade => t !== null),

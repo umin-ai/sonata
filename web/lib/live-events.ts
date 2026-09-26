@@ -103,6 +103,38 @@ export function applyTrade(trades: Trade[], trade: Trade, limit = 15): Trade[] {
   return [...trades, trade].sort(newer).slice(0, limit);
 }
 
+/** The trades pushed since a page opened that it keeps, to merge into what it loads later. */
+export const PUSHED_TRADES_KEPT = 100;
+/** `kept` with one more pushed trade (each swap once), the oldest beyond `max` dropped. */
+export function keepPushed(kept: Trade[], trade: Trade, max = PUSHED_TRADES_KEPT): Trade[] {
+  if (kept.some((t) => tradeKey(t) === tradeKey(trade))) return kept;
+  const out = [...kept, trade];
+  return out.length > max ? out.slice(out.length - max) : out;
+}
+
+/**
+ * A trades answer with the trades pushed while it was on its way (or before
+ * it) added: a load never drops a trade the page was pushed, however the
+ * answer and the push crossed.
+ */
+export const tradesWithPushed = (loaded: Trade[], pushed: readonly Trade[], limit = 15) =>
+  pushed.reduce((list, t) => applyTrade(list, t, limit), loaded.slice(0, limit));
+
+/**
+ * A candles answer with the pushed trades it does not count yet (by its
+ * `through`) added, so a trade pushed while the answer was on its way is
+ * neither lost nor counted twice.
+ */
+export function candlesWithPushed<T extends { candles: Candle[]; through: Covered }>(loaded: T, pushed: readonly Trade[], intervalSeconds: number): T {
+  let { candles, through } = loaded;
+  for (const t of [...pushed].sort((a, b) => a.slot - b.slot || a.time - b.time)) {
+    if (covers(through, t)) continue;
+    candles = applyTradeToCandles(candles, t, intervalSeconds);
+    through = cover(through, t);
+  }
+  return candles === loaded.candles ? loaded : { ...loaded, candles, through };
+}
+
 export const INTERVAL_SECONDS: Record<Interval, number> = { "5m": 300, "1h": 3_600, "4h": 14_400, "1d": 86_400 };
 
 /** Whether candles covering `through` (their answer's newest slot and its trades) already count this trade. */
