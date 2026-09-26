@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { createRpcFetch, RPC_BUSY } from "./rpc-fetch.ts";
 const req = (
@@ -358,6 +358,92 @@ test("a hedge that is rate limited rests as usual while the first endpoint's lat
   assert.deepEqual(store.saved(), { [B]: { restUntil: c.now() + 15_000, strikes: 1 } });
   await f(A, req("getAccountInfo", 2, ["y"]));
   assert.equal(hits[2], A, "A answered, so it is still preferred");
+});
+test("the first endpoint fails after the hedge went out; the hedge is still awaited and its answer used", async () => {
+  const c = clock(), h = hedges(), store = memory(), hits: string[] = [], waits: number[] = [];
+  const f = createRpcFetch(
+    (url) => {
+      hits.push(String(url));
+      if (String(url) === B) return new Promise((resolve) => setTimeout(() => resolve(ok()), 10));
+      h.fireSoon();
+      return new Promise((resolve) => setImmediate(() => resolve(new Response("oops", { status: 500 }))));
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, hedgeTimer: h.hedgeTimer, storage: store, sleep: async (ms) => { waits.push(ms); } },
+  );
+  assert.equal((await body(await f(A, req("getAccountInfo", 1, ["x"])))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+  assert.deepEqual(waits, []);
+  // A refused rather than stayed silent, so an ordinary rest.
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 15_000, strikes: 1 } });
+});
+test("a first endpoint that times out or fails to connect after the hedge went out rests 10 minutes when the hedge answers", async () => {
+  for (const failure of ["timeout", "network"]) {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+      const c = clock(), h = hedges(), store = memory();
+      let answer: (response: Response) => void = () => {},
+        fail = () => {};
+      const f = createRpcFetch(
+        (url, init) => {
+          if (String(url) === B) return new Promise<Response>((resolve) => (answer = resolve));
+          return new Promise<Response>((_, reject) => {
+            fail = () => reject(new TypeError("Failed to fetch"));
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          });
+        },
+        { intervalMs: 0, endpoints: [A, B], now: c.now, hedgeTimer: h.hedgeTimer, storage: store, sleep: async () => {} },
+      );
+      const pending = f(A, req("getAccountInfo", 1, ["x"]));
+      await tick();
+      mock.timers.tick(2_500);
+      h.fire();
+      await tick();
+      // A ends with no response (its 12 s timeout, or a failed connection) while B is still out...
+      if (failure === "timeout") mock.timers.tick(9_500);
+      else fail();
+      await tick();
+      // ...and then B answers.
+      answer(ok());
+      assert.equal((await body(await pending)).result, 42, failure);
+      // One strike: A's failure and its loss to B are the same event.
+      assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 } }, failure);
+    } finally {
+      mock.timers.reset();
+    }
+  }
+});
+test("a hedge's error answer does not beat the first endpoint, and is used only if that one fails", async () => {
+  // A JSON-RPC error with HTTP 200 (as a provider's plan restriction comes through the relay), or an HTTP error.
+  for (const status of [200, 403])
+    for (const first of ["answers", "500", "throw"]) {
+      const c = clock(), h = hedges(), store = memory(), hits: string[] = [];
+      const f = createRpcFetch(
+        (url) => {
+          hits.push(String(url));
+          if (String(url) === B)
+            return Promise.resolve(Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "Method not found" } }, { status }));
+          h.fireSoon();
+          // A settles only after the hedge's error answer is in.
+          return new Promise((resolve, reject) =>
+            setTimeout(() => {
+              if (first === "throw") reject(new TypeError("Failed to fetch"));
+              else resolve(first === "500" ? new Response("oops", { status: 500 }) : ok());
+            }, 10),
+          );
+        },
+        { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, hedgeTimer: h.hedgeTimer, storage: store },
+      );
+      const answer = await body(await f(A, req("getAccountInfo", 1, ["x"])));
+      const label = `${status} ${first}`;
+      assert.deepEqual(hits, [A, B], label);
+      if (first === "answers") {
+        assert.equal(answer.result, 42, label);
+        assert.equal(store.saved(), null, `${label}: nothing rests`);
+      } else {
+        assert.equal(answer.error.message, "Method not found", label);
+        assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 15_000, strikes: 1 } }, `${label}: an ordinary rest`);
+      }
+    }
 });
 test("a server error before the hedge delay fails over as before", async () => {
   const c = clock(), h = hedges(), store = memory(), hits: string[] = [];

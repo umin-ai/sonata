@@ -14,8 +14,10 @@
  * answering account reads from a busy address without saying so. When there is
  * another endpoint to ask, a read that has had no answer after 2.5 s (4 s for
  * the heavy reads below) is sent to the next endpoint as well, and whichever
- * answers first is used; the other request is cancelled. An endpoint beaten that
- * way rests for 10 minutes instead of seconds. Writes are never sent twice. In a
+ * answers first is used; the other request is cancelled. An error answer from
+ * the second is used only if the first then fails. An endpoint that stayed
+ * silent while the other answered rests for 10 minutes instead of seconds, also
+ * when it timed out before that answer came. Writes are never sent twice. In a
  * browser the rests are kept in localStorage (endpoint URLs and times only), so
  * a new page load does not start with the endpoint that just went quiet.
  */
@@ -77,7 +79,9 @@ const HEAVY_HEDGE_MS = 4_000;
 const STORAGE_KEY = "sonata.rpc.rest.v1";
 
 type Health = { restUntil: number; strikes: number };
-type Result = { response: Response } | { retryAfterMs?: number };
+// A usable response (`error`: it is an error answer or an HTTP error), or a
+// failure with the Retry-After if one was given (`quiet`: no response at all).
+type Result = { response: Response; error?: boolean } | { retryAfterMs?: number; quiet?: boolean };
 type Store = Pick<Storage, "getItem" | "setItem">;
 
 // localStorage in a browser; nothing on a server, in scripts, or where storage is blocked.
@@ -158,9 +162,10 @@ export function createRpcFetch(
     h.restUntil = Math.max(h.restUntil, now() + Math.max(backoff, Math.min(MAX_COOLDOWN_MS, retryAfterMs ?? 0)));
     save();
   };
-  const restSlow = (url: string) => {
+  // `struck`: the endpoint's failure in this request was already counted by rest().
+  const restSlow = (url: string, struck = false) => {
     const h = state(url);
-    h.strikes++;
+    if (!struck) h.strikes++;
     h.restUntil = now() + SLOW_REST_MS;
     save();
   };
@@ -212,16 +217,19 @@ export function createRpcFetch(
       if (init?.signal?.aborted) throw e;
       if (stop?.aborted) return null;
       rest(url);
-      return {};
+      return { quiet: true };
     } finally {
       if (timer) clearTimeout(timer);
       stop?.removeEventListener("abort", halt);
     }
     if (stop?.aborted) return null;
-    let code: number | undefined;
+    let code: number | undefined,
+      error = true;
     if (response.ok) {
       try {
-        code = (JSON.parse(text) as { error?: { code?: number } })?.error?.code;
+        const answer = JSON.parse(text) as { error?: { code?: number } } | null;
+        code = answer?.error?.code;
+        error = answer?.error != null;
       } catch {}
     }
     const limited = response.status === 429 || code === 429;
@@ -234,14 +242,17 @@ export function createRpcFetch(
     recover(url);
     return {
       response: new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers }),
+      error,
     };
   }
 
   // A try at `url` that `backup` joins if `url` has given no usable answer within
   // the hedge delay. The first usable answer wins and the other request is
-  // cancelled; `url` beaten that way rests SLOW_REST_MS. If one of the two fails,
-  // it rests as usual and the other is still awaited. `tried` says whether
-  // `backup` was asked.
+  // cancelled. If one of the two fails, it rests as usual and the other is still
+  // awaited. An error answer from `backup` is kept while `url` may still answer,
+  // and used only if `url` then fails. `url` rests SLOW_REST_MS when `backup`
+  // answered without an error while `url` was silent: still pending, or ended by
+  // a timeout or network failure. `tried` says whether `backup` was asked.
   function hedged(
     url: string,
     backup: string,
@@ -256,7 +267,9 @@ export function createRpcFetch(
         open = 1,
         tried = false,
         waiting = true,
+        quiet = false,
         done = false,
+        fallback: Result | undefined,
         retryAfterMs: number | undefined;
       const finish = (result: Result) => {
         done = true;
@@ -269,12 +282,18 @@ export function createRpcFetch(
             if (done || !r) return;
             if (!i) waiting = false;
             if ("response" in r) {
-              if (i && waiting) restSlow(url);
+              if (i && r.error && waiting) {
+                fallback = r;
+                open--;
+                return;
+              }
+              if (i && !r.error && (waiting || quiet)) restSlow(url, quiet);
               stops[1 - i].abort();
               finish(r);
             } else {
+              if (!i) quiet = !!r.quiet;
               retryAfterMs = r.retryAfterMs ?? retryAfterMs;
-              if (!--open) finish({ retryAfterMs });
+              if (!--open) finish(fallback ?? { retryAfterMs });
             }
           },
           (e) => {
