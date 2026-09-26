@@ -267,8 +267,13 @@ const COLUMNS = {
   damm: { last: "damm_last_signature", through: "damm_synced_through", at: "damm_synced_at" },
 };
 
-/** What two syncers of one process share (syncerState), so they never read one address at the same time. */
-export const syncerState = () => ({ locks: new Map(), lasts: new Map(), backfills: new Map() });
+/**
+ * What two syncers of one process share (syncerState), so they never read one
+ * address at the same time; `txGapMs` spaces every getTransaction call of both
+ * (0: no shared spacing), so together they stay inside public Devnet's
+ * per-method rate limit.
+ */
+export const syncerState = ({ txGapMs = 0 } = {}) => ({ locks: new Map(), lasts: new Map(), backfills: new Map(), txGapMs, txNext: 0 });
 
 /**
  * The sync loop over `db` (pg) and `conn` (a web3.js Connection). `now` is the
@@ -287,6 +292,14 @@ export const syncerState = () => ({ locks: new Map(), lasts: new Map(), backfill
 export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, now = Date.now, txRetries = 3, txRetryMs = 2000, backfillCap = BACKFILL_TRANSACTIONS, between = null, onTrade = null, shared = syncerState() }) {
   // One read of an address at a time; the cursor each address was last moved to, by either syncer.
   const { locks, lasts } = shared;
+  // getTransaction calls of both syncers, at most one per txGapMs.
+  async function txTurn() {
+    if (!shared.txGapMs) return;
+    const t = now(),
+      at = Math.max(t, shared.txNext);
+    shared.txNext = at + shared.txGapMs;
+    if (at > t) await sleep(at - t);
+  }
   async function locked(address, fn) {
     while (locks.has(address)) await locks.get(address);
     let release;
@@ -350,6 +363,7 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
   // cursor before it, so its trades are read next loop, never skipped.
   async function transaction(signature) {
     for (let attempt = 0; ; attempt++) {
+      await txTurn();
       const tx = await rpc(() => conn.getTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: "confirmed" }));
       if (tx) return tx;
       if (attempt >= txRetries) throw Error(`transaction ${signature} not served yet; read again next loop`);
@@ -1153,8 +1167,9 @@ if (isMain) {
       .catch((e) => console.error("LP reading failed:", String(e?.message ?? e).slice(0, 300)))
       .finally(() => (reading = null)));
   setInterval(tick, 15_000);
-  // Both syncers announce the trades they insert to live push, and never read one address at once.
-  const shared = syncerState();
+  // Both syncers announce the trades they insert to live push, never read one
+  // address at once, and together make at most 4 getTransaction calls a second.
+  const shared = syncerState({ txGapMs: 250 });
   const onTrade = (row) => live?.push.onTrade(row);
   const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: tick, onTrade, shared });
   if (live) {
@@ -1166,7 +1181,7 @@ if (isMain) {
       rpc: retrying(sleep, { attempts: 1 }),
       sleep,
       state,
-      spacingMs: 100,
+      spacingMs: 0,
       txRetries: 6,
       txRetryMs: 300,
       onTrade,

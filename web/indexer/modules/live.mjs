@@ -32,8 +32,9 @@ export const MAX_POLL_KEYS = 100;
 export const STATS_EVERY_MS = 60_000;
 export const STATS_DEBOUNCE_MS = 250;
 export const PROFILE_RETRY_MS = 5 * 60_000;
-/** Trade syncs woken by pool changes that run at once; more wait their turn. */
+/** Trade syncs woken by pool changes that run at once, and start per second; more wait their turn. */
 export const SYNC_CONCURRENCY = 4;
+export const SYNC_STARTS_PER_SECOND = 2;
 
 const errorText = (e) => String(e?.message ?? e).slice(0, 300);
 const toAccount = (a, slot) =>
@@ -94,7 +95,10 @@ export function livePush({
   const damm = new Map();
   const syncing = new Map(),
     waiting = [];
-  let active = 0;
+  let active = 0,
+    syncTokens = SYNC_STARTS_PER_SECOND,
+    tokensAt = now(),
+    pumpTimer = null;
   const statsDue = new Map();
   const profileState = new Map();
   const timing = { poll: samples(), triggeredRead: samples() };
@@ -250,11 +254,25 @@ export function livePush({
       s.again = true;
       return;
     }
-    if (active >= SYNC_CONCURRENCY) {
-      if (!waiting.includes(pool)) waiting.push(pool);
-      return;
+    if (!waiting.includes(pool)) waiting.push(pool);
+    pumpSyncs();
+  }
+  // Starts waiting syncs while fewer than SYNC_CONCURRENCY run and this second's starts allow.
+  function pumpSyncs() {
+    const t = now();
+    syncTokens = Math.min(SYNC_STARTS_PER_SECOND, syncTokens + ((t - tokensAt) / 1000) * SYNC_STARTS_PER_SECOND);
+    tokensAt = t;
+    while (waiting.length && active < SYNC_CONCURRENCY && syncTokens >= 1) {
+      const pool = waiting.shift();
+      if (syncing.has(pool)) continue;
+      syncTokens--;
+      void runSync(pool);
     }
-    void runSync(pool);
+    if (waiting.length && active < SYNC_CONCURRENCY && pumpTimer === null)
+      pumpTimer = setTimer(() => {
+        pumpTimer = null;
+        pumpSyncs();
+      }, Math.ceil(((1 - syncTokens) / SYNC_STARTS_PER_SECOND) * 1000));
   }
   async function runSync(pool) {
     const s = { again: false };
@@ -270,7 +288,7 @@ export function livePush({
       active--;
       syncing.delete(pool);
       if (s.again) wake(pool);
-      while (active < SYNC_CONCURRENCY && waiting.length) wake(waiting.shift());
+      else pumpSyncs();
     }
   }
 
@@ -344,6 +362,7 @@ export function livePush({
     async stop() {
       running = false;
       stopEvery(statsTimer);
+      clearTimer(pumpTimer);
       for (const t of statsDue.values()) clearTimer(t);
       await loop;
     },

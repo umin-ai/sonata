@@ -3,7 +3,7 @@
 // changes, trade wake-ups, re-reads before errors, stats and graduation.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { livePush, SYNC_CONCURRENCY } from "./live.mjs";
+import { livePush, SYNC_CONCURRENCY, SYNC_STARTS_PER_SECOND } from "./live.mjs";
 import { marketStore } from "./market-store.mjs";
 import { appDecode, bought, bySymbol, fakeRpc, fixture, golden, manualClock, PROGRAM, readerOver, tokenAmount } from "./livekit.mjs";
 
@@ -93,11 +93,13 @@ test("a node answering with an older signature list does not trigger reads", asy
 
 test("a pool that changes is decoded and pushed within the poll, and wakes its trade sync; a graduated market's DAMM v2 pool only wakes it", async () => {
   const db = fakeDb();
-  const { chain, frames, push, store } = await setup({ db });
+  const { chain, clock, frames, push, store } = await setup({ db });
   const room = bySymbol("ROOM"),
     backed = bySymbol("BACKED");
   const damm = golden.treasuries[room.pool].dammPool;
   await push.pollOnce();
+  await settle();
+  clock.advance(1_000);
   db.calls.length = 0;
   frames.length = 0;
   chain.slot++;
@@ -171,9 +173,11 @@ test("a trade the sync inserts is pushed to its market's pages, and its stats fo
 
 test("a market that graduates gets its DAMM v2 pool recorded, then its trades read", async () => {
   const db = fakeDb();
-  const { chain, push } = await setup({ db });
+  const { chain, clock, push } = await setup({ db });
   const backed = bySymbol("BACKED");
   await push.pollOnce();
+  await settle();
+  clock.advance(1_000);
   db.calls.length = 0;
   chain.slot++;
   chain.edit(backed.pool, (d) => (d[305] = 1));
@@ -189,8 +193,8 @@ test("trade syncs: one per market at a time (a wake during one runs it again aft
   const releases = [];
   const started = [];
   const db = { ...fakeDb(), syncPool: (pool) => (started.push(pool), new Promise((r) => releases.push(r))) };
-  const { push, chain } = await setup({ db });
-  // attach() woke every listed market: four, all running.
+  const { push, chain, clock } = await setup({ db });
+  // Every listed market was woken as it was added: four, all running (two a second).
   assert.equal(started.length, 4);
   assert.equal(push.health().syncing, SYNC_CONCURRENCY);
   const backed = bySymbol("BACKED");
@@ -201,7 +205,32 @@ test("trade syncs: one per market at a time (a wake during one runs it again aft
   releases.splice(0).forEach((r) => r());
   await settle();
   await settle();
+  clock.advance(1_000);
   assert.deepEqual(started.slice(4), [backed.pool]);
+});
+
+test("trade syncs start at most two a second, however many pools change at once", async () => {
+  const started = [];
+  const db = { ...fakeDb(), syncPool: async (pool) => void started.push(pool) };
+  const { chain, clock, push } = await setup({ db });
+  await push.pollOnce();
+  await settle();
+  clock.advance(10_000);
+  started.length = 0;
+  chain.slot++;
+  for (const m of golden.markets) {
+    const damm = golden.treasuries[m.pool].dammPool;
+    chain.edit(damm ?? m.pool, damm ? (d) => (d[0] ^= 1) : bought());
+  }
+  await push.pollOnce();
+  await settle();
+  assert.equal(started.length, SYNC_STARTS_PER_SECOND, "two at once");
+  clock.advance(500);
+  await settle();
+  assert.equal(started.length, 3);
+  clock.advance(500);
+  await settle();
+  assert.equal(new Set(started).size, 4, "the rest follow, one every half second");
 });
 
 test("the very first transaction on a program with none before is news too", async () => {

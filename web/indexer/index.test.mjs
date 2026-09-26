@@ -897,3 +897,25 @@ test("GET /api/index/stats answers from memory for 5 s, one query however many a
   const off = api({ db, state: {} });
   assert.equal("live" in (await off.route(new URL("http://localhost/api/index/health"))), false);
 });
+
+test("with a shared getTransaction gap, the loop and the fast path together make at most one call per gap", async () => {
+  const chain = memChain(), db = memDb();
+  const a = market(chain), b = market(chain);
+  const times = [];
+  const conn = { ...chain.conn, getTransaction: async (sig) => (times.push(performance.now()), chain.conn.getTransaction(sig)) };
+  // Real time, with a short gap: two syncers read two addresses at once.
+  const shared = syncerState({ txGapMs: 25 });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const mk = () => syncer({ db, conn, rpc: (fn) => fn(), sleep, state: { pools: 0, trades: 0 }, now: () => performance.now(), txRetries: 0, txRetryMs: 0, spacingMs: 0, shared });
+  const run = mk(), fast = mk();
+  await run.discoverPools();
+  for (let i = 0; i < 3; i++) {
+    chain.land(`a${i}`, [a.pool], quietTx(T - 10 + i));
+    chain.land(`b${i}`, [b.pool], quietTx(T - 10 + i));
+  }
+  await Promise.all([run.syncPool(a.pool.toBase58()), fast.syncPool(b.pool.toBase58())]);
+  assert.equal(times.length, 6);
+  // Six calls take at least five gaps (timers may fire late under load, never early).
+  const sorted = [...times].sort((x, y) => x - y);
+  assert.ok(sorted.at(-1) - sorted[0] >= 5 * 25 - 2, `span ${Math.round(sorted.at(-1) - sorted[0])} ms`);
+});
