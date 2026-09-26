@@ -545,15 +545,19 @@ test("prices: a price is served up to 5 minutes while every refresh fails, then 
 });
 
 test("a due price refresh that never answers does not hold up the request", async () => {
+  const asked = new Set<string>();
   let calls = 0;
   const h = harness({
-    fetchPrice: async () => (calls++ ? never<number>() : 650),
+    // Each stock's first price answers; every refresh after that never does.
+    fetchPrice: async (symbol) => (calls++, asked.has(symbol) ? never<number>() : (asked.add(symbol), 650)),
+    // Real waits: a request that waited for this refresh would take its whole budget.
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   });
   await h.home();
   h.clock.advance(PRICE_REFRESH_MS + 5_000);
   const home = await within(h.home(2_000), 50);
   assert.equal(home?.prices.mSPY, 650);
-  assert.ok(calls > 1, "the refresh was started");
+  assert.equal(calls, 4, "both refreshes were started");
 });
 
 test("slow or failing extras never fail the snapshot; late ones finish in the background for the next request", async () => {
@@ -601,6 +605,8 @@ test("a failed source is retried in the background only: no request waits for it
       fetchPrice: async () => {
         throw Error("Jupiter 429");
       },
+      // Real waits: a request that waited for the retry would take its whole budget.
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     },
     { liveReads: true },
   );
