@@ -3,13 +3,13 @@
 // changes, trade wake-ups, re-reads before errors, stats and graduation.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { livePush, SYNC_CONCURRENCY, SYNC_STARTS_PER_SECOND } from "./live.mjs";
+import { dailyBudget, FALLBACK_POLL_EVERY_MS, livePush, PROFILE_CONCURRENCY, SYNC_CONCURRENCY, SYNC_STARTS_PER_SECOND, TRIGGER_GAP_MS } from "./live.mjs";
 import { marketStore } from "./market-store.mjs";
 import { appDecode, bought, bySymbol, fakeRpc, fixture, golden, manualClock, PROGRAM, readerOver, tokenAmount } from "./livekit.mjs";
 
 const decode = await appDecode();
 
-async function setup({ treasuries, db = null } = {}) {
+async function setup({ treasuries, db = null, ...opts } = {}) {
   const chain = fakeRpc();
   if (treasuries) chain.treasuries = treasuries;
   const clock = manualClock();
@@ -31,6 +31,7 @@ async function setup({ treasuries, db = null } = {}) {
     every: clock.every,
     stopEvery: clock.stopEvery,
     log: (...a) => logs.push(a.join(" ")),
+    ...opts,
   });
   if (db) push.attach(db);
   await reader.tick();
@@ -41,7 +42,7 @@ function fakeDb() {
   const calls = [];
   const db = {
     calls,
-    syncPool: async (pool) => void calls.push(["sync", pool]),
+    syncPool: async (pool, venues) => void calls.push(["sync", pool, venues ? [...venues].sort().join(",") : "all"]),
     insertPool: async (pool, treasury) => void calls.push(["insert", pool, treasury]),
     recordGraduation: async (pool) => void calls.push(["graduation", pool]),
     statsFor: async (pool) => (calls.push(["stats", pool]), { pool, trades_24h: 1, trades_total: 1 }),
@@ -109,7 +110,13 @@ test("a pool that changes is decoded and pushed within the poll, and wakes its t
   assert.deepEqual(frames.map((f) => [f.scope, f.pool]), [["market", backed.pool], ["list", backed.pool]]);
   assert.equal(store.entryOf(backed.pool).version, chain.slot);
   await settle();
-  assert.deepEqual(db.calls.filter((c) => c[0] === "sync").map((c) => c[1]).sort(), [backed.pool, room.pool].sort());
+  clock.advance(1_000);
+  await settle();
+  // Each market's sync reads only the venue that changed.
+  assert.deepEqual(
+    db.calls.filter((c) => c[0] === "sync").sort((a, b) => (a[1] < b[1] ? -1 : 1)),
+    [["sync", backed.pool, "dbc"], ["sync", room.pool, "damm"]].sort((a, b) => (a[1] < b[1] ? -1 : 1)),
+  );
   // The poll read one call's worth of pools: three curve pools and ROOM's DAMM v2 pool.
   const read = chain.calls.filter((c) => c.method === "getMultipleAccounts").at(-1);
   assert.equal(read.keys.length, 4);
@@ -189,12 +196,26 @@ test("a market that graduates gets its DAMM v2 pool recorded, then its trades re
   assert.ok(db.calls.slice(i).some((c) => c[0] === "sync" && c[1] === backed.pool));
 });
 
+// Every listed market's pool changes at once (graduated ones: their DAMM v2 pool, seen once before).
+async function changeAll(chain, push) {
+  await push.pollOnce();
+  chain.slot++;
+  for (const m of golden.markets) {
+    const damm = golden.treasuries[m.pool].dammPool;
+    chain.edit(damm ?? m.pool, damm ? (d) => (d[0] ^= 1) : bought());
+  }
+  await push.pollOnce();
+}
+
 test("trade syncs: one per market at a time (a wake during one runs it again after), at most four at once", async () => {
   const releases = [];
   const started = [];
   const db = { ...fakeDb(), syncPool: (pool) => (started.push(pool), new Promise((r) => releases.push(r))) };
   const { push, chain, clock } = await setup({ db });
-  // Every listed market was woken as it was added: four, all running (two a second).
+  assert.equal(started.length, 0, "nothing woken for the markets the first read listed: the sync loop catches them up");
+  await changeAll(chain, push);
+  clock.advance(10_000);
+  await settle();
   assert.equal(started.length, 4);
   assert.equal(push.health().syncing, SYNC_CONCURRENCY);
   const backed = bySymbol("BACKED");
@@ -209,28 +230,19 @@ test("trade syncs: one per market at a time (a wake during one runs it again aft
   assert.deepEqual(started.slice(4), [backed.pool]);
 });
 
-test("trade syncs start at most two a second, however many pools change at once", async () => {
+test("trade syncs start at most one a second, however many pools change at once", async () => {
   const started = [];
   const db = { ...fakeDb(), syncPool: async (pool) => void started.push(pool) };
   const { chain, clock, push } = await setup({ db });
-  await push.pollOnce();
+  await changeAll(chain, push);
   await settle();
-  clock.advance(10_000);
-  started.length = 0;
-  chain.slot++;
-  for (const m of golden.markets) {
-    const damm = golden.treasuries[m.pool].dammPool;
-    chain.edit(damm ?? m.pool, damm ? (d) => (d[0] ^= 1) : bought());
-  }
-  await push.pollOnce();
+  assert.equal(started.length, SYNC_STARTS_PER_SECOND);
+  clock.advance(1_000);
   await settle();
-  assert.equal(started.length, SYNC_STARTS_PER_SECOND, "two at once");
-  clock.advance(500);
+  assert.equal(started.length, 2);
+  clock.advance(2_000);
   await settle();
-  assert.equal(started.length, 3);
-  clock.advance(500);
-  await settle();
-  assert.equal(new Set(started).size, 4, "the rest follow, one every half second");
+  assert.equal(new Set(started).size, 4, "the rest follow, one a second");
 });
 
 test("the very first transaction on a program with none before is news too", async () => {
@@ -243,4 +255,187 @@ test("the very first transaction on a program with none before is news too", asy
   await push.pollOnce();
   await settle();
   assert.equal(frames.filter((f) => f.data.kind === "added").at(-1).data.entry.market.treasury, first);
+});
+
+test("a new market's trades are read only once its pools row is written (a sync before would find no row)", async () => {
+  const [first, ...rest] = fixture.programAccounts.map((p) => p.pubkey);
+  let written;
+  const db = fakeDb();
+  db.insertPool = (pool, treasury) => new Promise((r) => (written = () => (db.calls.push(["insert", pool, treasury]), r())));
+  const { chain, push } = await setup({ treasuries: rest, db });
+  await push.pollOnce();
+  chain.slot += 2;
+  chain.treasuries = [first, ...rest];
+  chain.land(PROGRAM, "register", chain.slot);
+  await push.pollOnce();
+  await settle();
+  assert.equal(db.calls.filter((c) => c[0] === "sync").length, 0, "not before the row exists");
+  written();
+  await settle();
+  assert.deepEqual(db.calls.map((c) => c[0]).filter((c) => c !== "allStats"), ["insert", "sync"]);
+});
+
+test("new Sonata transactions read only new registrations: failed ones trigger nothing, and reads are at least three seconds apart", async () => {
+  const [first, second, ...rest] = fixture.programAccounts.map((p) => p.pubkey);
+  const { chain, clock, frames, push } = await setup({ treasuries: rest });
+  const reads = () => chain.calls.filter((c) => c.method === "getProgramAccounts");
+  // Reads of treasury accounts (the poll reads pools only).
+  const accountReads = () => chain.calls.filter((c) => c.method === "getMultipleAccounts" && c.keys.some((k) => [first, second, ...rest].includes(k)));
+  await push.pollOnce();
+  // A failed transaction: nothing.
+  chain.signatures.set(PROGRAM, [{ signature: "failed", slot: chain.slot + 1, err: { InstructionError: [0, "Custom"] } }]);
+  chain.calls.length = 0;
+  await push.pollOnce();
+  assert.equal(reads().length, 0);
+  // A claim on a market already listed: one call (the account list), nothing more.
+  chain.slot += 1;
+  chain.land(PROGRAM, "claim", chain.slot);
+  await push.pollOnce();
+  await settle();
+  assert.equal(reads().length, 1);
+  assert.equal(reads()[0].config.dataSlice.length, 0, "keys only");
+  assert.equal(accountReads().length, 0);
+  // A registration a second later waits for the gap, then is read with its market's accounts.
+  clock.advance(1_000);
+  chain.slot += 1;
+  chain.treasuries = [first, ...rest];
+  chain.land(PROGRAM, "register", chain.slot);
+  await push.pollOnce();
+  await settle();
+  assert.equal(reads().length, 1, "within three seconds of the last read");
+  clock.advance(TRIGGER_GAP_MS - 1_000);
+  await settle();
+  await settle();
+  assert.equal(reads().length, 2);
+  assert.equal(frames.filter((f) => f.data.kind === "added").at(-1).data.entry.market.treasury, first);
+  // Two landing close together share one read.
+  clock.advance(TRIGGER_GAP_MS);
+  chain.slot += 1;
+  chain.treasuries = [first, second, ...rest];
+  chain.land(PROGRAM, "again", chain.slot);
+  await push.pollOnce();
+  await settle();
+  await settle();
+  assert.equal(frames.filter((f) => f.data.kind === "added").at(-1).data.entry.market.treasury, second);
+});
+
+test("a full read triggered before the reader's first complete read is a full read", async () => {
+  const chain = fakeRpc();
+  const clock = manualClock();
+  const store = marketStore({ decode, programId: PROGRAM, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer, epoch: "e1", log: () => {} });
+  let push = null;
+  const reader = readerOver(chain, { onRead: (r) => push.onRead(r) });
+  push = livePush({ store, reader, conn: chain.conn, programId: PROGRAM, now: clock.now, sleep: async () => {}, setTimer: clock.setTimer, clearTimer: clock.clearTimer, log: () => {} });
+  chain.land(PROGRAM, "a", chain.slot);
+  await push.pollOnce();
+  chain.land(PROGRAM, "b", chain.slot);
+  await push.pollOnce();
+  await settle();
+  await settle();
+  assert.equal(store.entries().length, 4);
+});
+
+test("24h stats: one full query at a time, and a row never replaced by one from a query that started earlier", async () => {
+  let answerAll;
+  const db = fakeDb();
+  const { clock, push, store } = await setup({ db });
+  const backed = bySymbol("BACKED");
+  db.allStats = () => (db.calls.push(["allStats"]), new Promise((r) => (answerAll = r)));
+  db.calls.length = 0;
+  clock.advance(60_000);
+  clock.advance(60_000);
+  assert.equal(db.calls.filter((c) => c[0] === "allStats").length, 1, "the second minute's query waits for the first");
+  // A trade's stats query starts after the full one and answers first.
+  push.onTrade({ pool: backed.pool, signature: "s", ix_index: 0 });
+  db.statsFor = async (pool) => ({ pool, trades_24h: 2, trades_total: 2 });
+  clock.advance(250);
+  await settle();
+  answerAll([{ pool: backed.pool, trades_24h: 1, trades_total: 1 }]);
+  await settle();
+  await settle();
+  assert.equal(store.statsRows().find((r) => r.pool === backed.pool).trades_24h, 2);
+});
+
+test("a poll hit by a rate limit or a timeout says to wait longer; the loop doubles its wait up to 8 s and goes back to 1 s once one works", async () => {
+  const waits = [];
+  let polls = 0;
+  const { chain, push } = await setup({
+    sleep: async (ms) => {
+      waits.push(ms);
+      if (++polls === 6) chain.fail = null;
+      if (polls >= 8) await push.stop();
+    },
+  });
+  chain.fail = "429 Too Many Requests";
+  assert.equal(await push.pollOnce(), true);
+  chain.fail = "boom";
+  assert.equal(await push.pollOnce(), false);
+  chain.fail = "The operation was aborted due to timeout";
+  push.start();
+  while (polls < 8) await settle();
+  assert.deepEqual(waits, [2_000, 4_000, 8_000, 8_000, 8_000, 8_000, 1_000, 1_000]);
+});
+
+test("pools keep being read through the fallback RPC while the main one fails: after three failures, at most every five seconds, within its daily budget", async () => {
+  const main = fakeRpc();
+  const spare = fakeRpc();
+  const budget = dailyBudget(2);
+  const { chain, clock, push, frames } = await setup({ fallback: spare.conn, fallbackBudget: budget });
+  const backed = bySymbol("BACKED");
+  chain.fail = "429 Too Many Requests";
+  for (let i = 0; i < 2; i++) await push.pollOnce();
+  assert.equal(push.health().fallbackPolls, 0);
+  spare.slot = chain.slot + 1;
+  spare.edit(backed.pool, bought());
+  frames.length = 0;
+  await push.pollOnce();
+  assert.equal(push.health().fallbackPolls, 1);
+  assert.equal(frames.find((f) => f.scope === "market").pool, backed.pool, "the curve moved");
+  await push.pollOnce();
+  assert.equal(push.health().fallbackPolls, 1, "not within five seconds");
+  clock.advance(FALLBACK_POLL_EVERY_MS);
+  await push.pollOnce();
+  clock.advance(FALLBACK_POLL_EVERY_MS);
+  await push.pollOnce();
+  assert.equal(push.health().fallbackPolls, 2, "the budget is used up");
+  assert.ok(main);
+});
+
+test("token profiles are read at most four at once", async () => {
+  let reading = 0,
+    most = 0;
+  const releases = [],
+    set = [];
+  const fetchProfile = () => {
+    reading++;
+    most = Math.max(most, reading);
+    return new Promise((r) => releases.push(() => (reading--, r({ image: "https://x/i.png" }))));
+  };
+  // Seven listed markets, each with its own profile.
+  const entries = Array.from({ length: 7 }, (_, i) => ({ market: { pool: `p${i}`, uri: `https://x/${i}.json` } }));
+  const store = {
+    ready: true,
+    mergeRead: () => [],
+    decode: () => ({ events: [], suspects: [] }),
+    entries: () => entries,
+    setProfile: (uri) => set.push(uri),
+    hasProfile: () => false,
+  };
+  const push = livePush({ store, reader: {}, conn: fakeRpc().conn, programId: PROGRAM, fetchProfile, log: () => {} });
+  push.onRead({});
+  assert.equal(most, PROFILE_CONCURRENCY);
+  while (releases.length) {
+    releases.shift()();
+    await settle();
+  }
+  assert.equal(most, PROFILE_CONCURRENCY);
+  assert.equal(set.length, 7, "all read in the end");
+});
+
+test("attaching the database after the first read wakes nothing: the sync loop catches listed markets up", async () => {
+  const { push } = await setup();
+  const db = fakeDb();
+  push.attach(db);
+  await settle();
+  assert.deepEqual(db.calls.filter((c) => c[0] !== "allStats"), []);
 });

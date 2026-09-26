@@ -14,9 +14,15 @@
 // read asks for state no older than the last one it saw (minContextSlot), so a
 // node that lags behind is refused rather than taken for the chain going back.
 //
-// With live push (modules/live.mjs) each read also goes to `onRead`, and the
-// live module asks for an immediate read (`request`) when a new Sonata
-// transaction shows up, e.g. a market's registration.
+// With live push (modules/live.mjs) each read also goes to `onRead`, and when
+// a new Sonata transaction shows up the live module asks for the markets
+// registered since the last read (`readNew`): the treasury program's account
+// list without data (one call), and only when it names a treasury no read has
+// seen, that treasury and its market's accounts (two more). A claim,
+// distribution or redemption on a market already read costs that one call;
+// its totals change on the cards with the next 10 s read. When `conn` fails,
+// `readNew` tries the fallback at once (registrations are rare), within the
+// daily budget it is given.
 //
 // This module decides nothing about a market: it lists the treasury program's
 // accounts, derives the addresses each market's card reads (pool, config,
@@ -118,6 +124,8 @@ export function marketAccountsReader({
     listedSlot = 0,
     // The registered count last logged as over MAX_MARKETS.
     overCap = 0;
+  // Every treasury a read has listed (kept, cut by MAX_MARKETS, or not on a listed stock), so readNew reads only new ones.
+  let seen = null;
   // Pools' launch times (activation points), read only when more markets are registered than a read covers.
   const launchTimes = new Map();
 
@@ -171,6 +179,7 @@ export function marketAccountsReader({
     );
     const listed = Array.isArray(answer) ? answer : answer.value;
     const programSlot = Array.isArray(answer) ? 0 : Number(answer.context?.slot) || 0;
+    const listedKeys = listed.map(({ pubkey }) => pubkey.toBase58());
     let found = [];
     for (const { pubkey, account } of listed) {
       let t;
@@ -218,6 +227,7 @@ export function marketAccountsReader({
       slot = Math.min(slot, context.slot);
     }
     if (programSlot > listedSlot) listedSlot = programSlot;
+    seen = new Set(listedKeys);
     const readAt = now();
     return {
       v: 1,
@@ -278,6 +288,87 @@ export function marketAccountsReader({
     }
   }
 
+  /**
+   * The markets registered since the last complete read, at no older slot
+   * than `minContextSlot`: { readAt, slot, calls, source, treasuries (only the
+   * new ones on a listed stock), accounts (theirs, as a full read has them) }.
+   * Null before the first complete read (the caller asks for a full read
+   * instead). Throws when neither `on` (default `conn`) nor, within `budget`,
+   * the fallback answers.
+   */
+  async function readNew(minContextSlot = 0, { on = conn, budget = null } = {}) {
+    if (!seen) return null;
+    try {
+      return { ...(await newOn(on, minContextSlot)), source: "primary" };
+    } catch (e) {
+      if (!fallback || (budget && !budget.take())) throw e;
+      return { ...(await newOn(fallback, minContextSlot)), source: "fallback" };
+    }
+  }
+  async function newOn(on, minContextSlot) {
+    const started = now();
+    const floor = Math.max(minContextSlot, listedSlot);
+    const answer = await atSlot(() =>
+      on.getProgramAccounts(program, {
+        commitment: "confirmed",
+        filters: [{ memcmp: { offset: 0, bytes: bs58.encode(Buffer.from(discriminator)) } }],
+        dataSlice: { offset: 0, length: 0 },
+        withContext: true,
+        ...(floor ? { minContextSlot: floor } : {}),
+      }),
+    );
+    const listed = Array.isArray(answer) ? answer : answer.value;
+    const programSlot = Array.isArray(answer) ? 0 : Number(answer.context?.slot) || 0;
+    const fresh = listed.map(({ pubkey }) => pubkey.toBase58()).filter((k) => !seen.has(k));
+    let calls = 1,
+      slot = Infinity;
+    const accounts = {},
+      treasuries = [];
+    if (fresh.length) {
+      const at = Math.max(floor, programSlot);
+      const read = async (keys) => {
+        const out = [];
+        for (let i = 0; i < keys.length; i += maxKeysPerCall) {
+          const batch = keys.slice(i, i + maxKeysPerCall);
+          const { context, value } = await atSlot(() =>
+            on.getMultipleAccountsInfoAndContext(
+              batch.map((k) => new PublicKey(k)),
+              at ? { commitment: "confirmed", minContextSlot: at } : "confirmed",
+            ),
+          );
+          calls++;
+          slot = Math.min(slot, context.slot);
+          batch.forEach((k, j) => out.push([k, value[j], context.slot]));
+        }
+        return out;
+      };
+      const groups = [],
+        quotes = new Set();
+      for (const [key, a] of await read(fresh)) {
+        seen.add(key);
+        let t;
+        try {
+          t = treasuryFields(a?.data ?? Buffer.alloc(0));
+        } catch {
+          continue;
+        }
+        if (!quoteMints.has(t.quoteMint.toBase58())) continue;
+        treasuries.push(key);
+        groups.push(marketKeys(new PublicKey(key), t));
+        quotes.add(t.quoteMint.toBase58());
+      }
+      if (groups.length)
+        for (const batch of accountBatches(groups, [...quotes, program.toBase58()], maxKeysPerCall))
+          for (const [k, a, at2] of await read(batch))
+            accounts[k] = a
+              ? { owner: a.owner.toBase58(), lamports: a.lamports, executable: a.executable, data: Buffer.from(a.data).toString("base64"), slot: at2 }
+              : null;
+    }
+    if (programSlot > listedSlot) listedSlot = programSlot;
+    const readAt = now();
+    return { v: 1, readAt, slot: Number.isFinite(slot) ? slot : programSlot, ms: readAt - started, calls, treasuries, accounts };
+  }
+
   /** Starts a read unless one is running; resolves when it ends (never rejects). */
   function tick({ minContextSlot = 0 } = {}) {
     reading ??= once(minContextSlot).finally(() => {
@@ -309,6 +400,7 @@ export function marketAccountsReader({
   return {
     tick,
     request,
+    readNew,
     read,
     current: () => current,
     /** The current read as JSON, serialized once per read (the API sends it as it is). */

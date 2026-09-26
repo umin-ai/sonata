@@ -17,12 +17,19 @@
 // with --experimental-strip-types (deploy/lightsail/sonata-indexer.service);
 // if that cannot load, the indexer runs on without live push.
 //
+// Every call to SOLANA_RPC_URL (public Devnet by default) shares one request
+// budget (modules/rpc-limiter.mjs), which keeps the indexer inside public
+// Devnet's per-IP limits with room for the payout crank.
+//
 // Env: DATABASE_URL (required), SOLANA_RPC_URL (default: public Devnet),
 //      INDEXER_PORT (default 8790), INDEXER_POLL_MS (default 20000),
 //      MARKET_ACCOUNTS_FALLBACK_RPC_URL, else GETBLOCK_DEVNET_URL (optional: a
-//      Devnet RPC the market accounts reader falls back to when SOLANA_RPC_URL
-//      keeps failing; it must take 100-key getMultipleAccounts calls),
-//      LIVE_PUSH (1: live push on; anything else: off, as before).
+//      Devnet RPC the market accounts reader and live push fall back to when
+//      SOLANA_RPC_URL keeps failing; it must take 100-key getMultipleAccounts
+//      calls), LIVE_FALLBACK_CALLS_PER_DAY (default 5000: live push's own
+//      calls to that fallback), INDEXER_RPC_PER_SECOND and
+//      INDEXER_RPC_PER_METHOD_PER_SECOND (default 6 and 3: the request
+//      budget), LIVE_PUSH (1: live push on; anything else: off, as before).
 import http from "node:http";
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -37,8 +44,9 @@ import { migrateIndexerSchema } from "./modules/indexer-schema.mjs";
 import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
 import { MARKET_ACCOUNTS_INTERVAL_MS, marketAccountsReader } from "./modules/market-accounts.mjs";
 import { marketStore } from "./modules/market-store.mjs";
-import { livePush } from "./modules/live.mjs";
+import { dailyBudget, livePush } from "./modules/live.mjs";
 import { streamServer } from "./modules/stream.mjs";
+import { PRIORITY, RPC_PER_METHOD_PER_SECOND, RPC_PER_SECOND, rpcLimiter, rpcMethod } from "./modules/rpc-limiter.mjs";
 
 const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PORT = Number(process.env.INDEXER_PORT || 8790);
@@ -58,16 +66,31 @@ const TREASURY_DISCRIMINATOR = Buffer.from(
 /**
  * A Connection whose every call gives up after `ms` (a node that never answers
  * cannot hold a loop up). Our own backoff handles the public RPC's rate limits.
+ * With `limiter`, each call first waits its turn in that budget at `priority`
+ * (the timeout starts once it goes out).
  */
-const timedConnection = (url, ms) =>
+const timedConnection = (url, ms, { limiter = null, priority = PRIORITY.background } = {}) =>
   new Connection(url, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
-    fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(ms) }),
+    fetch: async (input, init) => {
+      if (limiter) await limiter.acquire(rpcMethod(init?.body), priority);
+      return fetch(input, { ...init, signal: AbortSignal.timeout(ms) });
+    },
   });
+const envNumber = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+// Every call to the main RPC, from every part of the indexer: one budget.
+const limiter = rpcLimiter({
+  perSecond: envNumber("INDEXER_RPC_PER_SECOND", RPC_PER_SECOND),
+  perMethodPerSecond: envNumber("INDEXER_RPC_PER_METHOD_PER_SECOND", RPC_PER_METHOD_PER_SECOND),
+});
+const mainConnection = (ms, priority) => timedConnection(RPC, ms, { limiter, priority });
 // Neither connects until used, so importing this file (tests) opens nothing.
 const db = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
-const conn = timedConnection(RPC, 15_000);
+const conn = mainConnection(15_000, PRIORITY.background);
 const SPACING_MS = Number(process.env.INDEXER_SPACING_MS || 350);
 const state = { startedAt: new Date().toISOString(), lastSync: null, lastError: null, pools: 0, trades: 0 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -591,18 +614,19 @@ export function syncer({ db, conn, rpc, sleep, state, spacingMs = SPACING_MS, no
 
   /**
    * Live push's fast path: reads one market's new transactions now (its DBC
-   * pool, and its DAMM v2 pool once recorded), without waiting for the loop.
-   * Progress stamps are left to the loop (syncAll), which checks graduation
-   * before it stamps. Returns the rows inserted.
+   * pool, and its DAMM v2 pool once recorded; `venues`, a Set of "dbc" and
+   * "damm", limits it to the ones that changed), without waiting for the
+   * loop. Progress stamps are left to the loop (syncAll), which checks
+   * graduation before it stamps. Returns the rows inserted.
    */
-  async function syncPool(pool) {
+  async function syncPool(pool, venues = null) {
     const { rows: [row] } = await db.query(
       "select pool, last_signature, damm_pool, damm_last_signature, synced_at, damm_synced_at from pools where pool = $1",
       [pool],
     );
     if (!row) return 0;
     let inserted = 0;
-    for (const listed of cursorsOf(row))
+    for (const listed of cursorsOf(row).filter((c) => !venues || venues.has(c.venue)))
       inserted += await locked(listed.address, async () => {
         const cursor = latest(listed);
         let r = await syncCursor(cursor);
@@ -1058,7 +1082,7 @@ const isMain = (() => {
  * they cannot load (e.g. Node without --experimental-strip-types); the caller
  * then runs without live push.
  */
-export async function startLivePush({ reader, conn: pollConn }) {
+export async function startLivePush({ reader, conn: pollConn, readConn = pollConn, fallback = null, fallbackBudget = null }) {
   if (!process.features?.typescript) throw Error("Node runs without TypeScript support (start it with --experimental-strip-types)");
   const { register } = await import("node:module");
   register(new URL("../scripts/node-hooks.mjs", import.meta.url));
@@ -1072,6 +1096,9 @@ export async function startLivePush({ reader, conn: pollConn }) {
     store,
     reader,
     conn: pollConn,
+    readConn,
+    fallback,
+    fallbackBudget,
     programId,
     fetchProfile: (uri) => fetchProfileBody(uri, AbortSignal.timeout(2_000)),
   });
@@ -1087,7 +1114,7 @@ if (isMain) {
   const fallbackUrl = process.env.MARKET_ACCOUNTS_FALLBACK_RPC_URL || process.env.GETBLOCK_DEVNET_URL || "";
   let live = null;
   const accounts = marketAccountsReader({
-    conn: timedConnection(RPC, 4_000),
+    conn: mainConnection(4_000, PRIORITY.reader),
     fallback: fallbackUrl ? timedConnection(fallbackUrl, 8_000) : null,
     programId: TREASURY_PROGRAM.toBase58(),
     discriminator: TREASURY_DISCRIMINATOR,
@@ -1142,8 +1169,15 @@ if (isMain) {
   if ((await conn.getGenesisHash()) !== DEVNET_GENESIS) throw Error("Not Devnet.");
   if (process.env.LIVE_PUSH === "1") {
     try {
-      // The 1 s poll gives up on a call after 2.5 s: the next poll is a second away.
-      live = await startLivePush({ reader: accounts, conn: timedConnection(RPC, 2_500) });
+      // The 1 s poll gives up on a call after 2.5 s: the next poll is a second away. It goes
+      // first in the request budget; live push's other reads come next.
+      live = await startLivePush({
+        reader: accounts,
+        conn: mainConnection(2_500, PRIORITY.poll),
+        readConn: mainConnection(2_500, PRIORITY.live),
+        fallback: fallbackUrl ? timedConnection(fallbackUrl, 2_500) : null,
+        fallbackBudget: dailyBudget(envNumber("LIVE_FALLBACK_CALLS_PER_DAY", 5_000)),
+      });
       live.push.start();
       console.error("live push: on");
     } catch (e) {
@@ -1172,8 +1206,8 @@ if (isMain) {
       .finally(() => (reading = null)));
   setInterval(tick, 15_000);
   // Both syncers announce the trades they insert to live push, never read one
-  // address at once, and together make at most 4 getTransaction calls a second.
-  const shared = syncerState({ txGapMs: 250 });
+  // address at once, and together make at most 2.5 getTransaction calls a second.
+  const shared = syncerState({ txGapMs: 400 });
   const onTrade = (row) => live?.push.onTrade(row);
   const { syncAll } = syncer({ db, conn, rpc, sleep, state, between: tick, onTrade, shared });
   if (live) {
@@ -1181,7 +1215,7 @@ if (isMain) {
     // with short timeouts and waits; anything it misses the loop reads.
     const fast = syncer({
       db,
-      conn: timedConnection(RPC, 5_000),
+      conn: mainConnection(5_000, PRIORITY.live),
       rpc: retrying(sleep, { attempts: 1 }),
       sleep,
       state,

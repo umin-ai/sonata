@@ -309,6 +309,26 @@ export function marketStore({
       return [...todo];
     },
 
+    /**
+     * The markets registered since the last full read (the reader's readNew):
+     * registered and their accounts merged by slot, without counting anything
+     * as missing (a full read still decides that). Returns the treasuries to decode.
+     */
+    mergeNew(read) {
+      const todo = new Set();
+      for (const t of read.treasuries) if (!markets.has(t) && register(t, read.accounts[t])) todo.add(t);
+      const keys = [];
+      for (const [key, account] of Object.entries(read.accounts)) if (owners.has(key) && put(key, account, read.slot)) keys.push(key);
+      for (const t of affected(keys)) todo.add(t);
+      const known = new Set(order);
+      order = [...read.treasuries.filter((t) => !known.has(t)), ...order];
+      if (todo.size) {
+        liveAt = now();
+        changed();
+      }
+      return [...todo];
+    },
+
     /** Accounts read outside a full read (1 s pool reads, re-reads): merged by slot. Returns the treasuries to decode. */
     patch(entries) {
       const keys = [];

@@ -251,3 +251,45 @@ test("request(): a read now, or right after the running one, shared by every req
   await r.request(0);
   assert.equal(listings, 3, "with nothing running, a read at once");
 });
+
+test("readNew(): the markets registered since the last read, and only those: one keys-only listing, then a new treasury and its market's accounts", async () => {
+  const listed = fixture.programAccounts.slice(1);
+  const conn = fakeConn({ programAccounts: listed });
+  const r = reader(conn);
+  assert.equal(await r.readNew(), null, "before a complete read: the caller reads everything instead");
+  await r.tick();
+  conn.calls.length = 0;
+  const none = await r.readNew(5);
+  assert.deepEqual(none.treasuries, []);
+  assert.deepEqual(conn.calls.map((c) => c.method), ["getProgramAccounts"]);
+  assert.deepEqual(conn.calls[0].config.dataSlice, { offset: 0, length: 0 });
+  // A registration: its treasury, then its market's accounts.
+  const [fresh] = fixture.programAccounts;
+  listed.unshift(fresh);
+  conn.calls.length = 0;
+  const one = await r.readNew(5);
+  assert.deepEqual(one.treasuries, [fresh.pubkey]);
+  assert.deepEqual(conn.calls.map((c) => c.method), ["getProgramAccounts", "getMultipleAccounts", "getMultipleAccounts"]);
+  assert.deepEqual(conn.calls[1].keys, [fresh.pubkey]);
+  const full = (await reader(fakeConn()).read()).accounts;
+  const t = fixture.golden.markets.find((m) => m.treasury === fresh.pubkey);
+  for (const k of [t.pool, t.config, t.treasury, t.baseMint, t.treasuryQuote, t.payoutQuote, t.quoteMint, fixture.treasuryProgram])
+    assert.deepEqual(one.accounts[k], full[k], k);
+  // Seen now: not read again.
+  conn.calls.length = 0;
+  assert.deepEqual((await r.readNew()).treasuries, []);
+  assert.equal(conn.calls.length, 1);
+});
+
+test("readNew(): when the main RPC fails, the fallback at once, within the budget it is given", async () => {
+  const conn = fakeConn();
+  const fallback = fakeConn();
+  const r = reader(conn, { fallback });
+  await r.tick();
+  conn.fail = "429 Too Many Requests";
+  let left = 1;
+  const budget = { take: () => left-- > 0 };
+  const answer = await r.readNew(0, { budget });
+  assert.equal(answer.source, "fallback");
+  await assert.rejects(r.readNew(0, { budget }), /429/);
+});

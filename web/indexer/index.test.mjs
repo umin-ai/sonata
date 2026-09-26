@@ -919,3 +919,20 @@ test("with a shared getTransaction gap, the loop and the fast path together make
   const sorted = [...times].sort((x, y) => x - y);
   assert.ok(sorted.at(-1) - sorted[0] >= 5 * 25 - 2, `span ${Math.round(sorted.at(-1) - sorted[0])} ms`);
 });
+
+test("the fast path reads only the venue that changed: a graduated market's DAMM v2 pool without its frozen DBC pool", async () => {
+  const chain = memChain(), db = memDb(), clock = { now: T };
+  const m = market(chain, { migrated: true });
+  chain.land("m1", [m.pool, m.damm], quietTx(T - 500));
+  const run = loop(chain, db, clock);
+  await run.syncAll();
+  const fast = loop(chain, db, clock, { shared: syncerState() });
+  chain.land("d1", [m.damm], dammSwapTx({ direction: 1, pool: m.damm, blockTime: T - 10, slot: 9 }));
+  chain.calls.length = 0;
+  assert.equal(await fast.syncPool(m.pool.toBase58(), new Set(["damm"])), 1);
+  assert.deepEqual(chain.calls.filter((c) => c.startsWith("getSignaturesForAddress")), [`getSignaturesForAddress ${m.damm.toBase58()}`]);
+  // Without venues: both, as before.
+  chain.calls.length = 0;
+  await fast.syncPool(m.pool.toBase58());
+  assert.equal(chain.calls.filter((c) => c.startsWith("getSignaturesForAddress")).length, 2);
+});
