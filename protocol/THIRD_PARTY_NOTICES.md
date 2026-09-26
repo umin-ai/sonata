@@ -14,4 +14,4 @@ Each keeps its upstream license notice in its distributed package or source repo
 
 ## Removed code
 
-Until 26 September 2026 this repository also held a credit prototype (`programs/stockroom-credit`, `programs/demo-oracle` and `crates/credit-math`). `crates/credit-math` adapted GPL-2.0-or-later math from Morpho Blue. That code, and the notices and pinned upstream references that applied to it, remain at commit [`0d9046a`](https://github.com/umin-ai/sonata-protocol/blob/0d9046a4443cb9c661466f03d9f080d3d8609bd0/THIRD_PARTY_NOTICES.md).
+Until 26 September 2026 this repository also held a credit prototype (`programs/stockroom-credit`, `programs/demo-oracle` and `crates/credit-math`). `crates/credit-math` adapted GPL-2.0-or-later math from Morpho Blue. That code, and the notices and pinned upstream references that applied to it, remain at commit [`8261d14`](https://github.com/umin-ai/sonata/blob/8261d14931b86359efefddec4a9dc9dc8024f345/protocol/THIRD_PARTY_NOTICES.md).

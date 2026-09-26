@@ -8,7 +8,7 @@ Evidence written by the scripts in [`../scripts/`](../scripts/), all on Solana D
 | `deployed-bytes-check.json` | Deployed program bytes vs. the local build, and the upgrade authority. The committed run is from 24 September, when the script also checked the two retired programs | `scripts/verify-deployed-bytes.mjs` |
 | `handoff-check.json` | Status of every transaction and account HANDOFF.md links | `scripts/verify-handoff.mjs` |
 | `stockroom-treasury-deployment.json` | Treasury deployment on 17 September and the rebuild mismatch (HANDOFF.md §1) | `scripts/stockroom-treasury-deploy.mjs` |
-| `stockroom-rewards-deployment.json` | Rewards deployment on 17 September and its byte proof. `deploySignature` was copied by hand from `holder-deployment-log.txt` (removed; at commit `0d9046a`); the script now keeps it on a rerun and replaces it only when it deploys. Later redeploys are in HANDOFF.md §6.1 | `scripts/rewards-deploy.mjs` |
+| `stockroom-rewards-deployment.json` | Rewards deployment on 17 September and its byte proof. `deploySignature` was copied by hand from `holder-deployment-log.txt` (removed; at commit [`8261d14`](https://github.com/umin-ai/sonata/blob/8261d14931b86359efefddec4a9dc9dc8024f345/protocol/artifacts/holder-deployment-log.txt)); the script now keeps it on a rerun and replaces it only when it deploys. Later redeploys are in HANDOFF.md §6.1 | `scripts/rewards-deploy.mjs` |
 | `stockroom-treasury-market.json` | Flagship ROOM/mSPY pool and treasury | `scripts/stockroom-treasury-demo.mjs` |
 | `holder-rounds/` | Holder-reward snapshots, rounds and deliveries on the flagship market | `scripts/holder-operator.mjs` |
 | `stockroom-rewards-lifecycle.json` | Reserve-funded reward campaign and recipient self-claim | `scripts/rewards-lifecycle.mjs` |
@@ -29,4 +29,4 @@ Evidence written by the scripts in [`../scripts/`](../scripts/), all on Solana D
 | `mock-quote-mints.json` | Mock stock quote mints | `scripts/create-mock-quote-mints.mjs` |
 | `partner-metadata.json` | Meteora partner metadata naming Sonata | `scripts/create-partner-metadata.mjs` |
 
-Evidence for the retired credit prototype was removed with its source on 26 September 2026 and remains at commit `0d9046a`.
+Evidence for the retired credit prototype was removed with its source on 26 September 2026 and remains at commit [`8261d14`](https://github.com/umin-ai/sonata/tree/8261d14931b86359efefddec4a9dc9dc8024f345/protocol).
