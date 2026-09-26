@@ -1,8 +1,11 @@
 import { READS } from "@/lib/treasury/rpc-fetch";
 import { clientKey, createRateLimit } from "@/lib/server/rate-limit";
 
-// Sonata's relay to dedicated Solana Devnet RPC providers, the app's fallback
-// when the public endpoint is busy (lib/treasury/rpc-fetch.ts). Provider URLs
+// Sonata's relay to dedicated Solana Devnet RPC providers, the browser's first
+// RPC endpoint, with public Devnet behind it (lib/treasury/runtime.ts
+// devnetEndpoints, lib/treasury/rpc-fetch.ts). The market list and market
+// pages are server-rendered from the indexer's reads, so a home page view costs
+// no call here; a market page costs 2 before trading. Provider URLs
 // carry their access keys, so they stay on the server. The relay tries its
 // providers in order and moves on when one is rate limited, erroring or slow,
 // resting it for a while as the browser does. Only single JSON-RPC calls the

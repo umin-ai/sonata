@@ -68,18 +68,26 @@ import dbc from "./dbc-addresses.json";
 import { parseUnits } from "./units.ts";
 
 import { createRpcFetch } from "./rpc-fetch";
-// Devnet RPCs in order of preference: Solana's public endpoint, then (in the
-// browser) Sonata's relay to a dedicated provider, app/api/rpc, which keeps that
-// provider's key on the server. rpc-fetch moves a request to the next endpoint
-// when one is busy or down. Subscriptions (websockets) stay on the public endpoint.
-const DEVNET_RPCS = [
-  "https://api.devnet.solana.com",
-  ...(typeof window !== "undefined" ? [new URL("/api/rpc", window.location.origin).toString()] : []),
-];
-export const connection = new Connection(DEVNET_RPCS[0], {
+/** Solana's public Devnet endpoint. Websocket subscriptions always use it. */
+export const PUBLIC_DEVNET = "https://api.devnet.solana.com";
+/**
+ * Devnet RPCs in order of preference. In a browser (given its origin): Sonata's
+ * same-origin relay to dedicated providers first (app/api/rpc, which keeps
+ * their keys on the server and limits each visitor), then Solana's public
+ * endpoint, which can leave a busy browser's account reads unanswered without
+ * saying so. rpc-fetch moves a request on when an endpoint refuses, fails or
+ * stays quiet. Elsewhere (scripts, tests): the public endpoint only.
+ */
+export function devnetEndpoints(origin?: string) {
+  return origin ? [new URL("/api/rpc", origin).toString(), PUBLIC_DEVNET] : [PUBLIC_DEVNET];
+}
+// The first argument only sets the websocket endpoint: every HTTP call goes through rpc-fetch's endpoints.
+export const connection = new Connection(PUBLIC_DEVNET, {
   commitment: "confirmed",
   disableRetryOnRateLimit: true,
-  fetch: createRpcFetch((input, init) => globalThis.fetch(input, init), { endpoints: DEVNET_RPCS }),
+  fetch: createRpcFetch((input, init) => globalThis.fetch(input, init), {
+    endpoints: devnetEndpoints(typeof window !== "undefined" ? window.location.origin : undefined),
+  }),
 });
 const pk = (s: string) => new PublicKey(s),
   program = new Program(treasuryIdl as Idl, { connection }),

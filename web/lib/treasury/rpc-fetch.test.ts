@@ -1010,3 +1010,12 @@ test("in a browser the rests go to localStorage by default, and storage: null ke
     delete g.localStorage;
   }
 });
+
+// --- The app's endpoint order (runtime.ts) ---
+test("the app asks Sonata's relay first in a browser, then public Devnet; elsewhere public Devnet only", async () => {
+  const { devnetEndpoints, PUBLIC_DEVNET } = await import("./runtime.ts");
+  assert.equal(PUBLIC_DEVNET, "https://api.devnet.solana.com");
+  assert.deepEqual(devnetEndpoints("https://sonata.umin.ai"), ["https://sonata.umin.ai/api/rpc", PUBLIC_DEVNET]);
+  assert.deepEqual(devnetEndpoints("http://localhost:5173"), ["http://localhost:5173/api/rpc", PUBLIC_DEVNET]);
+  assert.deepEqual(devnetEndpoints(), [PUBLIC_DEVNET]);
+});
