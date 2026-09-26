@@ -1,0 +1,62 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-22T22:03:12.923Z",
+  "intent": "DBC -> DAMM v2 graduation of a per-launch Sonata pool, verified from chain.",
+  "dbcPool": "3HL7AdmRt8J4p25v61GSkBmkFX7i1SKN5xWbcap9JNUq",
+  "config": "2qQm8GpFosBNnUmRj5WSPEbxYNbwpFvZbJKC5iCBHn2N",
+  "treasury": "HvWEjfzz1aRnk6xCkTArdE4KKNCD1tRsahwocHK6Bj2A",
+  "migrationQuoteThreshold": "450000000",
+  "quoteReserveAtCompletion": "450000000",
+  "dammConfig": "Hv8Lmzmnju6m7kcokVKvwqz7QPmdX9XfKjJsXz8RXcjp",
+  "dammPool": "2w3DJLxuRaDe75wV3wzdvGg5gdopoMFm7hQ1uhe7MSyq",
+  "dammPoolLiquidity": "6174852676354351507060842155460",
+  "positions": [
+    {
+      "nftMint": "xHJSYKVSQRM1DX1wWPrn6TNA5z2KUKYGjSavTdSLdLj",
+      "position": "FkrcTbDj8ysHjc81Fu1i3AdpxEJPn8eyTfBYUnoowp1H",
+      "owner": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+      "unlockedLiquidity": "0",
+      "permanentLockedLiquidity": "6174852676354351507060842155460",
+      "vestedLiquidity": "0"
+    }
+  ],
+  "missingPositions": [
+    "2WhvQqrexfrJ415jvBWeSFeEkxNeFKMDA8QqdT2LspT9"
+  ],
+  "checks": {
+    "allTransactionsFinalized": true,
+    "curveCompleted": true,
+    "dbcPoolMarkedMigrated": true,
+    "dammPoolExistsUnderDammV2": true,
+    "dammPoolHoldsBothMints": true,
+    "partnerPositionOwnedByVault": true,
+    "partnerLiquidityFullyPermanentlyLocked": true,
+    "onlyPartnerPositionCreated": true
+  },
+  "traces": [
+    {
+      "label": "fill",
+      "signature": "67Em6AuLwHT7YvGRMoWEgKZt7cPdBAdUVS7k5m3PbaV7oRDRDQnNvQnRuBkvtMzgJJKqpVZqdWPXVFdMfAvja4wx",
+      "status": "finalized",
+      "err": null
+    },
+    {
+      "label": "claim",
+      "signature": "37gU5extw4qr6NknUgJ5kBVVmeATY6HNgkCiaADuKBxjaxYpS3b9rdRDaAErM6KE7Y175mFYykYgy4wW63kXodXy",
+      "status": "finalized",
+      "err": null
+    },
+    {
+      "label": "allocate",
+      "signature": "4ZHtEE2fhuRnhNqPfDXxPvUGr89Vc7NbKDw7FECqDs2XqyTBDmXmMs5e8ogzYrc2HesZ3adMErZz9aVN6KyTshzC",
+      "status": "finalized",
+      "err": null
+    },
+    {
+      "label": "migrate",
+      "signature": "evacEVfULVpH3hJLX4EaJZwJB6FLeayeZEZfWw9ECSwPhYcvf1P1RAr6wSZxWiUxcwjWQDc1YaxQvgEmhNwjtN5",
+      "status": "finalized",
+      "err": null
+    }
+  ]
+}

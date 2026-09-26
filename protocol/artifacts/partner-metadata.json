@@ -1,0 +1,19 @@
+{
+  "network": "solana:devnet",
+  "checkedAt": "2026-09-23T20:59:18.717Z",
+  "intent": "Meteora DBC partner metadata naming Sonata as the launchpad for every pool whose fee claimer is the Sonata Vault.",
+  "vault": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+  "partnerMetadata": "J7yWq3VJMrufqtjjzZVnHJTzBJzJrMecU4DPSxJa7qVX",
+  "signature": "2JBDi31cyKwNbhkj4tUxuMFTQBydDEvkjyAg7yZZzzrnpGJkTHuA2reBjWBG29EtGSTUkANiLgLYNummQPELLtGk",
+  "onchain": {
+    "feeClaimer": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+    "name": "Sonata",
+    "website": "https://sonata.umin.ai",
+    "logo": "https://sonata.umin.ai/sonata-logo.png"
+  },
+  "checks": {
+    "ownedByDbc": true,
+    "feeClaimerIsVault": true,
+    "fields": true
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-23T09:10:32.482Z",
+  "intent": "Stock Floor: a non-creator holder buys, fees are split 50/50, the holder burns tokens for an exact share of the floor, and the creator cannot withdraw it.",
+  "launchProof": "artifacts/stock-floor-launch.json",
+  "pool": "9iuQLtqQETzEjGrPVycWFoANL22W9s3MoNfTt2dfxong",
+  "treasury": "6J9Yjaokx5b4S3o2a4eNXHTUs1qchNvFQ2wUEZnnTVfm",
+  "baseMint": "6qRhdmZzJWTt3Cn77EeY6WwDbNMLVaA9QZCFKwJyGczX",
+  "quoteMint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+  "holder": "G61ytWwozeNCzUaDRt8UG18jyYTR56fx3j3CbjXxfPVM",
+  "creator": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+  "amounts": {
+    "buyAtoms": "200000000",
+    "tokensBought": "235200536533905",
+    "claimed": "4800000",
+    "paidOut": "2400000",
+    "floorBeforeRedeem": "2400000",
+    "burned": "117600268266952",
+    "supplyBefore": "1000000000000000",
+    "supplyAfter": "882399731733048",
+    "expectedPayout": "282240",
+    "received": "282240",
+    "floorAfterRedeem": "2117760"
+  },
+  "refusalLog": "Program log: AnchorError thrown in programs/stockroom-treasury/src/lib.rs:234. Error Code: FloorLocked. Error Number: 6007. Error Message: The Stock Floor belongs to holders; the creator cannot withdraw it.",
+  "checks": {
+    "treasuryIsFloorMode": true,
+    "holderIsNotCreator": true,
+    "splitIsFiftyFifty": true,
+    "floorGrewFromTheTrade": true,
+    "payoutIsExactShare": true,
+    "burnReducedSupply": true,
+    "holderTokensBurned": true,
+    "floorPerTokenNotReduced": true,
+    "ledgerRecordsRedemption": true,
+    "creatorWithdrawalRefused": true,
+    "refusalMovedNothing": true
+  },
+  "traces": [
+    {
+      "label": "Fund the holder with Devnet SOL and 2 test quote tokens",
+      "signature": "31cZ1rTj2AjDREWJbVUebgir4i6dcb3skQ4DYDfTzXzK7kwzERtWyyMnnm1w6cKS1bmfYmJzobKdSDGoZm2wXyoC"
+    },
+    {
+      "label": "Holder buys with 2 quote tokens on the curve",
+      "signature": "iBMjoh36tCoMNfCn1bSmErbexXRt5nSEV4iWqBDt6DxkdcrqdAyGdKvpFUSiLLzkBby31zPGihrPC3mY6YTA6U9"
+    },
+    {
+      "label": "Claim partner fees into the treasury",
+      "signature": "PtRRHvMTVYK5s2341njPnUGfB1Q1jKabDCmEphRCPnPCSjBH9ohi13jYC2JrENdz9D3q4TejCPLGBw6LsmzSfth"
+    },
+    {
+      "label": "Split 50% to the payout wallet, 50% to the Stock Floor",
+      "signature": "2qcx7r4Jeukm4hnUsVoNBF8JLL3oZWMDrrbwkeW5JSTo3HkFGgEvw5UpUd8VWiHh1GVkT1Dfiuc8cE3Q6G8vKbRC"
+    },
+    {
+      "label": "Holder burns half their tokens for their share of the floor",
+      "signature": "4LnByi8rupBQAsHt859n8Tuteb6jw11dCmMk37MqbHidgnE3DpuHAURUCPVjouV2Ge5vUx2sd7SZ3cpdK7ECECmk"
+    },
+    {
+      "label": "Creator tries to withdraw the floor (refused)",
+      "signature": "gXTrvNkzP5TnhG7h9zd3PJmoDmc4yk8onAYeieM2FCz2fqoRnxBfi2jVGwsVVgqZTT6bq3YxhhAzuDC2Mft7acU",
+      "expectedFailure": true
+    }
+  ]
+}

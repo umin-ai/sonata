@@ -1,0 +1,21 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-23T10:05:00.000Z",
+  "intent": "The same Stock Floor path driven through the Sonata app: transactions built by the app's own code (lib/treasury/runtime.ts prepareTrade / prepareTreasury 'sync' and 'redeem') and signed by the app's in-browser Devnet test wallet.",
+  "pool": "9iuQLtqQETzEjGrPVycWFoANL22W9s3MoNfTt2dfxong",
+  "wallet": "GX3N5UEDE4YBSC46ZND8YZbxP8ynZWtyQNtp5EqjezQ3",
+  "observed": {
+    "floorBefore": "0.0211776 mQQQ",
+    "afterAddToFloor": "0.0214176 mQQQ",
+    "burned": "1905864.930164 FLOOR",
+    "received": "0.00004625 mQQQ",
+    "floorAfter": "0.02137135 mQQQ",
+    "floorPerMillionBeforeAndAfterBurn": "0.00002427 mQQQ"
+  },
+  "traces": [
+    { "label": "Fund the test wallet with 0.1 Devnet SOL and 0.05 mQQQ (scripts/fund-devnet-wallet.mjs)", "signature": "cvrZqdqukFYmEvfkxqcjpLrqKNQWhgmKAi2nrgzxEva4TnzJ3xstBw7xUxGsNabBnAY12oeiYug3hiDUDCVci8J" },
+    { "label": "App: buy FLOOR with 0.02 mQQQ", "signature": "2kjcad7quyU2Ygdxj2pc2524hneTVT4MDUSJrArhW2ucbr6PbujV17tPnj6yzqpTBzFqFuj6zGHAK6mNiibvaunG" },
+    { "label": "App: Add to floor (claim + 50/50 split in one transaction)", "signature": "2RAdtYbRiHkduRnypncNbF9Wn3jc5SSfqHK1arZC1ZUZDJPK7W6S51EhndaQpJhecJVuLUkarxaAs8hHA6j3GbN2" },
+    { "label": "App: burn all FLOOR for its share of the floor", "signature": "4GGL4wnz8U4zxhgdidk8Hv2Zvzex8qXy48uNMgqYVjjnby5drJLznRZfNDJf2sA2e5c4FTsWuWPRNpfuNekPLjve" }
+  ]
+}

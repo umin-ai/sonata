@@ -1,0 +1,64 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-22T23:42:20.792Z",
+  "intent": "Creator-chosen DBC configuration, distinct from the shared preset, deployed and registered.",
+  "settings": {
+    "initialMarketCap": 6.693769,
+    "migrationMarketCap": 33.468847,
+    "feeBps": 300,
+    "quote": "mQQQ"
+  },
+  "pricing": {
+    "openUsd": 5000,
+    "targetUsd": 25000,
+    "priceUsd": 746.9632852903727,
+    "priceSource": "jupiter",
+    "feed": "QQQx on Solana",
+    "fetchedAt": "2026-09-22T23:42:18.813Z",
+    "quoteCheck": {
+      "quotePrice": 747.4975292896355,
+      "liquidityUsd": 2190477.729921874,
+      "priceImpact": 0.0005995913956798511,
+      "route": "Riptide"
+    },
+    "pythGuard": {
+      "source": "pyth",
+      "feed": "Equity.US.QQQ/USD",
+      "price": 748.065,
+      "divergence": 0.001472752648001637,
+      "session": "postMarket"
+    },
+    "pythStatus": "ok",
+    "convertedInitial": 6.693769,
+    "convertedTarget": 33.468847
+  },
+  "sharedConfig": "CUeJ6fgsw6wGXPCBchj9jxpkGVWzanXxYJFMiAPJea5J",
+  "config": "6XwNw5RE9s3VnS5J4ZKtcUjJ5TgVeMDFZ6XPekMhh3Xg",
+  "pool": "C77RCDfKaCwt9LPEuWdLSHo7ZsgvvUdtgqsxn5Fy69gq",
+  "treasury": "GDkmK9WTLCFna7ZrWLpMiTEdyokcqRphSdQT78fUaYza",
+  "baseMint": "BxuHYPndwix1bVttPuVs8QNTVZ1NxucdsgPsXUEjggNX",
+  "quoteMint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+  "vault": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+  "expectedThreshold": "1034244229",
+  "onchainThreshold": "1034244229",
+  "checks": {
+    "configIsNew": true,
+    "feeClaimerIsVault": true,
+    "leftoverReceiverIsVault": true,
+    "quoteMintMatches": true,
+    "thresholdMatchesPreview": true,
+    "feeIsChosenRate": true,
+    "treasuryBoundToConfig": true,
+    "treasuryBoundToPool": true
+  },
+  "traces": [
+    {
+      "label": "Create creator config and pool",
+      "signature": "35AvZwRYjTzcWQeEQQqxGsRMbM7HD8PcDDgBDxn3PXBdoFqpo2xEKaksxszvnhnAVT1NjfGf3mz1bnDzpX9xgNGj"
+    },
+    {
+      "label": "Register treasury against the new config",
+      "signature": "3YTz8WJRP7z6axrnvtg2Xv5hppdAMCBAsteUwFrGeNCJR1mc7tUh2JStAwpP8X5ezhBBgc96Tntwkw1nN4disUEj"
+    }
+  ]
+}

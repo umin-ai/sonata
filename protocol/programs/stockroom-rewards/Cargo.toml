@@ -1,0 +1,24 @@
+[package]
+name = "stockroom-rewards"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "stockroom_rewards"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "stockroom-treasury/idl-build"]
+
+[dependencies]
+anchor-lang.workspace = true
+anchor-spl.workspace = true
+stockroom-treasury = { path = "../stockroom-treasury", features = ["cpi"] }
+
+solana-instructions-sysvar = "=3.0.1"

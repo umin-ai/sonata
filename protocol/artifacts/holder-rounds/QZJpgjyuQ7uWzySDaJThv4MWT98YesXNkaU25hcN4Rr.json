@@ -1,0 +1,173 @@
+{
+  "network": "devnet",
+  "treasury": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+  "receipts": [
+    {
+      "label": "Enable 50% holder rewards / 60-second Devnet interval",
+      "signature": "5hetD5fC1u6RmGCtr3Yx5F8y2uFd9AineafP8zzeXe9Md22W3VJxQvjCVrpiQV8QXboTxP4hk21iRAkCRBJA867u",
+      "blockhash": "C7fYJHrLxfskDVA2wE5q3YJXD1q9piDr5dJXWstF4tCS",
+      "lastValidBlockHeight": 487310899,
+      "at": "2026-09-17T22:20:56.681Z"
+    },
+    {
+      "label": "Collect market fees",
+      "signature": "4WQ7KGEbWkG7tMmq25PDPAm6CSNooafnKqkyHsfxLx6AYynT3NoKm67gJ8vFuvBgCh3uGBkvjnVkCzApD28o8WsB",
+      "blockhash": "4wCqJTQ8X24rQSuTqMTChyz3mzQ3R2GV4VhcWggViwmA",
+      "lastValidBlockHeight": 487310927,
+      "at": "2026-09-17T22:21:01.184Z"
+    },
+    {
+      "label": "Allocate collected fees",
+      "signature": "5Q1Bmmu1nrSiq7joXC9DE3c4hainPmxef3VwkVvyE8KYQUmXCt4s2KYQFC1Adm18L3c9V2eFJFiU1gdXEUUpyzPx",
+      "blockhash": "7EX8QPZ1cZvmrxt9wZ2H3tTSYg65m6BonU9Z8SZLZf9J",
+      "lastValidBlockHeight": 487310948,
+      "at": "2026-09-17T22:21:04.700Z"
+    },
+    {
+      "label": "Fund proportional holder round",
+      "signature": "Hi2xFBMB4Qy4oL15ub3Das6WW9LhsDqhMbMfrNDpFDEGwRynFbKyKjMxHhExedrxZAbrihTsULsYookKdEb3qMh",
+      "blockhash": "7Be9tnLcH6hqgBNG7yyzp3seEnArFRzAeF9NszwnHHdK",
+      "lastValidBlockHeight": 487313767,
+      "at": "2026-09-17T22:28:49.904Z"
+    },
+    {
+      "label": "Deliver holder payout",
+      "signature": "2buXzVaGPKotxi458fr1jR8s68kLd8jHUoygGmuRsk22c8RnSADqsf6R8B5t9ZM278SdXTgi5qWMHhCKfCLaAc9p",
+      "blockhash": "9Xn8LNNF3dnBeneEkCaUSrrnD94Me8xFxp8PieCzArGj",
+      "lastValidBlockHeight": 487313804,
+      "at": "2026-09-17T22:28:58.519Z"
+    },
+    {
+      "label": "Deliver holder payout",
+      "signature": "eK9kCH56CCCaPyZKqEKzbH7yxDgpFtb8DUQdwKQWGWzmhugWVmApgJkUijWx4nZQWN8koQDqXHLV9gkNWLzbxDF",
+      "blockhash": "7Lo8hp9MskpqZDhgrY6attbBWbidrQS2KuoVYBGoEPgE",
+      "lastValidBlockHeight": 487313849,
+      "at": "2026-09-17T22:29:03.576Z"
+    },
+    {
+      "label": "Deliver holder payout",
+      "signature": "27itSvkZMiA6Yavjc2beun1W82jNWFwKSVKyh3N96PMTTBD9fxkXqFAYKfygw5xQBd7XdB4pudvh5RoCBC5Stc6r",
+      "blockhash": "GFCCiVj3GZrJXaUxmfYddPtvvYY9rTWSbh8ePGcauZCX",
+      "lastValidBlockHeight": 487313886,
+      "at": "2026-09-17T22:29:09.577Z"
+    },
+    {
+      "label": "One-time Devnet proof trade",
+      "signature": "2VF6wQ7rNU5kZA8pdmYV6rn554k8SAs9h2jwa6h4mdxT5bax2QT5H5ic8eMR67hNgiAnAsHdx6fuX1BVVb2stqK2",
+      "blockhash": "FKQntrx2cZBiTHqswEth85pJgY1a92rDJKokVNrqWfTk",
+      "lastValidBlockHeight": 487314218,
+      "at": "2026-09-17T22:30:05.308Z"
+    },
+    {
+      "label": "Collect market fees",
+      "signature": "2bNbX5hqcYPhrLnV9yf1rntyRu76edfmP6pvpwni3hnAjkUadQfPd63aLz91F1HVoKwV5kek5G4TTrxNMGuKHFmz",
+      "blockhash": "4znQFdAwskRv47ff3Tt2vqtptAyQkT1FSWsVzw8oEtv5",
+      "lastValidBlockHeight": 487314278,
+      "at": "2026-09-17T22:30:15.306Z"
+    },
+    {
+      "label": "Allocate collected fees",
+      "signature": "4AQRAQkki96E3FiJvbRkTP9B9Du4ZruNDaLKstxbw72KZq3y7nxru2n3XthMqVrnkSsZm6TGYcD9PY75eLHXMdyC",
+      "blockhash": "6EwELTaoMxbazSQHv5bgqF2yrUJUdzJMzKi5F35JTybj",
+      "lastValidBlockHeight": 487314319,
+      "at": "2026-09-17T22:30:22.313Z"
+    },
+    {
+      "label": "Fund proportional holder round",
+      "signature": "4JEu9u1WEjCdnrPKBTMKMdyTRaJxXZjGQfUN5T5h8YHo15Zez5eBmG3yy2pzeSZsmdedRqYgjeBKfuRLd1z4tULm",
+      "blockhash": "9PpaGBKbQjBWmW8aqkPBTZsWcudtzhbxgRqKSQpb2qEd",
+      "lastValidBlockHeight": 487314507,
+      "at": "2026-09-17T22:30:53.121Z"
+    },
+    {
+      "label": "Deliver holder payout",
+      "signature": "2F8p8pAYBGn7qaAq9UMDQD57yULo4r1MXvddMao9uoiFW3bMA7ez69zRaGmjjxFEnTsMpLsJmj3pqd68U6euaPp6",
+      "blockhash": "k4mEJpjZFb5qt5WQtdtfYymG4rZz3326rmHhZ5hm4pi",
+      "lastValidBlockHeight": 487314544,
+      "at": "2026-09-17T22:30:59.125Z"
+    },
+    {
+      "label": "Deliver holder payout",
+      "signature": "4pqRzEjTjWmDUQWvYvGEbC4LJy2zjP28z1ZNYVxZo7tPAPkW773rh5FRfyZVmmyj6r6qgFehKqMJ9La7Dg2azZUJ",
+      "blockhash": "5LYKdHcEVM7AEo4jczsQgWeuGnCaz4nCwBsqD5rYhU1j",
+      "lastValidBlockHeight": 487314579,
+      "at": "2026-09-17T22:31:05.134Z"
+    },
+    {
+      "label": "Deliver holder payout",
+      "signature": "YUHTHty3xYDKk85qKJWADBUWZVtjMtmuv6DYNenAnvTv4Yo5uW8RZhS5HA2dqxB4Az3cPCvAJFWhHyAvRVU2iLR",
+      "blockhash": "8cYQNs3YdbHA2gUHdywd85JMUoGUHSxDqAKbHpY1c5zm",
+      "lastValidBlockHeight": 487314615,
+      "at": "2026-09-17T22:31:11.129Z"
+    },
+    {
+      "label": "Deliver holder payout",
+      "signature": "3xGakukoqtxtHTPdaNbgvGwbH1tYHCs2v8gwBG4tw1SSHSFkbbDEgB9S6C7jV8D9wX5tbJAgJ1RjD1ZpPM8j6wou",
+      "blockhash": "6kFYFH8jkEhVCuzonZCXHWohKSeRRmhiwGi61nqH5TGQ",
+      "lastValidBlockHeight": 487314651,
+      "at": "2026-09-17T22:31:17.144Z"
+    }
+  ],
+  "snapshots": [
+    {
+      "treasury": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+      "policy": "HQd6ZvtXM4WDitEUhoNPPK5SC4v1kgKJUZJ77cnC4Bk4",
+      "checkpoint": "320400",
+      "slot": 500030961,
+      "budget": "7",
+      "shares": [
+        {
+          "recipient": "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT",
+          "amount": "4",
+          "balance": "5153846215460"
+        },
+        {
+          "recipient": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "amount": "0",
+          "balance": "322721337231"
+        },
+        {
+          "recipient": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+          "amount": "2",
+          "balance": "3076923107728"
+        },
+        {
+          "recipient": "FrwpnkafwZLCesRsb786fKLFSmsDaxAEZsdceENDiWtr",
+          "amount": "1",
+          "balance": "1000000000000"
+        }
+      ],
+      "hash": "0f82e6ecfd5c4e0e8ea8b0907a39323590152821c12200b5138cf474591af5a0"
+    },
+    {
+      "treasury": "QZJpgjyuQ7uWzySDaJThv4MWT98YesXNkaU25hcN4Rr",
+      "policy": "HQd6ZvtXM4WDitEUhoNPPK5SC4v1kgKJUZJ77cnC4Bk4",
+      "checkpoint": "320415",
+      "slot": 500031701,
+      "budget": "2000",
+      "shares": [
+        {
+          "recipient": "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT",
+          "amount": "1079",
+          "balance": "5153846215460"
+        },
+        {
+          "recipient": "ACbRB4yPfUikHAaXhWzJXH4pjSPf6rk82Jot1JqRQ3Ft",
+          "amount": "68",
+          "balance": "322721337231"
+        },
+        {
+          "recipient": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+          "amount": "644",
+          "balance": "3076923107728"
+        },
+        {
+          "recipient": "FrwpnkafwZLCesRsb786fKLFSmsDaxAEZsdceENDiWtr",
+          "amount": "209",
+          "balance": "1000000000000"
+        }
+      ],
+      "hash": "b395aa0d7a5b74bd530af125f7cf9099f0ebefa60dd8d4428cb847ad66345eb8"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+/target/
+/node_modules/
+/.keys/
+/artifacts/private/
+*.log
+.DS_Store

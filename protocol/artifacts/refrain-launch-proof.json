@@ -1,0 +1,42 @@
+{
+  "network": "solana:devnet",
+  "createdAt": "2026-09-24T07:07:24.521Z",
+  "intent": "Creator-chosen DBC configuration, distinct from the shared preset, deployed and registered.",
+  "settings": {
+    "initialMarketCap": 2,
+    "migrationMarketCap": 12,
+    "feeBps": 100,
+    "quote": "mQQQ",
+    "mode": "refrain"
+  },
+  "sharedConfig": "CUeJ6fgsw6wGXPCBchj9jxpkGVWzanXxYJFMiAPJea5J",
+  "config": "815okHS87GFHW22ewkFB6Vm49SFUMkUVNh1TStwo8Npy",
+  "pool": "5PYgYNjxy51XUNM5jNjc7dCfHNErroPMJUAqjVbCxcgj",
+  "treasury": "7YNTbRABpSanNbLEnk2NL8oFgD9zyR3V4xixWYLgdEuy",
+  "baseMint": "Ayp7C6nS12124Zd1ixY25vez5J7m222zieNxnzdjz7Tz",
+  "quoteMint": "dXrPEzAYgn5H3y7GwCfCr6okHsWXidpMQrRq33LNTJh",
+  "vault": "5XMFEnW8Ur3EswbFhCr1LEKtHDioTs8oeQEHKyPHNpp5",
+  "expectedThreshold": "347877538",
+  "onchainThreshold": "347877538",
+  "checks": {
+    "configIsNew": true,
+    "feeClaimerIsVault": true,
+    "leftoverReceiverIsVault": true,
+    "quoteMintMatches": true,
+    "thresholdMatchesPreview": true,
+    "feeIsChosenRate": true,
+    "treasuryBoundToConfig": true,
+    "treasuryBoundToPool": true,
+    "treasuryModeMatches": true
+  },
+  "traces": [
+    {
+      "label": "Create creator config and pool",
+      "signature": "5KJsPmMUht4L9E2rkdmKeSwtdKcuXW6McxDQBPabgxeHbpXAmxLQh1EBMhJE8UTgQzZvKWUeMcL5sKEb3mtHNNDy"
+    },
+    {
+      "label": "Register treasury against the new config",
+      "signature": "53Rncmo7HNSqtHmTwswXcCdhif3R8qLSozUuH5CdTxWNY1wnBkL6gD6Ub9hkpcAX6vgYCMtakK3tGMqqn9J7zwXv"
+    }
+  ]
+}

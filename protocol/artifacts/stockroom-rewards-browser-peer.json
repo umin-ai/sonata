@@ -1,0 +1,9 @@
+{
+  "network": "devnet",
+  "campaign": "DKxuabBy6yUHZ3nyQeuNR7WQnM8UzWfz2SV2sL8ddBT2",
+  "signature": "3LbMEBoHEkqfzsAmcmeVaCrSKEyXnnq2B8PKjNWws2neBqkWZwrPtjXrJPJFRDLt7nCfZwPMLkqmSMRdcxTzUjSh",
+  "recipient": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+  "amount": "40",
+  "claimedMask": 3,
+  "verifiedAt": "2026-09-17T20:11:06.092Z"
+}

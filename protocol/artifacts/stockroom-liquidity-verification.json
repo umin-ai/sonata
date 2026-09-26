@@ -1,0 +1,115 @@
+{
+  "verifiedAt": "2026-09-17T19:16:03.655Z",
+  "network": "devnet",
+  "pool": "GHHFvUXdyEwVgadW7LRnrnVFPhSwWMs5qauNfcYZuH9v",
+  "checkedReceipts": 10,
+  "checks": {
+    "bothDepositorsExited": true,
+    "independentTrader": true,
+    "allReceiptsSuccessful": true,
+    "withdrawalTokenAmountsMatch": true,
+    "nativeCompoundingMode": true
+  },
+  "receipts": [
+    {
+      "label": "fund-alice",
+      "signature": "21fvsmy2oZijSnzcH9u7V7yq2WBamG1EP4ZoyQPYQCcbDPuhhh5PF5EVkELZUP1zKGfNKHtC3ef3hJe4vcZ2UYd4",
+      "signer": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+      "slot": 499958535,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "-3000000000000",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "-1000000"
+      }
+    },
+    {
+      "label": "fund-bob",
+      "signature": "3ZtjsccjywH8pTnymS9ePd3BaJLd5TWJ168BqdqSssX2whtRhmzWkwQf86edN6frdAPpEudtHHe6V3afi6aeF4Mz",
+      "signer": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+      "slot": 499958539,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "-5000000000000",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "-1500000"
+      }
+    },
+    {
+      "label": "fund-trader",
+      "signature": "QgipMescUr5MGZA2h5sn3AhZrPCiE3NfaQnrrVgzuVeZh8vwFFQN2F4KYPvedejM5DvF3ghqJCizFKEzKyVHGfB",
+      "signer": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+      "slot": 499958543,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "-2000000000000",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "-1000000"
+      }
+    },
+    {
+      "label": "create-pool",
+      "signature": "4Rem5wgoJ3SBpLVZLA8Uh1G5ZmYtVAiACwgwFyvW43nMu3QAoQCrdWvp1Qu9xXdqFYzWMUHt1ia8yxMmX7bxgXLu",
+      "signer": "vb4pminVbRa8BRaRCDa7JmAkFx6LSmnwMiDtsKvkXVF",
+      "slot": 499958547,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "-19999989587307",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "-4000000"
+      }
+    },
+    {
+      "label": "deposit-alice",
+      "signature": "2HjdML6QozfP6kMgjShURt5jMNitpbRtdG7r27MnCmdQyp38GWA8zwudrDbZHSmYcEqLMKEDLhdbVAu3MmSDEPLz",
+      "signer": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+      "slot": 499958551,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "-2000000000000",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "-400001"
+      }
+    },
+    {
+      "label": "deposit-bob",
+      "signature": "4kEsChXCwddvTaiPJZB6zMdvda4LtQANm9u94Z2Vp35aXejHPtUbgE5BAoYRshXm5kpsrTCFBvtngKYWoPrNgitr",
+      "signer": "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT",
+      "slot": 499958711,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "-4000000000000",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "-800001"
+      }
+    },
+    {
+      "label": "independent-trade",
+      "signature": "2BVoYvi5X6Jc5FANRT2xQQxBRPCamD1mq483YsQj7akaWj9mNotR1rZJqAw2uW3r4FEnz2E6m2eTrBbWKfNYKAsN",
+      "signer": "FrwpnkafwZLCesRsb786fKLFSmsDaxAEZsdceENDiWtr",
+      "slot": 499958734,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "-1000000000000",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "190666"
+      }
+    },
+    {
+      "label": "alice-partial-exit",
+      "signature": "5YazqMQr6tERtnhCAmajWi12tV35hG7RYd3iJZmdrhfUwmNLTLtu8XEFRgFTp7KgxnEUhhnx3dvwLWUmuvhTx5cE",
+      "signer": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+      "slot": 499958786,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "1038461553864",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "192652"
+      }
+    },
+    {
+      "label": "alice-full-exit",
+      "signature": "2r2k9nwUT7kTfzDqnBjH2ThdSgBPEkXpdXiGFMJYTxB7brzwfRRhtXEHekk1zWLiR5qv3MYH5SqqsSRWhdan2qy6",
+      "signer": "F7w1MUYY9NH6WRRguxJdyWkmFRRmXWs5KraosRW8L4VQ",
+      "slot": 499958812,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "1038461553864",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "192652"
+      }
+    },
+    {
+      "label": "bob-full-exit",
+      "signature": "PPUL9nnDewFTnRBgds5JM26eqFFt4rNFhxJ63nr4XPDzFrrxY39ra1deDjg8S6EAfdvaK4jqNCF5MFwYY316TTp",
+      "signer": "5Tv5fAngULfJxpwcqWmL7aKnez4AgXnJtXB87d1HjiaT",
+      "slot": 499959457,
+      "tokenDeltas": {
+        "3Hwo2RGJpHQfVd5BW92423uU5gomnhQRxDm7PZnfS8Js": "4153846215460",
+        "6gat24puM23p74CeBKEPs53roxqpHcQpiGL8ZHtgNJqg": "770608"
+      }
+    }
+  ]
+}
