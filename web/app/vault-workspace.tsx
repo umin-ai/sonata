@@ -20,7 +20,15 @@ function VaultProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false),
     [hasBackup, setHasBackup] = useState(false);
   const path = usePathname();
+  const firstPath = useRef(true);
   useEffect(() => {
+    // A client-side route change starts at the top. The first render does not:
+    // pages arrive with their content, and a reader who scrolled before the
+    // scripts finished loading keeps their place.
+    if (firstPath.current) {
+      firstPath.current = false;
+      return;
+    }
     if (!window.location.hash) window.scrollTo({ top: 0, behavior: "instant" });
   }, [path]);
   useEffect(() => {
