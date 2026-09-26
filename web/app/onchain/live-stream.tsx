@@ -33,7 +33,7 @@ export function useLiveStreamInstance(options: LiveStreamOptions) {
 const none = () => () => {};
 const NO_PROFILES: Record<string, ProfileBody | null> = Object.freeze({}) as Record<string, ProfileBody | null>;
 
-/** "off" (no stream on this page), "connecting", "live" or "fallback" (poll instead). */
+/** "off" (no stream on this page, or live push off at the indexer), "connecting", "live" or "fallback" (poll instead). */
 export function useStreamStatus(store: LiveStream | null): StreamStatus {
   return useSyncExternalStore(
     store ? store.subscribe : none,

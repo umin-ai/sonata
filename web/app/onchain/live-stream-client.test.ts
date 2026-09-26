@@ -231,3 +231,61 @@ test("a snapshot without stats (the indexer has not loaded them yet) leaves the 
   h.source().emit("snapshot", { scope: "list", seq: 6, entries: [], skipped: 0, stats: null, profiles: {} }, "e1-6");
   assert.equal(h.stream.stats("EFMUmeNJcz8Z49c74sTrmKcPq3qQsdchjzjGGJtMHUwQ"), undefined);
 });
+
+test("each connection that works starts the backoff over: after a restart the next one is a second away, not longer", () => {
+  const h = harness();
+  h.stream.start();
+  h.source().emit("hello", hello);
+  h.source().error(true);
+  h.advance(1_000);
+  assert.equal(h.sources().length, 2);
+  h.source().emit("hello", hello);
+  h.source().error(true);
+  h.advance(1_000);
+  assert.equal(h.sources().length, 3, "1 s again, not 2 s");
+});
+
+test("a tab hidden for less than a minute keeps its stream", () => {
+  const h = harness();
+  h.stream.start();
+  h.source().emit("hello", hello);
+  h.setHidden(true);
+  h.advance(30_000);
+  h.setHidden(false);
+  for (let i = 0; i < 8; i++) {
+    h.source().emit("ping", { seq: 5 });
+    h.advance(15_000);
+  }
+  assert.equal(h.sources().length, 1);
+  assert.equal(h.source().closed, false);
+});
+
+test("an indexer that has not read the chain yet keeps the page connecting (it sends nothing until then), and it falls back if that lasts a minute", () => {
+  const h = harness();
+  h.stream.start();
+  h.source().emit("hello", { ...hello, ready: false, resumed: false });
+  assert.equal(h.stream.status, "connecting");
+  for (let i = 0; i < 4; i++) {
+    h.advance(15_000);
+    h.source().emit("ping", { seq: 5 });
+  }
+  assert.equal(h.stream.status, "fallback", "a minute without data");
+  // Ready: its snapshot makes the stream live and ends the fallback.
+  h.source().emit("snapshot", { scope: "list", seq: 6, entries: [], skipped: 0, stats: null, profiles: {} }, "e1-6");
+  assert.equal(h.stream.status, "live");
+  // A ready hello is live at once (its snapshot or replay follows).
+  const r = harness();
+  r.stream.start();
+  r.source().emit("hello", hello);
+  assert.equal(r.stream.status, "live");
+});
+
+test("live push turned off at the indexer: the stream closes for good and the page is as before live push", () => {
+  const h = harness();
+  h.stream.start();
+  h.source().emit("off", {});
+  assert.equal(h.stream.status, "off");
+  assert.equal(h.source().closed, true);
+  h.advance(10 * 60_000);
+  assert.equal(h.sources().length, 1);
+});

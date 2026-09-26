@@ -18,8 +18,9 @@ export const FALLBACK_POLL_MS = 15_000;
  * (`initial`) the list is complete from the first render. With its live
  * stream (`live`) the list then changes in place: a new market appears in
  * newest-first order, and a card's numbers change without it moving or
- * re-rendering the others. Without a stream nothing is read on mount unless
- * the snapshot is stale (mountPlan): over 15 s old it is replaced quietly,
+ * re-rendering the others. Nothing is read on mount unless the snapshot is
+ * stale (mountPlan), stream or not (a stream whose indexer cannot read the
+ * chain has nothing to send): over 15 s old it is replaced quietly,
  * from fresh server data or else the chain, and over 60 s old a failed
  * replacement shows the error alert. Without a snapshot, fresh server data or
  * the chain behind today's skeletons. While the stream is down (fallback) the
@@ -63,14 +64,11 @@ export function useMarkets(initial?: HomeSnapshot | null, live: LiveStream | nul
     },
     [],
   );
-  // With a live stream the snapshot is brought up to date by the stream itself (replay or snapshot).
-  const streamed = !!live && !!initial?.stream;
   useEffect(() => {
-    if (streamed) return;
     // Everything load() sets happens after its first await, never during the effect.
     const plan = mountPlan(initial, performance.now());
     if (plan.load) queueMicrotask(() => void load([fromServer, readLive], plan));
-  }, [initial, load, streamed]);
+  }, [initial, load]);
   useEffect(() => {
     if (revision) queueMicrotask(() => void load([readLive], { shown: false, alert: false }));
   }, [revision, load]);

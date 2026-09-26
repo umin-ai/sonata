@@ -12,8 +12,13 @@
 //   a working stream, or at once when the indexer refuses it (`busy`); a
 //   restart's few seconds do not send every page to poll. Reconnects go on
 //   meanwhile, at most a minute apart, and the first that works ends it.
+// - It is live once the indexer has data to send: a `hello` from an indexer
+//   that has not read the chain yet (just restarted) keeps it connecting, so
+//   the page still falls back if that lasts a minute.
 // - A stream from a newer protocol (hello.v) is closed for good: the page
-//   polls until it is reloaded.
+//   polls until it is reloaded. An indexer with live push turned off answers
+//   `off`: the page closes it for good and stays as pages were before live
+//   push (status "off").
 // - A tab hidden for a minute closes its stream, and resumes when shown.
 //
 // Pushed data is for display only: nothing here enables an action.
@@ -142,6 +147,13 @@ export function createLiveStream(options: LiveStreamOptions, env: LiveStreamEnv 
     es = null;
   }
 
+  // A working stream: the page stops counting towards the fallback.
+  function working() {
+    failingSince = null;
+    fallbackTimer = clear(fallbackTimer);
+    setStatus("live");
+  }
+
   // No working stream since `failingSince`: past a minute, the page polls.
   function fail() {
     failingSince ??= env.now();
@@ -208,10 +220,18 @@ export function createLiveStream(options: LiveStreamOptions, env: LiveStreamEnv 
           setStatus("fallback");
           return;
         }
+        // Connected: the next failure starts the backoff over.
         attempt = 0;
-        failingSince = null;
+        // An indexer that has not read the chain yet sends nothing until it has: not live yet.
+        if (data.ready !== true) fail();
+        else working();
+        return;
+      case "off":
+        // Live push is off at the indexer: closed for good, the page as before live push.
+        dead = true;
+        close();
         fallbackTimer = clear(fallbackTimer);
-        setStatus("live");
+        setStatus("off");
         return;
       case "busy":
         close();
@@ -220,6 +240,7 @@ export function createLiveStream(options: LiveStreamOptions, env: LiveStreamEnv 
         scheduleReconnect(Number(data.retryMs) || 0);
         return;
       case "snapshot": {
+        working();
         const snap = data as Snapshot;
         if (snap.scope === "list") {
           // Without stats (the indexer has not loaded them yet) the page keeps its server snapshot's.
@@ -287,7 +308,7 @@ export function createLiveStream(options: LiveStreamOptions, env: LiveStreamEnv 
     }
     const source = new env.EventSource(url());
     es = source;
-    for (const type of ["hello", "snapshot", "market", "removed", "trade", "stats", "profile", "ping", "busy"])
+    for (const type of ["hello", "snapshot", "market", "removed", "trade", "stats", "profile", "ping", "busy", "off"])
       source.addEventListener(type, (e) => {
         if (es === source) onEvent(type, e);
       });
