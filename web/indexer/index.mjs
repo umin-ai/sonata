@@ -10,7 +10,10 @@
 // which the web app server-renders the market list and market pages.
 //
 // Env: DATABASE_URL (required), SOLANA_RPC_URL (default: public Devnet),
-//      INDEXER_PORT (default 8790), INDEXER_POLL_MS (default 20000).
+//      INDEXER_PORT (default 8790), INDEXER_POLL_MS (default 20000),
+//      MARKET_ACCOUNTS_FALLBACK_RPC_URL, else GETBLOCK_DEVNET_URL (optional: a
+//      Devnet RPC the market accounts reader falls back to when SOLANA_RPC_URL
+//      keeps failing; it must take 100-key getMultipleAccounts calls).
 import http from "node:http";
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -656,11 +659,18 @@ export const airdropSummary = (a) => ({
   sentAt: seconds(a.sent_at),
 });
 
+/** A response body that is already JSON: sent as it is, without serializing it again. */
+export class RawJson {
+  constructor(text) {
+    this.text = text;
+  }
+}
+
 /**
  * The read-only API over `db`; `state` is the sync loop's, for /health;
- * `accounts()` is the market accounts reader's last read (null before one).
+ * `accountsJson()` is the market accounts reader's last read as JSON (null before one).
  */
-export function api({ db, state, accounts = () => null }) {
+export function api({ db, state, accountsJson = () => null }) {
   // What the market's fee module has done, from confirmed rows only.
   async function moduleDetail(pool, fm) {
     if (fm?.fee_model === "buyback") {
@@ -785,7 +795,10 @@ export function api({ db, state, accounts = () => null }) {
     const q = url.searchParams;
     if (url.pathname === "/api/index/health") return { ok: true, ...state };
     // Every market's raw accounts (modules/market-accounts.mjs); 503 until the first read.
-    if (url.pathname === "/api/index/accounts") return accounts() ?? 503;
+    if (url.pathname === "/api/index/accounts") {
+      const text = accountsJson();
+      return text ? new RawJson(text) : 503;
+    }
     if (url.pathname === "/api/index/trades") {
       if (!isPool(q.get("pool"))) return 400;
       const { rows } = await db.query(
@@ -887,21 +900,27 @@ const isMain = (() => {
 
 if (isMain) {
   // Market accounts for the app's server-rendered pages, on their own connection
-  // with a per-call timeout, so a silent RPC never holds a read (or the sync loop) up.
-  const accountsConn = new Connection(RPC, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(8_000) }),
-  });
+  // with a per-call timeout, so a silent RPC never holds a read (or the sync loop)
+  // up, and a fallback provider for when that RPC keeps failing. Its URL carries
+  // an access key: it is never logged.
+  const timed = (url, ms) =>
+    new Connection(url, {
+      commitment: "confirmed",
+      disableRetryOnRateLimit: true,
+      fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(ms) }),
+    });
+  const fallbackUrl = process.env.MARKET_ACCOUNTS_FALLBACK_RPC_URL || process.env.GETBLOCK_DEVNET_URL || "";
   const accounts = marketAccountsReader({
-    conn: accountsConn,
+    conn: timed(RPC, 4_000),
+    fallback: fallbackUrl ? timed(fallbackUrl, 8_000) : null,
     programId: TREASURY_PROGRAM.toBase58(),
     discriminator: TREASURY_DISCRIMINATOR,
     quoteMints: new Set(
       JSON.parse(readFileSync(new URL("../lib/treasury/quote-assets.json", import.meta.url), "utf8")).assets.map((a) => a.mint),
     ),
   });
-  const { route } = api({ db, state, accounts: accounts.current });
+  console.error(`market accounts: fallback RPC ${fallbackUrl ? "configured" : "not configured"}`);
+  const { route } = api({ db, state, accountsJson: accounts.currentJson });
   http
     .createServer(async (req, res) => {
       const send = (status, body, cache = status === 200 ? "public, max-age=5" : "no-store") => {
@@ -921,8 +940,12 @@ if (isMain) {
         if (out === 400) return send(400, { error: "Bad request." });
         if (out === 404) return send(404, { error: "Not found." });
         if (out === 503) return send(503, { error: "Not read yet." });
-        // The accounts change every read; the app decides how old is too old.
-        send(200, out, url.pathname === "/api/index/accounts" ? "no-store" : undefined);
+        // The accounts change every read, and are serialized once per read; the app decides how old is too old.
+        if (out instanceof RawJson) {
+          res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+          return res.end(out.text);
+        }
+        send(200, out);
       } catch {
         send(500, { error: "Market data unavailable." });
       }

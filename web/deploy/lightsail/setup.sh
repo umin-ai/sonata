@@ -133,9 +133,13 @@ sudo -u sonata bash -c "cd $WEB_DIR && npm ci --no-audit --no-fund && npm run bu
 install -o sonata -g sonata -m 600 $HOME_DIR/sonata.env $WEB_DIR/dist/server/.dev.vars
 echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" >> $WEB_DIR/dist/server/.dev.vars
 echo "INDEXER_URL=http://127.0.0.1:8790/api/index" >> $WEB_DIR/dist/server/.dev.vars
-# The indexer only needs the database.
+# The indexer needs the database, and takes a fallback Devnet RPC for its market
+# accounts reader from sonata.env when there is one (MARKET_ACCOUNTS_FALLBACK_RPC_URL,
+# else the relay's GETBLOCK_DEVNET_URL). Its own overrides live in
+# indexer-overrides.env, which this script never rewrites.
 install -o sonata -g sonata -m 600 /dev/null $HOME_DIR/indexer.env
 echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" > $HOME_DIR/indexer.env
+grep -E '^(MARKET_ACCOUNTS_FALLBACK_RPC_URL|GETBLOCK_DEVNET_URL)=' $HOME_DIR/sonata.env >> $HOME_DIR/indexer.env || true
 
 # Creator payout crank: its own fee-payer key, generated here once and never
 # printed. It can only pay network fees, so it needs a little Devnet SOL.
@@ -155,6 +159,8 @@ sed "s/__HOST__/$HOST/g" "$HERE/sonata.service" > /etc/systemd/system/sonata.ser
 install -m 644 "$HERE/sonata-indexer.service" /etc/systemd/system/sonata-indexer.service
 install -m 644 "$HERE/sonata-crank.service" /etc/systemd/system/sonata-crank.service
 install -m 644 "$HERE/sonata-crank.timer" /etc/systemd/system/sonata-crank.timer
+install -m 644 "$HERE/sonata-warm.service" /etc/systemd/system/sonata-warm.service
+install -m 644 "$HERE/sonata-warm.timer" /etc/systemd/system/sonata-warm.timer
 sed "s/__HOST__/$HOST/g" "$HERE/Caddyfile" > /etc/caddy/Caddyfile
 if [ -n "$ALIASES" ]; then
   printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "${ALIASES// /, }" "$HOST" >> /etc/caddy/Caddyfile
@@ -164,6 +170,8 @@ systemctl daemon-reload
 systemctl enable sonata sonata-indexer >/dev/null 2>&1
 # The indexer's startup migrates the database (tables the crank reads).
 systemctl restart sonata sonata-indexer
+# Keeps the market snapshot warm between visitors (reads only).
+systemctl enable --now sonata-warm.timer >/dev/null 2>&1
 echo "Waiting for sonata-indexer to migrate the database..."
 wait_for_migration
 # The crank is started by its timer, never enabled on its own.

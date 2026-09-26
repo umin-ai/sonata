@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import { keyBatches, marketAccountsReader, MAX_KEYS_PER_CALL } from "./market-accounts.mjs";
-import { api } from "../index.mjs";
+import { api, RawJson } from "../index.mjs";
 
 // The app's capture of four Devnet markets: exactly the keys runtime.ts reads for their cards.
 const fixture = JSON.parse(
@@ -17,19 +17,22 @@ const QUOTE_MINTS = new Set(
 const toInfo = (a) =>
   a && { owner: new PublicKey(a.owner), lamports: a.lamports, executable: a.executable, data: Buffer.from(a.data[0], "base64") };
 
-function fakeConn({ programAccounts = fixture.programAccounts, fail } = {}) {
+// `slots`: the slot each getMultipleAccounts call answers at, in order (default: the fixture's).
+function fakeConn({ programAccounts = fixture.programAccounts, fail, slots = [] } = {}) {
   const calls = [];
-  return {
+  const conn = {
     calls,
+    fail,
     async getProgramAccounts(program, config) {
       calls.push({ method: "getProgramAccounts", program: program.toBase58(), config });
-      if (fail) throw Error(fail);
+      if (conn.fail) throw Error(conn.fail);
       return programAccounts.map(({ pubkey, account }) => ({ pubkey: new PublicKey(pubkey), account: toInfo(account) }));
     },
     async getMultipleAccountsInfoAndContext(keys) {
+      const n = calls.filter((c) => c.method === "getMultipleAccounts").length;
       calls.push({ method: "getMultipleAccounts", keys: keys.map((k) => k.toBase58()) });
       return {
-        context: { slot: fixture.slot },
+        context: { slot: slots[n] ?? fixture.slot },
         value: keys.map((k) => {
           const key = k.toBase58();
           if (!Object.hasOwn(fixture.accounts, key)) throw Error(`reader asked for ${key}, which the app never reads`);
@@ -38,6 +41,7 @@ function fakeConn({ programAccounts = fixture.programAccounts, fail } = {}) {
       };
     },
   };
+  return conn;
 }
 const reader = (conn, extra = {}) =>
   marketAccountsReader({
@@ -109,11 +113,73 @@ test("calls hold at most 100 keys, shared keys first, one market's keys never sp
   assert.equal(batches.flat().length, 283);
 });
 
-test("the API serves the last read at /api/index/accounts, and 503 before the first", async () => {
-  let current = null;
-  const { route } = api({ db: null, state: {}, accounts: () => current });
+test("the API serves the last read at /api/index/accounts, serialized once per read, and 503 before the first", async () => {
+  const r = reader(fakeConn());
+  const { route } = api({ db: null, state: {}, accountsJson: r.currentJson });
   const url = new URL("http://localhost/api/index/accounts");
   assert.equal(await route(url), 503);
-  current = { v: 1, readAt: 1 };
-  assert.equal(await route(url), current);
+  await r.tick();
+  const out = await route(url);
+  assert.ok(out instanceof RawJson);
+  assert.deepEqual(JSON.parse(out.text), r.current());
+  assert.equal(r.current().source, "primary");
+  assert.equal(r.currentJson(), out.text);
+  assert.equal((await route(url)).text, out.text, "the same string, not serialized again");
+});
+
+test("with 10 keys a call, the same accounts in 4 calls, each account dated by its own call's slot", async () => {
+  const conn = fakeConn({ slots: [101, 102, 103, 104] });
+  const snapshot = await reader(conn, { maxKeysPerCall: 10 }).read();
+  const calls = conn.calls.filter((c) => c.method === "getMultipleAccounts");
+  assert.equal(calls.length, 4);
+  assert.ok(calls.every((c) => c.keys.length <= 10));
+  assert.equal(snapshot.calls, 5);
+  assert.equal(snapshot.slot, 101, "the lowest slot");
+  assert.deepEqual(Object.keys(snapshot.accounts).sort(), Object.keys(fixture.accounts).sort());
+  calls.forEach((c, i) => {
+    for (const key of c.keys) assert.equal(snapshot.accounts[key]?.slot ?? 101 + i, 101 + i, key);
+  });
+  // The shared keys (quote mints and the program) come first; each market's keys stay in one call.
+  assert.ok(calls[0].keys.includes(fixture.treasuryProgram));
+});
+
+test("when the primary RPC fails twice in a row, reads go through the fallback every 30 s until it answers again", async () => {
+  let t = 0;
+  const primary = fakeConn();
+  const fallback = fakeConn();
+  const logs = [];
+  const r = reader(primary, { fallback, now: () => t, log: (...a) => logs.push(a.join(" ")) });
+  await r.tick();
+  assert.equal(r.current().source, "primary");
+  primary.fail = "fetch failed";
+  const reads = () => fallback.calls.filter((c) => c.method === "getProgramAccounts").length;
+  t = 10_000;
+  await r.tick();
+  assert.equal(reads(), 0, "one failure is not enough");
+  t = 20_000;
+  await r.tick();
+  assert.equal(reads(), 1);
+  assert.equal(r.current().source, "fallback");
+  assert.equal(r.current().readAt, 20_000);
+  t = 30_000;
+  await r.tick();
+  t = 40_000;
+  await r.tick();
+  assert.equal(reads(), 1, "the fallback is read at most every 30 s");
+  t = 50_000;
+  await r.tick();
+  assert.equal(reads(), 2);
+  primary.fail = null;
+  t = 60_000;
+  await r.tick();
+  assert.equal(r.current().source, "primary");
+  assert.equal(reads(), 2);
+  assert.equal(logs.filter((l) => l.includes("through the fallback")).length, 1, "the switch is logged once");
+  assert.equal(logs.filter((l) => l.includes("answers again")).length, 1);
+  // A fallback that fails too keeps the last read.
+  primary.fail = fallback.fail = "down";
+  const last = r.current();
+  for (t = 70_000; t <= 130_000; t += 10_000) await r.tick();
+  assert.equal(r.current(), last);
+  assert.equal(logs.filter((l) => l.includes("failed too")).length, 1);
 });

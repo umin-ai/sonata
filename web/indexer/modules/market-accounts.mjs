@@ -2,6 +2,12 @@
 // app's server-rendered market list and market pages (lib/server/market-snapshot.ts),
 // served at /api/index/accounts.
 //
+// It reads through `conn` (public Devnet, or SOLANA_RPC_URL). When that fails
+// twice in a row it also reads through `fallback` (a dedicated provider, e.g.
+// GetBlock, whose getMultipleAccounts takes 100 keys), at most every 30 s to
+// stay inside a provider's budget, until `conn` answers again. Each switch is
+// logged; the answer says which one served it (`source`).
+//
 // This module decides nothing about a market: it lists the treasury program's
 // accounts, derives the addresses each market's card reads (pool, config,
 // metadata, treasury, base mint, and the treasury's and payout wallet's quote
@@ -15,9 +21,14 @@
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import bs58 from "bs58";
+import { accountBatches, MAX_ACCOUNTS_PER_CALL } from "../../lib/treasury/account-batches.mjs";
 
 export const MARKET_ACCOUNTS_INTERVAL_MS = 10_000;
-export const MAX_KEYS_PER_CALL = 100;
+export const MAX_KEYS_PER_CALL = MAX_ACCOUNTS_PER_CALL;
+/** Reads through the fallback happen at most this often. */
+export const FALLBACK_EVERY_MS = 30_000;
+/** Failed reads through `conn` in a row before the fallback is used. */
+export const FAILURES_BEFORE_FALLBACK = 2;
 const METAPLEX = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 
 /** The keys a treasury account names, from its fixed layout after the 8-byte discriminator. */
@@ -42,57 +53,44 @@ export function marketKeys(treasury, t) {
 }
 
 /**
- * getMultipleAccounts calls of at most MAX_KEYS_PER_CALL keys: the shared keys
- * first, then each group whole. A key is read once, in the first call that
- * needs it (as runtime.ts's accountBatches does).
+ * getMultipleAccounts calls of at most `max` keys: the shared keys first, then
+ * each group whole. The same function the app's readers use
+ * (lib/treasury/account-batches.mjs).
  */
-export function keyBatches(groups, shared = []) {
-  const batches = [],
-    seen = new Set();
-  let current = [];
-  const add = (keys) => {
-    for (const k of keys)
-      if (!seen.has(k)) {
-        seen.add(k);
-        current.push(k);
-      }
-  };
-  add(shared);
-  for (const group of groups) {
-    const fresh = [...new Set(group)].filter((k) => !seen.has(k));
-    if (current.length && current.length + fresh.length > MAX_KEYS_PER_CALL) {
-      batches.push(current);
-      current = [];
-    }
-    add(fresh);
-  }
-  if (current.length) batches.push(current);
-  return batches;
-}
+export const keyBatches = accountBatches;
 
 /**
- * Reads every market's accounts on `conn`, one read at a time. `current()` is
- * the last complete read ({ v, readAt, slot, ms, calls, treasuries, accounts })
- * or null before the first; a failed read keeps the previous one, so the app
- * decides by `readAt` how old is too old. Accounts are
- * { owner, lamports, executable, data (base64), slot } or null if missing.
+ * Reads every market's accounts on `conn` (or `fallback`, see above), one read
+ * at a time. `current()` is the last complete read ({ v, readAt, slot, ms,
+ * calls, source, treasuries, accounts }) or null before the first, and
+ * `currentJson()` the same serialized once per read; a failed read keeps the
+ * previous one, so the app decides by `readAt` how old is too old. Accounts
+ * are { owner, lamports, executable, data (base64), slot } or null if missing.
  */
 export function marketAccountsReader({
   conn,
+  fallback = null,
   programId,
   discriminator,
   quoteMints,
   now = Date.now,
   log = (...a) => console.error(...a),
+  maxKeysPerCall = MAX_KEYS_PER_CALL,
+  fallbackEveryMs = FALLBACK_EVERY_MS,
 }) {
   const program = new PublicKey(programId);
   let current = null,
+    json = null,
     reading = null,
-    failing = false;
+    failing = false,
+    failures = 0,
+    onFallback = false,
+    fallbackFailing = false,
+    fallbackAt = -Infinity;
 
-  async function read() {
+  async function read(on = conn) {
     const started = now();
-    const listed = await conn.getProgramAccounts(program, {
+    const listed = await on.getProgramAccounts(program, {
       commitment: "confirmed",
       filters: [{ memcmp: { offset: 0, bytes: bs58.encode(Buffer.from(discriminator)) } }],
     });
@@ -115,8 +113,8 @@ export function marketAccountsReader({
     const accounts = {};
     let slot = Infinity,
       calls = 1;
-    for (const batch of keyBatches(groups, [...quotes, program.toBase58()])) {
-      const { context, value } = await conn.getMultipleAccountsInfoAndContext(
+    for (const batch of accountBatches(groups, [...quotes, program.toBase58()], maxKeysPerCall)) {
+      const { context, value } = await on.getMultipleAccountsInfoAndContext(
         batch.map((k) => new PublicKey(k)),
         "confirmed",
       );
@@ -147,24 +145,56 @@ export function marketAccountsReader({
     };
   }
 
+  const keep = (snapshot, source) => {
+    current = { ...snapshot, source };
+    json = null;
+  };
+  const message = (e) => String(e?.message ?? e).slice(0, 300);
+
+  // One read through `conn`, and through the fallback when `conn` keeps failing and it is due.
+  async function once() {
+    try {
+      const snapshot = await read(conn);
+      if (failing || !current)
+        log(`market accounts: ${snapshot.treasuries.length} markets in ${snapshot.ms} ms (${snapshot.calls} calls)`);
+      if (onFallback) log("market accounts: the primary RPC answers again; the fallback is no longer used");
+      failing = false;
+      failures = 0;
+      onFallback = false;
+      keep(snapshot, "primary");
+      return;
+    } catch (e) {
+      if (!failing) log("market accounts read failed:", message(e));
+      failing = true;
+      failures++;
+    }
+    if (!fallback || failures < FAILURES_BEFORE_FALLBACK || now() - fallbackAt < fallbackEveryMs) return;
+    fallbackAt = now();
+    try {
+      const snapshot = await read(fallback);
+      if (!onFallback) log(`market accounts: reading through the fallback RPC (${snapshot.treasuries.length} markets in ${snapshot.ms} ms)`);
+      onFallback = true;
+      fallbackFailing = false;
+      keep(snapshot, "fallback");
+    } catch (e) {
+      if (!fallbackFailing) log("market accounts: the fallback RPC failed too:", message(e));
+      fallbackFailing = true;
+    }
+  }
+
   /** Starts a read unless one is running; resolves when it ends (never rejects). */
   function tick() {
-    reading ??= read()
-      .then((snapshot) => {
-        if (failing || !current)
-          log(`market accounts: ${snapshot.treasuries.length} markets in ${snapshot.ms} ms (${snapshot.calls} calls)`);
-        failing = false;
-        current = snapshot;
-      })
-      .catch((e) => {
-        if (!failing) log("market accounts read failed:", String(e?.message ?? e).slice(0, 300));
-        failing = true;
-      })
-      .finally(() => {
-        reading = null;
-      });
+    reading ??= once().finally(() => {
+      reading = null;
+    });
     return reading;
   }
 
-  return { tick, read, current: () => current };
+  return {
+    tick,
+    read,
+    current: () => current,
+    /** The current read as JSON, serialized once per read (the API sends it as it is). */
+    currentJson: () => (current ? (json ??= JSON.stringify(current)) : null),
+  };
 }

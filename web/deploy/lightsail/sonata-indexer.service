@@ -10,6 +10,9 @@ User=sonata
 Group=sonata
 WorkingDirectory=/opt/sonata/app/web
 EnvironmentFile=/opt/sonata/indexer.env
+# Optional overrides, read last and never rewritten by setup.sh: SOLANA_RPC_URL
+# (the indexer's own Devnet RPC; default public Devnet).
+EnvironmentFile=-/opt/sonata/indexer-overrides.env
 ExecStart=/usr/bin/node indexer/index.mjs
 Restart=always
 RestartSec=5

@@ -1,0 +1,19 @@
+# Keeps the app's market snapshot warm (lib/server/market-snapshot.ts): asks
+# the app for /api/markets over loopback, which refreshes the chain data and
+# starts any due token image, price and 24h stats refresh in the background.
+# At low traffic the server-rendered home and market pages then never find an
+# expired value to wait for. Started every 10 seconds by sonata-warm.timer.
+[Unit]
+Description=Sonata market snapshot warm-up
+After=sonata.service
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+ExecStart=/usr/bin/curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8787/api/markets
+# Quiet in the journal: no lines per run, only curl's own errors (at warning).
+SyslogLevel=warning
+LogLevelMax=warning
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
