@@ -49,7 +49,7 @@ let FILL_IN = 480_000_000n;
 
 const proofPath = process.argv[2] ?? "artifacts/configurable-launch-proof-post-upgrade.json";
 const out = process.argv[3] ?? "artifacts/graduation-proof.json";
-const DBC = JSON.parse(readFileSync("../cash-access/lib/treasury/dbc-addresses.json"));
+const DBC = JSON.parse(readFileSync("../web/lib/treasury/dbc-addresses.json"));
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
 assert.equal(await conn.getGenesisHash(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", "Not Devnet.");
 const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(".keys/deployer.json"))));

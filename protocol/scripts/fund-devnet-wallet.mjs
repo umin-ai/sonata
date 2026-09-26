@@ -16,7 +16,7 @@ const [address, sol = "0.2", symbol = "mQQQ", amount = "5"] = process.argv.slice
 assert.ok(address, "Pass the wallet address to fund.");
 const to = new PublicKey(address);
 assert.ok(PublicKey.isOnCurve(to.toBytes()), "Not a normal wallet address.");
-const asset = JSON.parse(readFileSync("../cash-access/lib/treasury/quote-assets.json", "utf8")).assets.find((a) => a.symbol === symbol);
+const asset = JSON.parse(readFileSync("../web/lib/treasury/quote-assets.json", "utf8")).assets.find((a) => a.symbol === symbol);
 assert.ok(asset, `${symbol} has no Devnet mint in the registry.`);
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
 assert.equal(await conn.getGenesisHash(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", "Not Devnet.");

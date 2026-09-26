@@ -40,7 +40,7 @@ import assert from "node:assert/strict";
 const [proofPath, out = "artifacts/stock-floor-proof.json"] = process.argv.slice(2);
 assert.ok(proofPath, "Pass the launch proof JSON of a Floor-mode launch.");
 const BUY_ATOMS = 200_000_000n; // 2 quote tokens at 8 decimals
-const DBC = JSON.parse(readFileSync("../cash-access/lib/treasury/dbc-addresses.json"));
+const DBC = JSON.parse(readFileSync("../web/lib/treasury/dbc-addresses.json"));
 
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
 assert.equal(await conn.getGenesisHash(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", "Not Devnet.");

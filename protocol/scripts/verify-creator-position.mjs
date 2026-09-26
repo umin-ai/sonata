@@ -11,13 +11,13 @@
 // creator's is owned by the creator and permanently locked, that fees accrued
 // to it, and that the claim moved them to the creator's token accounts.
 //
-// Steps 4-5 use cash-access/lib/liquidity/creator-position.ts, the same code
+// Steps 4-5 use web/lib/liquidity/creator-position.ts, the same code
 // the app runs, so this also proves the app's read and claim builder.
 //
 // State is saved to the output file after every step; rerunning with an
 // incomplete output file resumes it. A complete file is never overwritten.
 //
-// Usage (from stockroom-protocol/):
+// Usage (from protocol/):
 //   node --experimental-strip-types scripts/verify-creator-position.mjs [out.json]
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
@@ -106,14 +106,14 @@ assert.equal(await conn.getGenesisHash(), GENESIS, "Not Devnet.");
 
 let lib;
 try {
-  lib = await import(new URL("../../cash-access/lib/liquidity/creator-position.ts", import.meta.url));
+  lib = await import(new URL("../../web/lib/liquidity/creator-position.ts", import.meta.url));
 } catch (e) {
   throw Error(`Cannot load the app library (run node with --experimental-strip-types): ${e.message}`);
 }
 
 const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(".keys/deployer.json"))));
-const treasuryIdl = JSON.parse(readFileSync("../cash-access/lib/treasury/stockroom_treasury.json"));
-const DBC = JSON.parse(readFileSync("../cash-access/lib/treasury/dbc-addresses.json"));
+const treasuryIdl = JSON.parse(readFileSync("../web/lib/treasury/stockroom_treasury.json"));
+const DBC = JSON.parse(readFileSync("../web/lib/treasury/dbc-addresses.json"));
 const program = new anchor.Program(
   treasuryIdl,
   new anchor.AnchorProvider(conn, new anchor.Wallet(admin), { commitment: "confirmed" }),

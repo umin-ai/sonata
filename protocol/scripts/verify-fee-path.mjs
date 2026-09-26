@@ -37,7 +37,7 @@ import assert from "node:assert/strict";
 const proofPath = process.argv[2] ?? "artifacts/configurable-launch-proof.json";
 const out = process.argv[3] ?? "artifacts/fee-path-proof.json";
 const BUY_ATOMS = 5_000_000n; // 0.05 of the quote token at 8 decimals
-const DBC = JSON.parse(readFileSync("../cash-access/lib/treasury/dbc-addresses.json"));
+const DBC = JSON.parse(readFileSync("../web/lib/treasury/dbc-addresses.json"));
 
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
 assert.equal(await conn.getGenesisHash(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", "Not Devnet.");

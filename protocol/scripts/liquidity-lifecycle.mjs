@@ -56,7 +56,7 @@ assert.equal(
   "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
 );
 const amm = new CpAmm(c),
-  m = JSON.parse(readFileSync("../cash-access/lib/treasury/market.json"));
+  m = JSON.parse(readFileSync("../web/lib/treasury/market.json"));
 const key = (name) => {
   const path = `.keys/${name}.json`;
   if (!existsSync(path))

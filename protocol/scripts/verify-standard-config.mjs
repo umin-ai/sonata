@@ -31,7 +31,7 @@ const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(".ke
 const idl = JSON.parse(readFileSync("target/idl/stockroom_treasury.json"));
 const program = new anchor.Program(idl, new anchor.AnchorProvider(conn, new anchor.Wallet(admin), { commitment: "confirmed" }));
 const [vault] = PublicKey.findProgramAddressSync([Buffer.from("stockroom")], program.programId);
-const asset = JSON.parse(readFileSync("../cash-access/lib/treasury/quote-assets.json", "utf8")).assets.find((a) => a.symbol === "mSPY");
+const asset = JSON.parse(readFileSync("../web/lib/treasury/quote-assets.json", "utf8")).assets.find((a) => a.symbol === "mSPY");
 const quoteMint = new PublicKey(asset.mint);
 const dbc = new DynamicBondingCurveClient(conn, "confirmed");
 const traces = [];

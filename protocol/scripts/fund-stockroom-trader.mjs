@@ -18,7 +18,7 @@ import {
 const owner = new PublicKey(process.argv[2]);
 if (!PublicKey.isOnCurve(owner.toBytes()))
   throw Error("Signing wallet required.");
-const m = JSON.parse(readFileSync("../cash-access/lib/treasury/market.json"));
+const m = JSON.parse(readFileSync("../web/lib/treasury/market.json"));
 const c = new Connection("https://api.devnet.solana.com", "confirmed");
 if (
   (await c.getGenesisHash()) !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"

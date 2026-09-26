@@ -36,7 +36,7 @@ const key = (n) =>
   alice = key("lp-alice"),
   bob = key("lp-bob"),
   attacker = key("lp-trader");
-const m = JSON.parse(readFileSync("../cash-access/lib/treasury/market.json")),
+const m = JSON.parse(readFileSync("../web/lib/treasury/market.json")),
   mint = new PublicKey(m.quoteMint),
   treasury = new PublicKey(m.treasury),
   t = new anchor.Program(

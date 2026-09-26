@@ -5,14 +5,19 @@
 //     marked "expected refusal" (then it must have failed);
 //   - every account exists on Devnet;
 //   - with --links, every other https link returns HTTP 200.
-// Usage: node scripts/verify-handoff.mjs [--links] [HANDOFF.md]
+// Usage (from protocol/): node scripts/verify-handoff.mjs [--links] [HANDOFF.md]
+// With no file it checks the repository's HANDOFF.md (../HANDOFF.md from
+// protocol/), and it always writes protocol/artifacts/handoff-check.json.
 import { readFileSync, writeFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Connection, PublicKey } from "@solana/web3.js";
 import assert from "node:assert/strict";
 
 const args = process.argv.slice(2);
 const checkLinks = args.includes("--links");
-const file = args.find((a) => !a.startsWith("--")) ?? "HANDOFF.md";
+const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+const file = args.find((a) => !a.startsWith("--")) ?? resolve(repoRoot, "HANDOFF.md");
 const text = readFileSync(file, "utf8");
 const conn = new Connection("https://api.devnet.solana.com", "confirmed");
 assert.equal(await conn.getGenesisHash(), "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", "Not Devnet.");
@@ -66,7 +71,7 @@ if (checkLinks) {
 }
 
 const report = {
-  file,
+  file: relative(repoRoot, resolve(file)),
   checkedAt: new Date().toISOString(),
   transactions: txs.size,
   expectedRefusals: [...txs.values()].filter((t) => t.expectFailure).length,
@@ -77,7 +82,7 @@ const report = {
   accountFailures,
   linkFailures,
 };
-writeFileSync("artifacts/handoff-check.json", JSON.stringify(report, null, 2));
+writeFileSync(new URL("../artifacts/handoff-check.json", import.meta.url), JSON.stringify(report, null, 2));
 console.log(
   `${txs.size} transactions (${report.expectedRefusals} expected refusal), ${accounts.size} accounts${checkLinks ? `, ${linksChecked} links` : ""}: ` +
     `${labelErrors.length} label errors, ${txFailures.length} transaction failures, ${accountFailures.length} missing accounts` +

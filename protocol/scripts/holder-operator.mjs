@@ -1,5 +1,5 @@
 import {DynamicBondingCurveClient,getCurrentPoint} from "@meteora-ag/dynamic-bonding-curve-sdk";
-import {scanHolderAccounts} from "../../cash-access/lib/rewards/holder-scan.ts";
+import {scanHolderAccounts} from "../../web/lib/rewards/holder-scan.ts";
 // Devnet-only creator-run operator. No web endpoint, remote signer or secret logging.
 import {
   readFileSync,
@@ -33,8 +33,8 @@ import anchor from "@coral-xyz/anchor";
 import {
   holderShares,
   rewardBudget,
-} from "../../cash-access/lib/rewards/holder-math.ts";
-import { createRpcFetch } from "../../cash-access/lib/treasury/rpc-fetch.ts";
+} from "../../web/lib/rewards/holder-math.ts";
+import { createRpcFetch } from "../../web/lib/treasury/rpc-fetch.ts";
 const c = new Connection("https://api.devnet.solana.com", {
   commitment: "confirmed",
   disableRetryOnRateLimit: true,
@@ -54,7 +54,7 @@ const key = Keypair.fromSecretKey(
 const m = JSON.parse(
   readFileSync(
     process.env.STOCKROOM_MARKET_FILE ??
-      "../cash-access/lib/treasury/market.json",
+      "../web/lib/treasury/market.json",
   ),
 );
 if (key.publicKey.toBase58() !== m.creator)
@@ -70,7 +70,7 @@ const p = new anchor.Program(
     { connection: c },
   );
 const dbc = JSON.parse(
-  readFileSync("../cash-access/lib/treasury/dbc-addresses.json"),
+  readFileSync("../web/lib/treasury/dbc-addresses.json"),
 );
 const policy = PublicKey.findProgramAddressSync(
   [Buffer.from("holder-policy"), pk(m.treasury).toBuffer()],
@@ -206,7 +206,7 @@ async function tick() {
     return;
   // Collection is permissionless; treasury allocation follows its existing onchain split.
   const coder = new anchor.BorshAccountsCoder(
-    JSON.parse(readFileSync("../cash-access/lib/treasury/dbc.json")),
+    JSON.parse(readFileSync("../web/lib/treasury/dbc.json")),
   );
   const poolRaw = await c.getAccountInfo(pk(m.pool));
   const decoded = coder.decode("virtualPool", poolRaw.data),

@@ -17,7 +17,7 @@ const [symbol = "mQQQ", targetArg = "25000", feeArg = "300", out = `artifacts/do
   process.argv.slice(2);
 const OPEN_USD = 5_000;
 const targetUsd = Number(targetArg);
-const registry = JSON.parse(readFileSync("../cash-access/lib/treasury/quote-assets.json", "utf8")).assets;
+const registry = JSON.parse(readFileSync("../web/lib/treasury/quote-assets.json", "utf8")).assets;
 const asset = registry.find((a) => a.symbol === symbol);
 assert.ok(asset, `${symbol} has no Devnet mint in the registry.`);
 
