@@ -770,6 +770,62 @@ test("only endpoint URLs and numbers are saved, and a new client picks them up",
   await createRpcFetch(base, options)(A, req("getSlot", 2));
   assert.deepEqual(hits, [A, B, B]);
 });
+test("a quick failure in one tab does not shorten a longer rest another tab saved", async () => {
+  const c = clock(), store = memory(), hits: string[] = [];
+  const base = async (url: RequestInfo | URL) => {
+    hits.push(String(url));
+    return String(url) === A ? new Response("down", { status: 503 }) : ok();
+  };
+  const options = { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: store };
+  const f = createRpcFetch(base, options);
+  // Another tab, after this one was created, saw A go quiet.
+  store.setItem(KEY, JSON.stringify({ [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 } }));
+  assert.equal((await body(await f(A, req("getSlot", 1)))).result, 42);
+  assert.deepEqual(hits, [A, B]);
+  assert.deepEqual(store.saved(), { [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 } });
+  // So a new page load still starts with B, after this tab's own 15 s rest for A is over.
+  c.advance(16_000);
+  await createRpcFetch(base, options)(A, req("getSlot", 2));
+  assert.deepEqual(hits, [A, B, B]);
+});
+test("a tab saves only the endpoint it saw and leaves the other entries alone", async () => {
+  const c = clock(), hits: string[] = [];
+  const store = memory({ [A]: { restUntil: c.now() + 5 * MINUTE, strikes: 1 } });
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      if (String(url) === B) throw new TypeError("Failed to fetch");
+      return ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: store },
+  );
+  // Another tab has since made A's rest longer.
+  store.setItem(KEY, JSON.stringify({ [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 2 } }));
+  await assert.rejects(f(A, req("sendTransaction", 1)), { message: RPC_BUSY });
+  assert.deepEqual(hits, [B]);
+  assert.deepEqual(store.saved(), {
+    [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 2 },
+    [B]: { restUntil: c.now() + 15_000, strikes: 1 },
+  });
+});
+test("an endpoint that answers clears a rest another tab saved for it, and only that one", async () => {
+  const c = clock(), store = memory(), hits: string[] = [];
+  const f = createRpcFetch(
+    async (url) => {
+      hits.push(String(url));
+      return ok();
+    },
+    { intervalMs: 0, endpoints: [A, B], now: c.now, timeoutMs: 0, sleep: async () => {}, storage: store },
+  );
+  // Another tab rests both after this one was created; this one has not struck either.
+  store.setItem(
+    KEY,
+    JSON.stringify({ [A]: { restUntil: c.now() + 10 * MINUTE, strikes: 1 }, [B]: { restUntil: c.now() + 30_000, strikes: 2 } }),
+  );
+  await f(A, req("getSlot", 1));
+  assert.deepEqual(hits, [A]);
+  assert.deepEqual(store.saved(), { [B]: { restUntil: c.now() + 30_000, strikes: 2 } });
+});
 test("without a window, localStorage is left alone", async () => {
   let touched = false;
   Object.defineProperty(globalThis, "localStorage", {

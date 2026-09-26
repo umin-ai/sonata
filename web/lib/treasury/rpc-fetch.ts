@@ -19,7 +19,8 @@
  * silent while the other answered rests for 10 minutes instead of seconds, also
  * when it timed out before that answer came. Writes are never sent twice. In a
  * browser the rests are kept in localStorage (endpoint URLs and times only), so
- * a new page load does not start with the endpoint that just went quiet.
+ * a new page load does not start with the endpoint that just went quiet. The
+ * site's tabs share them, and each tab updates only the endpoints it asked.
  */
 export const READS = new Set([
   "getAccountInfo",
@@ -132,49 +133,72 @@ export function createRpcFetch(
   // Rests are kept only for a configured list of endpoints to fail over between.
   const kept = options.endpoints && options.endpoints.length > 1 ? options.endpoints : [];
   const storage = kept.length ? (options.storage === undefined ? browserStorage() : options.storage) : null;
-  const save = () => {
-    if (!storage) return;
-    const resting: Record<string, Health> = {};
-    for (const url of kept) {
-      const h = health.get(url);
-      if (h && h.restUntil > now()) resting[url] = { restUntil: h.restUntil, strikes: h.strikes };
-    }
+  // The saved rests as the site's tabs have left them; {} if there are none or they cannot be read.
+  const load = (): Record<string, unknown> => {
     try {
-      storage.setItem(STORAGE_KEY, JSON.stringify(resting));
+      const saved: unknown = JSON.parse(storage?.getItem(STORAGE_KEY) ?? "null");
+      return saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  };
+  // A saved rest that is still running; undefined for an expired or malformed one.
+  const running = (value: unknown): Health | undefined => {
+    const { restUntil, strikes } = (value ?? {}) as Partial<Health>;
+    if (typeof restUntil !== "number" || !(restUntil > now())) return;
+    if (typeof strikes !== "number" || !Number.isInteger(strikes) || strikes < 0) return;
+    return { restUntil, strikes };
+  };
+  // Saves `url`'s rest, or removes it once it is over, and leaves the other
+  // entries alone: other tabs share the key. A shorter rest here does not replace
+  // a longer one another tab saved. Expired and malformed entries are dropped.
+  const save = (url: string) => {
+    if (!storage) return;
+    const saved = load(),
+      next: Record<string, Health> = {};
+    for (const [other, value] of Object.entries(saved)) {
+      const r = running(value);
+      if (r && other !== url) next[other] = r;
+    }
+    const h = state(url),
+      theirs = running(saved[url]);
+    if (h.restUntil > now())
+      next[url] = {
+        restUntil: Math.max(h.restUntil, theirs?.restUntil ?? 0),
+        strikes: Math.max(h.strikes, theirs?.strikes ?? 0),
+      };
+    try {
+      storage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {}
   };
   // Rests saved by an earlier page that are still running, none longer than SLOW_REST_MS from now.
-  try {
-    const saved = JSON.parse(storage?.getItem(STORAGE_KEY) ?? "null") as Record<string, unknown> | null;
-    if (saved && typeof saved === "object")
-      for (const url of kept) {
-        const { restUntil, strikes } = (saved[url] ?? {}) as Partial<Health>;
-        if (typeof restUntil !== "number" || !(restUntil > now())) continue;
-        if (typeof strikes !== "number" || !Number.isInteger(strikes) || strikes < 0) continue;
-        health.set(url, { restUntil: Math.min(restUntil, now() + SLOW_REST_MS), strikes });
-      }
-  } catch {}
+  const earlier = load();
+  for (const url of kept) {
+    const r = running(earlier[url]);
+    if (r) health.set(url, { restUntil: Math.min(r.restUntil, now() + SLOW_REST_MS), strikes: r.strikes });
+  }
   const rest = (url: string, retryAfterMs?: number) => {
     const h = state(url);
     h.strikes++;
     const backoff = Math.min(MAX_COOLDOWN_MS, BASE_COOLDOWN_MS * 2 ** (h.strikes - 1));
     // A quick failure does not cut short a longer rest that is still running.
     h.restUntil = Math.max(h.restUntil, now() + Math.max(backoff, Math.min(MAX_COOLDOWN_MS, retryAfterMs ?? 0)));
-    save();
+    save(url);
   };
   // `struck`: the endpoint's failure in this request was already counted by rest().
   const restSlow = (url: string, struck = false) => {
     const h = state(url);
     if (!struck) h.strikes++;
     h.restUntil = now() + SLOW_REST_MS;
-    save();
+    save(url);
   };
   const recover = (url: string) => {
     const h = state(url);
-    if (!h.strikes && !h.restUntil) return;
+    // It answered, so a rest another tab saved for it is over too.
+    if (!h.strikes && !h.restUntil && !(storage && url in load())) return;
     h.strikes = 0;
     h.restUntil = 0;
-    save();
+    save(url);
   };
   const soonestFirst = (endpoints: string[]) =>
     [...endpoints].sort((a, b) => state(a).restUntil - state(b).restUntil);
