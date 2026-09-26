@@ -10,14 +10,10 @@ skip-lint = false
 [programs.localnet]
 stockroom_rewards = "6u1nXj1iXNxCGThKetW45MSpXeEdn5GFw6NaZa4Mpn1L"
 stockroom_treasury = "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj"
-stockroom_credit = "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH"
-demo_oracle = "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg"
 
 [programs.devnet]
 stockroom_rewards = "6u1nXj1iXNxCGThKetW45MSpXeEdn5GFw6NaZa4Mpn1L"
 stockroom_treasury = "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj"
-stockroom_credit = "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH"
-demo_oracle = "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg"
 
 [provider]
 cluster = "devnet"

@@ -18,7 +18,7 @@ test("only the Vault admin can create the partner metadata", async () => {
   const svm = new LiteSVM();
   svm.addProgramFromFile(id.toBase58(), "target/deploy/stockroom_treasury.so");
   // A stand-in executable at DBC's address, so account checks reach the admin check.
-  svm.addProgramFromFile(DBC.toBase58(), "target/deploy/demo_oracle.so");
+  svm.addProgramFromFile(DBC.toBase58(), "target/deploy/stockroom_rewards.so");
   const admin = Keypair.generate(),
     attacker = Keypair.generate();
   for (const k of [admin, attacker]) svm.airdrop(k.publicKey.toBase58(), 10_000_000_000n);

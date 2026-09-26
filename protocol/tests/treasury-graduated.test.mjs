@@ -32,7 +32,7 @@ async function fixture() {
   const svm = new LiteSVM();
   svm.addProgramFromFile(id.toBase58(), "target/deploy/stockroom_treasury.so");
   // A stand-in executable at DAMM v2's address: the checks under test run before the call.
-  svm.addProgramFromFile(DAMM.toBase58(), "target/deploy/demo_oracle.so");
+  svm.addProgramFromFile(DAMM.toBase58(), "target/deploy/stockroom_rewards.so");
   const payer = Keypair.generate(),
     quote = Keypair.generate(),
     base = Keypair.generate(),

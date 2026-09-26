@@ -16,8 +16,6 @@ import assert from "node:assert/strict";
 const PROGRAMS = [
   ["stockroom_treasury", "GPANv5zMEmvkVKQxJgLds2B4bEbnub6HhS2WQq71fjNj"],
   ["stockroom_rewards", "6u1nXj1iXNxCGThKetW45MSpXeEdn5GFw6NaZa4Mpn1L"],
-  ["stockroom_credit", "4sS8MrfTUjavLyMs5GtircsjMab5vfVZdLE7YPcZo9BH"],
-  ["demo_oracle", "E45Bq8CUh12Fncuyd5GMHKgkmjpVp8n2C7521ExryDwg"],
 ];
 const HEADER = 45;
 const sha256 = (b) => createHash("sha256").update(b).digest("hex");
