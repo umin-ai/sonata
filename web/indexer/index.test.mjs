@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
-import { BACKFILL_TRANSACTIONS, LP_READING_GAP_SECONDS, STATS_CACHE_MS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, lpReadings, migratedState, retrying, syncer, syncerState } from "./index.mjs";
+import { BACKFILL_TRANSACTIONS, LP_READING_GAP_SECONDS, STATS_CACHE_MS, airdropSummary, api, bountyRound, cursorsOf, dammPoolOf, holdsMarket, lpReadings, migratedState, retrying, syncer, syncerState, streamUnavailable } from "./index.mjs";
 import { HEAD_LAG_SECONDS, indexProgress } from "./modules/indexer-schema.mjs";
 import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
 import { BN, dammPoolAccount, dammSwapTx, dbcAccounts, editPosition, key, lpReadingDb, payoutLedger, positionAccounts } from "./modules/testkit.mjs";
@@ -935,4 +935,18 @@ test("the fast path reads only the venue that changed: a graduated market's DAMM
   chain.calls.length = 0;
   await fast.syncPool(m.pool.toBase58());
   assert.equal(chain.calls.filter((c) => c.startsWith("getSignaturesForAddress")).length, 2);
+});
+
+test("a stream request while live push is starting gets a hello that is not ready (the browser retries in a second); with live push off, `off`", async () => {
+  const answer = (loading) => {
+    const res = { head: null, body: "", writeHead(status, headers) { this.head = { status, headers }; }, end(text) { this.body = text; } };
+    streamUnavailable(res, { loading });
+    return res;
+  };
+  const starting = answer(true);
+  assert.equal(starting.head.status, 200);
+  assert.match(starting.head.headers["Content-Type"], /text\/event-stream/);
+  assert.match(starting.body, /^retry: 1000\n\nevent: hello\ndata: \{"v":1,"ready":false/);
+  const off = answer(false);
+  assert.match(off.body, /event: off\n/);
 });

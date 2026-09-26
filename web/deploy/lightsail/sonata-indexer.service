@@ -16,7 +16,7 @@ EnvironmentFile=/opt/sonata/indexer.env
 EnvironmentFile=-/opt/sonata/indexer-overrides.env
 # Type stripping lets live push decode markets with the app's own TypeScript
 # (lib/treasury/snapshot-decode.ts); without it the indexer runs without live push.
-ExecStart=/usr/bin/node --experimental-strip-types --no-warnings indexer/index.mjs
+ExecStart=/usr/bin/node --experimental-strip-types --disable-warning=ExperimentalWarning indexer/index.mjs
 Restart=always
 RestartSec=5
 # Each open live stream holds one connection from Caddy.

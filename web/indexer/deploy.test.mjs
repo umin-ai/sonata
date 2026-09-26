@@ -147,7 +147,7 @@ test("live push's deploy: the stream outside compression, Node with type strippi
   assert.ok(!/^\s*flush_interval/m.test(caddy));
   assert.equal(caddy.match(/encode /g).length, 1);
   const unit = readFileSync(new URL("../deploy/lightsail/sonata-indexer.service", import.meta.url), "utf8");
-  assert.match(unit, /^ExecStart=\/usr\/bin\/node --experimental-strip-types --no-warnings indexer\/index\.mjs$/m);
+  assert.match(unit, /^ExecStart=\/usr\/bin\/node --experimental-strip-types --disable-warning=ExperimentalWarning indexer\/index\.mjs$/m);
   assert.match(unit, /^LimitNOFILE=65536$/m);
   assert.match(script, /^echo "LIVE_PUSH=1" >> \$HOME_DIR\/indexer\.env$/m);
   // indexer-overrides.env is read after indexer.env, so LIVE_PUSH=0 there turns it off.

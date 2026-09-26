@@ -729,13 +729,52 @@ test("a market page whose market is not in the copy in memory asks the indexer o
   const page = await snapshots.marketPage(pool, { schedule: h.schedule });
   assert.equal(page?.entry.market.pool, pool);
   assert.equal(h.counts.accounts, 2);
-  // A pool that is not a market asks again at most every 250 ms, and not for something that is not an address.
+  // A pool that is not a market asks again at most every second, and not for something that is not an address.
   await snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule });
-  assert.equal(h.counts.accounts, 2, "within 250 ms of the last extra read");
-  h.clock.advance(250);
+  assert.equal(h.counts.accounts, 2, "within a second of the last extra read");
+  h.clock.advance(1_000);
   await snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule });
+  assert.equal(h.counts.accounts, 3);
+  // Missed in that copy: not asked again for it until the copy changes.
+  h.clock.advance(1_000);
   await snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule });
   assert.equal(h.counts.accounts, 3);
   await snapshots.marketPage("not-a-pool", { schedule: h.schedule });
   assert.equal(h.counts.accounts, 3);
+  // Once the copy is refreshed (every 2 s), a page for it may ask once more.
+  h.clock.advance(1_000);
+  await snapshots.home({ schedule: h.schedule, awaitRead: true });
+  const before = h.counts.accounts;
+  await snapshots.marketPage("11111111111111111111111111111111", { schedule: h.schedule });
+  assert.equal(h.counts.accounts, before + 1);
+});
+
+test("a market page whose market is missing does not ask the indexer while it is failing", async () => {
+  const h = harness();
+  const raw = await indexerAnswer(h.clock.now());
+  let fail = false;
+  const snapshots = createMarketSnapshots({
+    fetchAccounts: async () => {
+      h.counts.accounts++;
+      if (fail) throw Error("indexer down");
+      return { ...structuredClone(raw), readAt: h.clock.now() };
+    },
+    fetchStats: async () => ({ supply: 0, pools: [] }),
+    fetchProfile: async () => ({}),
+    fetchPrice: async () => null,
+    now: h.clock.now,
+    sleep: async () => {},
+    timeout: () => new AbortController().signal,
+    log: () => {},
+  });
+  await snapshots.home({ schedule: h.schedule });
+  fail = true;
+  h.clock.advance(2_000);
+  await snapshots.home({ schedule: h.schedule, awaitRead: true });
+  const failed = h.counts.accounts;
+  for (let i = 0; i < 5; i++) {
+    h.clock.advance(1_000);
+    await snapshots.marketPage(`${"1".repeat(31)}${i + 2}`, { schedule: h.schedule });
+  }
+  assert.equal(h.counts.accounts, failed, "within the 10 s backoff");
 });

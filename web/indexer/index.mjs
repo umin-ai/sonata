@@ -45,7 +45,7 @@ import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
 import { MARKET_ACCOUNTS_INTERVAL_MS, marketAccountsReader } from "./modules/market-accounts.mjs";
 import { marketStore } from "./modules/market-store.mjs";
 import { dailyBudget, livePush } from "./modules/live.mjs";
-import { streamServer } from "./modules/stream.mjs";
+import { sseText, streamServer, STREAM_VERSION } from "./modules/stream.mjs";
 import { PRIORITY, RPC_PER_METHOD_PER_SECOND, RPC_PER_SECOND, rpcLimiter, rpcMethod } from "./modules/rpc-limiter.mjs";
 
 const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
@@ -1106,13 +1106,33 @@ export async function startLivePush({ reader, conn: pollConn, readConn = pollCon
   return { store, push, stream };
 }
 
+/**
+ * The answer to a stream request while live push is not running: `loading`
+ * (it is starting): a hello that is not ready, and the browser's EventSource
+ * reconnects by itself a second later; otherwise (off, or it could not load)
+ * `off`, which pages take as "stay as before live push".
+ */
+export function streamUnavailable(res, { loading }) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(
+    loading
+      ? `retry: 1000\n\n${sseText("hello", { v: STREAM_VERSION, ready: false, resumed: false, loading: true })}`
+      : `retry: 60000\n\n${sseText("off", { v: STREAM_VERSION })}`,
+  );
+}
+
 if (isMain) {
   // Market accounts for the app's server-rendered pages, on their own connection
   // with a per-call timeout, so a silent RPC never holds a read (or the sync loop)
   // up, and a fallback provider for when that RPC keeps failing. Its URL carries
   // an access key: it is never logged.
   const fallbackUrl = process.env.MARKET_ACCOUNTS_FALLBACK_RPC_URL || process.env.GETBLOCK_DEVNET_URL || "";
-  let live = null;
+  let live = null,
+    liveLoading = process.env.LIVE_PUSH === "1";
   const accounts = marketAccountsReader({
     conn: mainConnection(4_000, PRIORITY.reader),
     fallback: fallbackUrl ? timedConnection(fallbackUrl, 8_000) : null,
@@ -1143,11 +1163,16 @@ if (isMain) {
       };
       try {
         if (req.method !== "GET") return send(405, { error: "Read-only." });
-        const ip = String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress).split(",")[0].trim();
+        const forwarded = req.headers["x-forwarded-for"];
+        const ip = String(forwarded ?? req.socket.remoteAddress).split(",")[0].trim();
         const url = new URL(req.url, "http://localhost");
         // The live stream has its own limits (modules/stream.mjs): reconnects must not use up the page's API budget.
-        if (url.pathname === "/api/index/stream") return live ? live.stream.handle(req, res, url, ip) : send(404, { error: "Not found." });
-        if (!allowed(ip)) return send(429, { error: "Too many requests." });
+        if (url.pathname === "/api/index/stream")
+          return live ? live.stream.handle(req, res, url, ip) : streamUnavailable(res, { loading: liveLoading });
+        // The server listens on loopback only and Caddy always sets X-Forwarded-For, so a request
+        // without it comes from this machine (the app's server rendering pages): not rate limited,
+        // or any visitor could use up the budget every page's snapshot shares.
+        if (forwarded !== undefined && !allowed(ip)) return send(429, { error: "Too many requests." });
         const out = await route(url);
         if (out === 400) return send(400, { error: "Bad request." });
         if (out === 404) return send(404, { error: "Not found." });
@@ -1185,6 +1210,7 @@ if (isMain) {
       console.error("live push unavailable, running without it:", String(e?.message ?? e).slice(0, 300));
     }
   }
+  liveLoading = false;
   // Needs no database, so it starts before the migration.
   void accounts.tick();
   setInterval(accounts.tick, MARKET_ACCOUNTS_INTERVAL_MS);

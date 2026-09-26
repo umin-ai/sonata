@@ -89,8 +89,13 @@ export const ACCOUNTS_RETRY_MS = 10_000;
 /** The indexer answers 503 until its first read after a (re)start: asked again this soon. */
 export const ACCOUNTS_NOT_READY_RETRY_MS = 1_000;
 export const ACCOUNTS_TIMEOUT_MS = 1_500;
-/** A market page whose market is not in the copy in memory asks the indexer again, at most this often. */
-export const MISS_REFETCH_MS = 250;
+/**
+ * A market page whose market is not in the copy in memory asks the indexer
+ * again, at most this often for the whole process, never while the indexer is
+ * failing, and once per copy for a given pool (MISSES_KEPT pools remembered).
+ */
+export const MISS_REFETCH_MS = 1_000;
+const MISSES_KEPT = 1_000;
 /** Chain data older than this is not served. */
 export const SNAPSHOT_MAX_AGE_MS = 3 * 60_000;
 /** A time up to this far ahead of the clock counts as now; further, as unknown (a clock that stepped back). */
@@ -127,8 +132,10 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
     applied = 0;
   let lastSummary = "";
   let failing = false;
-  // When a market page last asked the indexer again for a market it did not find.
+  // When a market page last asked the indexer again for a market it did not find, and
+  // the pools such an extra read did not find, with the copy it did not find them in.
   let missAskedAt = -Infinity;
+  const missed = new Map<string, Chain>();
   // Stats, and when a fetch started (undefined: none out) or last failed (undefined: not since the last success).
   let stats: { value: RawStats; at: number } | null = null;
   let statsPending: number | undefined, statsFailedAt: number | undefined;
@@ -216,16 +223,19 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
    * read every MISS_REFETCH_MS for the whole process, awaited by the request
    * that started it (up to the indexer timeout). A request that finds one just
    * started by another watches memory for its result for up to `waitMs`.
+   * `asked`: whether this request made the read.
    */
   async function freshChain(waitMs: number) {
+    // An indexer that failed is asked again only once its backoff is over (chainData).
+    if (failing && now() < nextAskAt) return { c: usable(), asked: false };
     if (now() - missAskedAt >= MISS_REFETCH_MS || missAskedAt - now() > MISS_REFETCH_MS) {
       missAskedAt = now();
       await refreshChain();
-      return usable();
+      return { c: usable(), asked: true };
     }
     const before = chain;
     for (let waited = 0; reading && chain === before && waited < waitMs; waited += 50) await sleep(50);
-    return usable();
+    return { c: usable(), asked: false };
   }
 
   // ---- Extras ----------------------------------------------------------------
@@ -404,9 +414,15 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
     ): Promise<Omit<MarketPageSnapshot, "locale"> | null> {
       let c = await chainData(schedule, ACCOUNTS_TIMEOUT_MS);
       let entry = c?.entries.find((e) => e.market.pool === pool);
-      if (c && !entry && POOL.test(pool)) {
-        c = await freshChain(ACCOUNTS_TIMEOUT_MS);
+      // Not asked again for a pool an extra read already missed in this same copy.
+      if (c && !entry && POOL.test(pool) && missed.get(pool) !== c) {
+        const fresh = await freshChain(ACCOUNTS_TIMEOUT_MS);
+        c = fresh.c;
         entry = c?.entries.find((e) => e.market.pool === pool);
+        if (c && !entry && fresh.asked) {
+          if (missed.size >= MISSES_KEPT) missed.clear();
+          missed.set(pool, c);
+        }
       }
       // A pool that is not listed starts no other work: the pool comes from the URL.
       if (!c || !entry) return null;
