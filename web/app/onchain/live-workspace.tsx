@@ -109,16 +109,18 @@ function useMarkets(initial?: HomeSnapshot | null) {
     [],
   );
   useEffect(() => {
-    if (!initial) {
-      void load([fromServer(4_000), readLive], true);
-      return;
-    }
-    const age = initial.ageMs + performance.now();
-    if (age > SNAPSHOT_CHAIN_AFTER_MS) void load([readLive], false);
-    else if (age > SNAPSHOT_FRESH_MS) void load([fromServer()], false);
+    // Everything load() sets happens after its first await, never during the effect.
+    const sources = !initial
+      ? [fromServer(4_000), readLive]
+      : initial.ageMs + performance.now() > SNAPSHOT_CHAIN_AFTER_MS
+        ? [readLive]
+        : initial.ageMs + performance.now() > SNAPSHOT_FRESH_MS
+          ? [fromServer()]
+          : null;
+    if (sources) queueMicrotask(() => void load(sources, !initial));
   }, [initial, load, fromServer]);
   useEffect(() => {
-    if (revision) void load([readLive], false);
+    if (revision) queueMicrotask(() => void load([readLive], false));
   }, [revision, load]);
   const refresh = useCallback(() => {
     setVisible((n) => n + 1);
