@@ -5,6 +5,10 @@
 // payouts). The chain stays the source of truth; the app re-reads anything
 // involving money from chain before offering a signature.
 //
+// It also reads the raw accounts of every market every 10 seconds
+// (modules/market-accounts.mjs) and serves them at /api/index/accounts, from
+// which the web app server-renders the market list and market pages.
+//
 // Env: DATABASE_URL (required), SOLANA_RPC_URL (default: public Devnet),
 //      INDEXER_PORT (default 8790), INDEXER_POLL_MS (default 20000).
 import http from "node:http";
@@ -19,6 +23,7 @@ import { parseKey } from "./modules/common.mjs";
 import { amm, dbcClient, graduatedPool } from "./modules/meteora.mjs";
 import { migrateIndexerSchema } from "./modules/indexer-schema.mjs";
 import { LP_SNAPSHOT_KEEP_SECONDS } from "./modules/lp-farm.mjs";
+import { MARKET_ACCOUNTS_INTERVAL_MS, marketAccountsReader } from "./modules/market-accounts.mjs";
 
 const RPC = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
 const PORT = Number(process.env.INDEXER_PORT || 8790);
@@ -651,8 +656,11 @@ export const airdropSummary = (a) => ({
   sentAt: seconds(a.sent_at),
 });
 
-/** The read-only API over `db`; `state` is the sync loop's, for /health. */
-export function api({ db, state }) {
+/**
+ * The read-only API over `db`; `state` is the sync loop's, for /health;
+ * `accounts()` is the market accounts reader's last read (null before one).
+ */
+export function api({ db, state, accounts = () => null }) {
   // What the market's fee module has done, from confirmed rows only.
   async function moduleDetail(pool, fm) {
     if (fm?.fee_model === "buyback") {
@@ -776,6 +784,8 @@ export function api({ db, state }) {
   async function route(url) {
     const q = url.searchParams;
     if (url.pathname === "/api/index/health") return { ok: true, ...state };
+    // Every market's raw accounts (modules/market-accounts.mjs); 503 until the first read.
+    if (url.pathname === "/api/index/accounts") return accounts() ?? 503;
     if (url.pathname === "/api/index/trades") {
       if (!isPool(q.get("pool"))) return 400;
       const { rows } = await db.query(
@@ -876,13 +886,28 @@ const isMain = (() => {
 })();
 
 if (isMain) {
-  const { route } = api({ db, state });
+  // Market accounts for the app's server-rendered pages, on their own connection
+  // with a per-call timeout, so a silent RPC never holds a read (or the sync loop) up.
+  const accountsConn = new Connection(RPC, {
+    commitment: "confirmed",
+    disableRetryOnRateLimit: true,
+    fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(8_000) }),
+  });
+  const accounts = marketAccountsReader({
+    conn: accountsConn,
+    programId: TREASURY_PROGRAM.toBase58(),
+    discriminator: TREASURY_DISCRIMINATOR,
+    quoteMints: new Set(
+      JSON.parse(readFileSync(new URL("../lib/treasury/quote-assets.json", import.meta.url), "utf8")).assets.map((a) => a.mint),
+    ),
+  });
+  const { route } = api({ db, state, accounts: accounts.current });
   http
     .createServer(async (req, res) => {
-      const send = (status, body) => {
+      const send = (status, body, cache = status === 200 ? "public, max-age=5" : "no-store") => {
         res.writeHead(status, {
           "Content-Type": "application/json",
-          "Cache-Control": status === 200 ? "public, max-age=5" : "no-store",
+          "Cache-Control": cache,
           "X-Content-Type-Options": "nosniff",
         });
         res.end(JSON.stringify(body));
@@ -891,10 +916,13 @@ if (isMain) {
         if (req.method !== "GET") return send(405, { error: "Read-only." });
         const ip = String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress).split(",")[0].trim();
         if (!allowed(ip)) return send(429, { error: "Too many requests." });
-        const out = await route(new URL(req.url, "http://localhost"));
+        const url = new URL(req.url, "http://localhost");
+        const out = await route(url);
         if (out === 400) return send(400, { error: "Bad request." });
         if (out === 404) return send(404, { error: "Not found." });
-        send(200, out);
+        if (out === 503) return send(503, { error: "Not read yet." });
+        // The accounts change every read; the app decides how old is too old.
+        send(200, out, url.pathname === "/api/index/accounts" ? "no-store" : undefined);
       } catch {
         send(500, { error: "Market data unavailable." });
       }
@@ -903,6 +931,9 @@ if (isMain) {
 
   if (!process.env.DATABASE_URL) throw Error("DATABASE_URL is required.");
   if ((await conn.getGenesisHash()) !== DEVNET_GENESIS) throw Error("Not Devnet.");
+  // Needs no database, so it starts before the migration.
+  void accounts.tick();
+  setInterval(accounts.tick, MARKET_ACCOUNTS_INTERVAL_MS);
   await migrate();
   // The indexer's own columns: the DAMM v2 venue, its cursor, and progress.
   await migrateIndexerSchema(db);
