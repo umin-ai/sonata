@@ -167,7 +167,36 @@ test("the indexer is asked at most every 2 s, and chain data over 3 minutes old 
   assert.equal(await h.snapshots.marketPage(golden.markets[0].pool, { schedule: h.schedule }), null);
 });
 
-test("an indexer that fails keeps the last copy until it is too old, and costs requests no wait meanwhile", async () => {
+test("concurrent requests in a fresh process share one indexer read, each awaiting only its own work", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const h = harness();
+  const raw = await indexerAnswer(h.clock.now());
+  const snapshots = createMarketSnapshots({
+    fetchAccounts: async () => {
+      h.counts.accounts++;
+      await gate;
+      return structuredClone(raw);
+    },
+    fetchStats: async () => ({ supply: 0, pools: [] }),
+    fetchProfile: async () => ({}),
+    fetchPrice: async () => null,
+    now: h.clock.now,
+    sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
+    timeout: () => new AbortController().signal,
+    log: () => {},
+  });
+  const all = Promise.all([
+    ...Array.from({ length: 10 }, () => snapshots.home({ schedule: h.schedule })),
+    ...Array.from({ length: 10 }, () => snapshots.marketPage(golden.markets[0].pool, { schedule: h.schedule })),
+  ]);
+  setTimeout(release, 30);
+  const results = await all;
+  assert.equal(h.counts.accounts, 1);
+  assert.ok(results.every((r) => r !== null), "every request got the chain data");
+});
+
+test("an indexer that fails keeps the last copy until it is too old, and is asked again 10 s later", async () => {
   let fail = false;
   const h = harness();
   const real = await indexerAnswer(1_000_000);
@@ -191,7 +220,14 @@ test("an indexer that fails keeps the last copy until it is too old, and costs r
   const stale = await snapshots.home({ schedule: h.schedule });
   assert.equal(stale?.ageMs, 2_000);
   await snapshots.home({ schedule: h.schedule });
-  assert.equal(h.counts.accounts, 2, "not asked again within 2 s of the failure");
+  assert.equal(h.counts.accounts, 2, "not asked again right after the failure");
+  h.clock.advance(9_000);
+  await snapshots.home({ schedule: h.schedule });
+  assert.equal(h.counts.accounts, 2, "a failure waits 10 s for the next try");
+  h.clock.advance(1_000);
+  fail = false;
+  assert.equal((await snapshots.home({ schedule: h.schedule }))?.ageMs, 12_000);
+  assert.equal(h.counts.accounts, 3);
 });
 
 test("a newer indexer read keeps the order already shown and appends new markets", async () => {

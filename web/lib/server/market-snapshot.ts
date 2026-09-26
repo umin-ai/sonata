@@ -128,6 +128,8 @@ export type SnapshotDeps = {
 export type Schedule = (work: Promise<unknown>) => void;
 
 export const ACCOUNTS_REFETCH_MS = 2_000;
+/** After the indexer failed or timed out, it is asked again this much later. */
+export const ACCOUNTS_RETRY_MS = 10_000;
 export const ACCOUNTS_TIMEOUT_MS = 1_500;
 /** Chain data older than this is not served. */
 export const SNAPSHOT_MAX_AGE_MS = 3 * 60_000;
@@ -150,8 +152,9 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
   const log = deps.log ?? ((line: string) => console.log(line));
 
   let chain: ReturnType<typeof snapshotFromAccounts> | null = null;
-  // When the indexer was last asked (successfully or not).
-  let checkedAt = -Infinity;
+  // When the indexer may be asked next (2 s after an answer, 10 s after a failure), and whether a request is out.
+  let nextAskAt = -Infinity,
+    asking = false;
   let lastSummary = "";
   let failing = false;
   let stats: { value: RawStats; at: number } | null = null;
@@ -162,11 +165,20 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
 
   const usable = () => (chain && now() - chain.readAt <= SNAPSHOT_MAX_AGE_MS ? chain : null);
 
-  /** The latest chain data: fetched from the indexer at most every 2 s, decoded once per indexer read. */
-  async function chainData() {
-    // Asked at most every 2 s, failures included, so a down indexer costs no request a wait.
-    if (now() - checkedAt < ACCOUNTS_REFETCH_MS) return usable();
-    checkedAt = now();
+  /**
+   * The latest chain data: fetched from the indexer at most every 2 s (10 s
+   * after a failure, so a slow or down indexer rarely costs a request a wait),
+   * decoded once per indexer read. With no chain data yet (a fresh process) while another
+   * request is fetching it, this request checks every 50 ms, up to `waitMs`,
+   * instead of awaiting that request's fetch.
+   */
+  async function chainData(waitMs: number) {
+    if (now() < nextAskAt) {
+      for (let waited = 0; !usable() && asking && waited < waitMs; waited += 50) await sleep(50);
+      return usable();
+    }
+    nextAskAt = now() + ACCOUNTS_REFETCH_MS;
+    asking = true;
     const started = now();
     try {
       const raw = await deps.fetchAccounts(timeout(ACCOUNTS_TIMEOUT_MS));
@@ -183,6 +195,9 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
     } catch (e) {
       if (!failing) log(`market snapshot: indexer accounts unavailable: ${e instanceof Error ? e.message : String(e)}`);
       failing = true;
+      nextAskAt = now() + ACCOUNTS_RETRY_MS;
+    } finally {
+      asking = false;
     }
     return usable();
   }
@@ -277,7 +292,7 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
   return {
     /** The market list with everything its cards show, or null when no chain data young enough is available. */
     async home({ schedule, budgetMs = 500 }: { schedule: Schedule; budgetMs?: number }): Promise<Omit<HomeSnapshot, "locale"> | null> {
-      const c = await chainData();
+      const c = await chainData(ACCOUNTS_TIMEOUT_MS);
       if (!c) return null;
       const uris = urisOf(c.entries),
         symbols = symbolsOf(c.entries);
@@ -312,7 +327,7 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
       pool: string,
       { schedule, budgetMs = 500 }: { schedule: Schedule; budgetMs?: number },
     ): Promise<Omit<MarketPageSnapshot, "locale"> | null> {
-      const c = await chainData();
+      const c = await chainData(ACCOUNTS_TIMEOUT_MS);
       // A pool that is not listed starts no work: the pool comes from the URL.
       const entry = c?.entries.find((e) => e.market.pool === pool);
       if (!c || !entry) return null;
@@ -336,7 +351,7 @@ export function createMarketSnapshots(deps: SnapshotDeps) {
     /** For logs and tests. */
     status: () => ({
       readAt: chain?.readAt ?? null,
-      checkedAt: Number.isFinite(checkedAt) ? checkedAt : null,
+      nextAskAt: Number.isFinite(nextAskAt) ? nextAskAt : null,
       profiles: profiles.size,
       prices: prices.size,
       stats: stats?.at ?? null,
