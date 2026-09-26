@@ -5,7 +5,7 @@
 Sonata is a token launchpad on Solana where every token is paired with a tokenized stock, such as SPYx, NVDAx or pre-IPO PreStocks. Trading fees settle in that stock and are paid out on-chain to the creator, the holders or liquidity providers, under rules fixed at launch.
 
 - **App:** https://sonata.umin.ai
-- **Programs and evidence:** [umin-ai/sonata-protocol](https://github.com/umin-ai/sonata-protocol) ([HANDOFF.md](https://github.com/umin-ai/sonata-protocol/blob/main/HANDOFF.md) has the on-chain proofs and security model)
+- **Programs and evidence:** [`protocol/`](../protocol) in this repository ([HANDOFF.md](../HANDOFF.md) has the on-chain proofs and security model)
 
 ## How it works
 
@@ -16,6 +16,8 @@ Sonata is a token launchpad on Solana where every token is paired with a tokeniz
 5. **Get paid.** A payout bot collects and distributes fees automatically. Nothing to claim, and anyone can trigger a payout.
 
 ## Repository
+
+This folder is the web app. Paths below are relative to `web/`.
 
 | Path | What it is |
 |---|---|
@@ -28,7 +30,7 @@ Sonata is a token launchpad on Solana where every token is paired with a tokeniz
 
 ## Run it
 
-Requires Node 22.13 or later. The app runs against Solana Devnet with test versions of the stocks.
+Requires Node 22.13 or later. The app runs against Solana Devnet with test versions of the stocks. Run these in `web/`:
 
 ```sh
 npm ci

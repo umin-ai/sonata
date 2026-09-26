@@ -2,9 +2,9 @@
 
 Anchor programs behind Sonata, a Solana launchpad where community tokens trade against a tokenized stock on Meteora's Dynamic Bonding Curve (DBC). Devnet only; mock tokens have no monetary value.
 
-**Try the app on Devnet: https://sonata.umin.ai** (source: [umin-ai/sonata](https://github.com/umin-ai/sonata)).
+**Try the app on Devnet: https://sonata.umin.ai** (source: [`web/`](../web/README.md) in this repository).
 
-**Read [HANDOFF.md](HANDOFF.md) for status, on-chain evidence, the security model and Meteora references.** In short: both deployed programs match the source in this repository byte for byte (run `node scripts/verify-deployed-bytes.mjs` to check; history in HANDOFF.md §6.1); both are upgradeable by one key; and neither has been audited. Program crates keep the working name "stockroom"; HANDOFF.md §11 explains why.
+**Read [HANDOFF.md](../HANDOFF.md) for status, on-chain evidence, the security model and Meteora references.** In short: both deployed programs match the source in this repository byte for byte (run `node scripts/verify-deployed-bytes.mjs` to check; history in HANDOFF.md §6.1); both are upgradeable by one key; and neither has been audited. Program crates keep the working name "stockroom"; HANDOFF.md §11 explains why.
 
 ## Programs
 
@@ -20,7 +20,9 @@ An earlier credit prototype (`stockroom_credit` and `demo_oracle`) is retired. I
 
 ## Build and test
 
-Toolchain used: Rust **1.90.0**, Anchor CLI/Rust **1.0.2**, Agave **3.1.13** (SBF platform tools **v1.52**), Node **22.14.0**. Pin versions through the [official Anchor installation guide](https://www.anchor-lang.com/docs/installation) and [Agave releases](https://github.com/anza-xyz/agave/releases/tag/v3.1.13). Rustup reads the checked-in `rust-toolchain.toml`. `scripts/build.mjs` uses `../.tools/stockroom/anchor` and its Agave release when present, otherwise `anchor` on your PATH, and pins the host Rust used for IDL generation without changing your global Rust default.
+Toolchain used: Rust **1.90.0**, Anchor CLI/Rust **1.0.2**, Agave **3.1.13** (SBF platform tools **v1.52**), Node **22.14.0**. Pin versions through the [official Anchor installation guide](https://www.anchor-lang.com/docs/installation) and [Agave releases](https://github.com/anza-xyz/agave/releases/tag/v3.1.13). Rustup reads the checked-in `rust-toolchain.toml`. `scripts/build.mjs` uses `../.tools/stockroom/anchor` (a git-ignored `.tools/` folder at the repository root) and its Agave release when present, otherwise `anchor` on your PATH, and pins the host Rust used for IDL generation without changing your global Rust default.
+
+Run these in `protocol/`:
 
 ```sh
 npm ci
@@ -36,7 +38,7 @@ node scripts/verify-deployed-bytes.mjs   # read-only: deployed bytes vs. local b
 Read-only, no keys needed:
 
 - `scripts/verify-deployed-bytes.mjs` compares each deployed program with its local build and reports its upgrade authority.
-- `scripts/verify-handoff.mjs` re-checks every transaction, account and label in HANDOFF.md (`--links` also checks every other link).
+- `scripts/verify-handoff.mjs` re-checks every transaction, account and label in the repository's [HANDOFF.md](../HANDOFF.md) (`--links` also checks every other link).
 - `scripts/read-graduation.mjs` re-verifies a graduation from chain.
 
 Devnet proofs (these send transactions and need a funded key at `.keys/deployer.json`; `npm run setup:keys` creates one):
@@ -50,6 +52,8 @@ Devnet proofs (these send transactions and need a funded key at `.keys/deployer.
 - `scripts/module-trades.mjs` is a helper, not a proof: it makes test buys and sells on a market other than the flagship so that market's fee module has fees to pay. It uses the test wallets in `.keys/` and tops them up from the deployer.
 
 Each of these checks the Devnet genesis hash before sending anything. HANDOFF.md §12 lists the full commands. Keys stay under the git-ignored `.keys/`.
+
+Several scripts read the app's files from [`../web/`](../web/README.md): the quote-token registry, DBC addresses and market files in `web/lib/treasury/`, and the app's own code in `web/lib/`. `scripts/verify-creator-position.mjs` and `scripts/holder-operator.mjs` import that code, so run `npm ci` in `web/` before them.
 
 ## Source map
 
