@@ -1,5 +1,4 @@
 "use client";
-import stockPools from "@/lib/liquidity/stock-markets.json";
 import { ThemeToggle } from "./theme-provider";
 import { useState, type ReactNode } from "react";
 import Link from "@/app/plain-link";
@@ -86,12 +85,7 @@ function Navigation() {
                 <SidebarMenuItem key={href}>
                   <SidebarMenuButton
                     asChild
-                    isActive={
-                      path === href ||
-                      (href === "/" &&
-                        (path.startsWith("/vaults/") ||
-                          path.startsWith("/markets/")))
-                    }
+                    isActive={path === href}
                     tooltip={label}
                   >
                     <Link href={href} aria-label={label} title={label} className={href === "/create" ? "sonata-sidebar-launch" : undefined}>
@@ -169,17 +163,12 @@ export function StockroomShell({
     "/earn",
     "/capital",
     "/rewards",
-    "/community",
     "/ecosystem",
-  ].includes(path) || path.startsWith("/markets/") || (stockPools as {id:string}[]).some(p=>path===`/vaults/${p.id}`);
+  ].includes(path);
   const [wallet, setWallet] = useState(false);
-  const title = path.startsWith("/lab")
-    ? "Strategy prototype"
-    : path.startsWith("/vaults/") || path.startsWith("/markets/")
-      ? "Market detail"
-      : path === "/create"
-        ? "Launch token"
-        : (destinations.find(([url]) => url === path)?.[1] ?? "Markets");
+  const title = path === "/create"
+    ? "Launch token"
+    : (destinations.find(([url]) => url === path)?.[1] ?? "Markets");
   return (
     <div className="sr-app" data-demo-ready={ready ? "true" : "false"}>
       <SidebarProvider open={true} style={{ "--sidebar-width": "14rem" } as React.CSSProperties}>

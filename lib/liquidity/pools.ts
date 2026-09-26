@@ -19,7 +19,7 @@
 //
 // Top-level imports stay node-loadable so the checks can be unit tested; the
 // app runtime and the Meteora SDKs load lazily.
-import "../stockroom/polyfills.mjs";
+import "../polyfills.mjs";
 import { Buffer } from "buffer";
 import { ComputeBudgetProgram, Keypair, PublicKey, type AccountInfo } from "@solana/web3.js";
 import {

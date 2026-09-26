@@ -1,4 +1,4 @@
-import "../stockroom/polyfills.mjs";
+import "../polyfills.mjs";
 import { Buffer } from "buffer";
 import { type BN, type Idl } from "@coral-xyz/anchor";
 import { browserAnchor } from "./anchor.mjs";

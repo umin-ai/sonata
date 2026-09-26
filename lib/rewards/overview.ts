@@ -6,7 +6,7 @@
 // Top-level imports stay node-loadable so the helpers can be unit tested; the
 // app runtime loads lazily.
 // SPL Token needs Buffer while its module loads.
-import "../stockroom/polyfills.mjs";
+import "../polyfills.mjs";
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, unpackAccount } from "@solana/spl-token";
 import { floorShare } from "../treasury/floor.ts";
