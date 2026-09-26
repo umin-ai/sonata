@@ -13,7 +13,7 @@ Wants=network-online.target
 Type=oneshot
 User=sonata
 Group=sonata
-WorkingDirectory=/opt/sonata/app
+WorkingDirectory=/opt/sonata/app/web
 Environment=CRANK_KEYPAIR=/opt/sonata/crank-keypair.json
 # DATABASE_URL for the reward ledger, shared with sonata-indexer (written by
 # setup.sh). Without it reward payouts are skipped; claims still run.

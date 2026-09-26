@@ -8,6 +8,11 @@ trade indexer on 127.0.0.1:8790 (`indexer/index.mjs`, service
 Images are served from S3 through CloudFront; the app needs only an
 upload-only key. Nothing secret is stored in this repository.
 
+The instance's `/opt/sonata/app` is a checkout of the whole repository
+(`web/` and `protocol/`). The app is installed, built and run from
+`/opt/sonata/app/web`, and the services' working directory is that folder,
+so paths such as `indexer/crank.mjs` below are relative to `web/`.
+
 ## Deploy or update
 
 1. Put the server-only settings in `/opt/sonata/sonata.env` on the instance
@@ -15,8 +20,11 @@ upload-only key. Nothing secret is stored in this repository.
    `JUPITER_API_KEY`, `AWS_REGION`, `SONATA_ASSETS_BUCKET`, `SONATA_ASSETS_CDN`,
    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `QUICKNODE_DEVNET_URL` and
    `GETBLOCK_DEVNET_URL` (the fallback Devnet RPCs' full URLs, tokens included).
-2. Copy this folder to the instance and run
-   `sudo bash setup.sh sonata.umin.ai 34-255-123-10.sslip.io`.
+2. Copy this folder to the instance from a checkout of the repository, for
+   example `scp -r web/deploy/lightsail <user>@<instance>:`, and run it
+   there: `cd lightsail && sudo bash setup.sh sonata.umin.ai 34-255-123-10.sslip.io`.
+   Copy it again for every update, since `setup.sh` and the service files
+   change with the code.
    The first name is the public address (the app's same-origin checks use it);
    any others redirect to it. It is safe to re-run: it pulls the latest
    `main`, rebuilds and restarts. It first stops and disables the payout
@@ -35,6 +43,22 @@ and Lightsail's browser SSH.
 Before the domain existed the app was served at `34-255-123-10.sslip.io`,
 which now redirects. Both names follow the instance's public IP: attach a
 static IP (and update the A record) before relying on them long term.
+
+### Moving an existing instance to the monorepo layout
+
+An instance set up before the app moved into `web/` has the app at the root
+of `/opt/sonata/app`, with untracked `node_modules/` and `dist/` there. Run
+the new `setup.sh` once, as in step 2 (copy the new `web/deploy/lightsail`
+first; the old `setup.sh` builds at the root and would stop with the timer
+held). It fast-forwards the checkout (the monorepo history descends from
+the old `main`, and no new tracked path collides with those untracked
+folders), builds in `web/`, installs the service files with
+`WorkingDirectory=/opt/sonata/app/web`, restarts the app and the indexer,
+and only then removes the old root `node_modules/` and `dist/` (only when
+`web/package.json` exists and the root has no `package.json`; re-running it
+is harmless). Until that restart the running app keeps serving the old root
+build; if it stopped in between, systemd could not start it again from the
+old paths until `setup.sh` installs the new service file.
 
 ## Creator payout crank
 
@@ -303,8 +327,9 @@ the first pass after an upgrade a dry run:
        echo CRANK_DRY_RUN=1 | sudo tee -a /opt/sonata/crank.env
        sudo chown sonata:sonata /opt/sonata/crank.env && sudo chmod 600 /opt/sonata/crank.env
 
-2. Run `sudo bash setup.sh sonata.umin.ai 34-255-123-10.sslip.io`. It ends
-   with a reminder while `CRANK_DRY_RUN=1` is set.
+2. Copy the current `web/deploy/lightsail` to the instance and run
+   `sudo bash setup.sh sonata.umin.ai 34-255-123-10.sslip.io` from it. It
+   ends with a reminder while `CRANK_DRY_RUN=1` is set.
 3. Run a pass and read it: `sudo systemctl start sonata-crank`, then
    `journalctl -u sonata-crank -n 200 --no-pager`. The summary line says
    `dryRun=1`; transactions show `result=simulated`; look for any

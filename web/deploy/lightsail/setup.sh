@@ -4,7 +4,9 @@
 #   sudo bash setup.sh <public-hostname> [old-hostname ...]
 # Old hostnames get their own certificate and redirect to the public one.
 # Secrets are not in this repository: copy them to /opt/sonata/sonata.env
-# (mode 600, owner sonata) before running. See deploy/lightsail/README.md.
+# (mode 600, owner sonata) before running. See web/deploy/lightsail/README.md.
+# /opt/sonata/app is a checkout of the whole repository; the app is built and
+# run from its web/ folder.
 #
 # An update never lets a payout pass run on half-updated code or on an old
 # database schema: the crank's timer is stopped and disabled (and a running
@@ -74,6 +76,8 @@ ALIASES="$*"
 REPO="${SONATA_REPO:-https://github.com/umin-ai/sonata}"
 HOME_DIR=/opt/sonata
 APP_DIR=$HOME_DIR/app
+# The web app's folder in the repository: npm, the build and every service run here.
+WEB_DIR=$APP_DIR/web
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # No payout pass from here until the new code has migrated the database.
@@ -118,12 +122,12 @@ sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='sonata'" | 
 # App: clone or fast-forward, install, build.
 if [ -d $APP_DIR/.git ]; then sudo -u sonata git -C $APP_DIR pull --ff-only
 else sudo -u sonata git clone "$REPO" $APP_DIR; fi
-sudo -u sonata bash -c "cd $APP_DIR && npm ci --no-audit --no-fund && npm run build"
+sudo -u sonata bash -c "cd $WEB_DIR && npm ci --no-audit --no-fund && npm run build"
 
 # Server-only settings for the Workers runtime; rebuilt with every deploy.
-install -o sonata -g sonata -m 600 $HOME_DIR/sonata.env $APP_DIR/dist/server/.dev.vars
-echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" >> $APP_DIR/dist/server/.dev.vars
-echo "INDEXER_URL=http://127.0.0.1:8790/api/index" >> $APP_DIR/dist/server/.dev.vars
+install -o sonata -g sonata -m 600 $HOME_DIR/sonata.env $WEB_DIR/dist/server/.dev.vars
+echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" >> $WEB_DIR/dist/server/.dev.vars
+echo "INDEXER_URL=http://127.0.0.1:8790/api/index" >> $WEB_DIR/dist/server/.dev.vars
 # The indexer only needs the database.
 install -o sonata -g sonata -m 600 /dev/null $HOME_DIR/indexer.env
 echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" > $HOME_DIR/indexer.env
@@ -132,7 +136,7 @@ echo "DATABASE_URL=postgres://sonata:$(cat $PASS_FILE)@127.0.0.1:5432/sonata" > 
 # printed. It can only pay network fees, so it needs a little Devnet SOL.
 CRANK_KEY=$HOME_DIR/crank-keypair.json
 if [ ! -f $CRANK_KEY ]; then
-  CRANK_PUBKEY=$(cd $APP_DIR && sudo -u sonata env CRANK_KEY=$CRANK_KEY node -e '
+  CRANK_PUBKEY=$(cd $WEB_DIR && sudo -u sonata env CRANK_KEY=$CRANK_KEY node -e '
     const { Keypair } = require("@solana/web3.js");
     const key = Keypair.generate();
     require("node:fs").writeFileSync(process.env.CRANK_KEY, JSON.stringify(Array.from(key.secretKey)), { mode: 0o600, flag: "wx" });
@@ -162,6 +166,14 @@ systemctl enable --now sonata-crank.timer
 CRANK_HELD=0
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy || systemctl restart caddy
+
+# Before the repository became a monorepo the app was built at the root of
+# $APP_DIR, and git leaves those untracked build folders behind when it moves
+# the app into web/. Once the app has been built in web/ and the services run
+# from there, remove them. Only when web/ is the app and the root is not.
+if [ -f "$WEB_DIR/package.json" ] && [ ! -f "$APP_DIR/package.json" ]; then
+  rm -rf -- "$APP_DIR/node_modules" "$APP_DIR/dist"
+fi
 if grep -qsx 'CRANK_DRY_RUN=1' $HOME_DIR/crank.env; then
   echo "CRANK_DRY_RUN=1 is set in $HOME_DIR/crank.env: crank passes only simulate and send nothing."
   echo "Run one (sudo systemctl start sonata-crank), read it (journalctl -u sonata-crank -n 200 --no-pager),"
