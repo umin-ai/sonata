@@ -1217,6 +1217,20 @@ if (isMain) {
       });
       live.push.start();
       console.error("live push: on");
+      // A poll that never finishes blocks every later one: on 26 September one hung
+      // silently for two days while the rest of the indexer ran. Polls finish at least
+      // every ~11 s even when they fail (8 s backoff at most, 2.5 s timeouts), so none
+      // for 60 s means a hang: exit, and systemd restarts the indexer.
+      const pushStartedAt = Date.now();
+      setInterval(() => {
+        const h = live?.push.health();
+        if (!h?.running) return;
+        const quietMs = Date.now() - (h.lastPollAt || pushStartedAt);
+        if (quietMs > 60_000) {
+          console.error(`live poll: none finished for ${Math.round(quietMs / 1000)} s; exiting so systemd restarts the indexer`);
+          process.exit(1);
+        }
+      }, 15_000).unref();
     } catch (e) {
       live = null;
       console.error("live push unavailable, running without it:", String(e?.message ?? e).slice(0, 300));

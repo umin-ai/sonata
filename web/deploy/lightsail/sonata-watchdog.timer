@@ -1,0 +1,11 @@
+# Starts sonata-watchdog.service every 2 minutes (see there).
+[Unit]
+Description=Check that the Sonata app answers
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec=2min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

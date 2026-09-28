@@ -167,6 +167,8 @@ install -m 644 "$HERE/sonata-crank.service" /etc/systemd/system/sonata-crank.ser
 install -m 644 "$HERE/sonata-crank.timer" /etc/systemd/system/sonata-crank.timer
 install -m 644 "$HERE/sonata-warm.service" /etc/systemd/system/sonata-warm.service
 install -m 644 "$HERE/sonata-warm.timer" /etc/systemd/system/sonata-warm.timer
+install -m 644 "$HERE/sonata-watchdog.service" /etc/systemd/system/sonata-watchdog.service
+install -m 644 "$HERE/sonata-watchdog.timer" /etc/systemd/system/sonata-watchdog.timer
 sed "s/__HOST__/$HOST/g" "$HERE/Caddyfile" > /etc/caddy/Caddyfile
 if [ -n "$ALIASES" ]; then
   printf '\n%s {\n\tredir https://%s{uri} permanent\n}\n' "${ALIASES// /, }" "$HOST" >> /etc/caddy/Caddyfile
@@ -178,6 +180,8 @@ systemctl enable sonata sonata-indexer >/dev/null 2>&1
 systemctl restart sonata sonata-indexer
 # Keeps the market snapshot warm between visitors (reads only).
 systemctl enable --now sonata-warm.timer >/dev/null 2>&1
+# Restarts the app if it stops answering (see sonata-watchdog.service).
+systemctl enable --now sonata-watchdog.timer >/dev/null 2>&1
 echo "Waiting for sonata-indexer to migrate the database..."
 wait_for_migration
 # The crank is started by its timer, never enabled on its own.

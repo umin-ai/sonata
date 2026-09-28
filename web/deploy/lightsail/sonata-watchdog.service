@@ -1,0 +1,12 @@
+# Restarts the app when it stops answering: asks it for /api/markets over
+# loopback and, if that fails twice 20 seconds apart, restarts sonata.service.
+# Covers failures where the unit's main process stays up but the app is gone
+# (a child process that ran out of memory, 27 September). Started every 2
+# minutes by sonata-watchdog.timer.
+[Unit]
+Description=Sonata app watchdog
+After=sonata.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'check() { /usr/bin/curl -fsS -o /dev/null --max-time 10 http://127.0.0.1:8787/api/markets; }; check || { sleep 20; check || { echo "app not answering; restarting sonata"; systemctl restart sonata; }; }'
